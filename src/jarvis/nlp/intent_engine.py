@@ -188,6 +188,7 @@ def _parse_reminder(text: str) -> Dict:
     minutes = time_data["minutes"]
     recurrence = time_data["recurrence"]
     is_recurring = time_data["is_recurring"]
+    target_date = time_data.get("target_date")
 
     reminder_text = text
 
@@ -223,6 +224,7 @@ def _parse_reminder(text: str) -> Dict:
         "params": {
             "text": reminder_text if reminder_text else "Lembrete",
             "minutes": minutes,
+            "target_date": target_date,
             "repeat": is_recurring,
             "recurrence": recurrence,
             "action_type": action
