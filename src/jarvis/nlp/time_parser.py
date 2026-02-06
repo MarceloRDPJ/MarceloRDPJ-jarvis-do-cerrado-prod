@@ -90,10 +90,13 @@ def parse_time_command(text: str) -> Dict[str, Any]:
                 days_ahead += 7
             target_date += timedelta(days=days_ahead)
 
-        # Ajuste de Hora (Se não especificado, assume 9h da manhã ou hora atual se for hoje?)
-        # Se usuário diz só "no sábado", melhor botar num horário diurno padrão ex: 9h.
+        # Ajuste de Hora
+        # REGRA DE OURO: Se o usuário NÃO especificou hora, NÃO assumir.
+        # Retornar 0 minutos para forçar clarificação.
         if target_hour is None:
-            target_hour = 9
+            # Se não tem hora, é ambíguo.
+            result["minutes"] = 0
+            return result
 
         target_date = target_date.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
 
