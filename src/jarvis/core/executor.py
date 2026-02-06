@@ -6,6 +6,7 @@ from jarvis.core.events import Event
 from jarvis.core.context import ContextEngine
 from jarvis.core.context_reader import ContextReader
 from jarvis.core.flows import RemindersFlow
+from jarvis.core.personality import Personality
 
 from jarvis.modules.system import SystemModule
 from jarvis.modules.network import NetworkModule
@@ -130,12 +131,23 @@ class Executor:
         if intent == "chat":
             return params.get(
                 "response",
-                "Uai… pode falar. Tô te ouvindo."
+                Personality.get_response("FALLBACK")
             )
+
+        # ---------------- SMALL TALK ----------------
+        if intent == "small_talk":
+            return Personality.get_small_talk(params.get("text", ""))
+
+        # ---------------- IDENTITY ----------------
+        if intent == "identity_who":
+            return Personality.get_response("IDENTITY_WHO")
+
+        if intent == "identity_capabilities":
+            return Personality.get_response("IDENTITY_CAPABILITIES")
 
         # ---------------- GREET / HELP ----------------
         if intent == "greet":
-            return "👋 E aí, Marcelo. Jarvis do Cerrado online."
+            return Personality.get_response("GREET")
 
         if intent == "help":
             return (

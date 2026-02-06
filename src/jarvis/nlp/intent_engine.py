@@ -40,9 +40,18 @@ class HybridIntentEngine:
             "greet": [
                 "oi", "ola", "bom dia", "boa tarde", "boa noite", "e ai"
             ],
+            "small_talk": [
+                "kk", "uai", "aham", "to bebendo", "boa"
+            ],
+            "identity_who": [
+                "quem é você", "quem e voce", "qual seu nome"
+            ],
+            "identity_capabilities": [
+                "o que voce sabe fazer", "o que voce faz", "quais seus poderes",
+                "me ajuda com o que"
+            ],
             "help": [
-                "ajuda", "o que voce faz", "comandos",
-                "o que da pra fazer", "menu", "opcoes"
+                "ajuda", "comandos", "menu", "opcoes", "socorro"
             ],
             "light_on": [
                 "ligar a luz", "acender luz", "acenda a luz da sala", "ligar", "acender",

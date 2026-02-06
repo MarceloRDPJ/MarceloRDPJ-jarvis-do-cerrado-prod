@@ -107,7 +107,9 @@ class TestHomeAssistantBot(unittest.IsolatedAsyncioTestCase):
         # Note: In real flow, router would detect flow and call handle_response.
         # Here we call handle_response directly.
         response = RemindersFlow.handle_response(chat_id, "6 litros", ctx)
-        self.assertIn("Meta diária: 6000 ml", response)
+        # The personality message is "Beleza. Meta definida. E qual o tamanho do seu copo (em ml)?"
+        self.assertIn("Meta definida", response)
+        self.assertIn("tamanho do seu copo", response)
 
         # Verify context updated
         ctx = ContextEngine.get_context(chat_id)
@@ -116,7 +118,8 @@ class TestHomeAssistantBot(unittest.IsolatedAsyncioTestCase):
 
         # 3. Provide Cup
         response = RemindersFlow.handle_response(chat_id, "300ml", ctx)
-        self.assertIn("Lembrete de Hidratação Salvo", response)
+        # Personality string: "Show! Lembrete de hidratação salvo."
+        self.assertIn("Lembrete de hidratação salvo", response)
 
         # Verify flow cleared
         ctx = ContextEngine.get_context(chat_id)

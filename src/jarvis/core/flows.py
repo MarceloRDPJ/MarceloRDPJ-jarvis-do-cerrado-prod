@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from jarvis.database.persistence import Persistence
 from jarvis.core.context import ContextEngine
+from jarvis.core.personality import Personality
 
 logger = logging.getLogger("core.flows")
 
@@ -36,10 +37,7 @@ class RemindersFlow:
         if params.get("action_type") == "hydration":
             flow_state["step"] = "ask_meta"
             ContextEngine.save_context(chat_id, {"flow": flow_state})
-            return (
-                "💧 Certo. Vou te lembrar de beber água.\n"
-                "Antes de salvar, qual é sua meta diária de água (em ml)?"
-            )
+            return Personality.FLOW_REMINDER_ASK_META
 
         # Fluxo padrão (genérico)
         flow_state["step"] = "confirmation"
@@ -48,10 +46,10 @@ class RemindersFlow:
         minutes = params.get("minutes", 0)
         recurrence = "recorrente" if params.get("repeat") else "único"
 
-        return (
-            f"📝 Entendi: Lembrete {recurrence} a cada {minutes} minutos.\n"
-            f"Texto: {params.get('text')}\n\n"
-            "Confirma? (Sim/Não)"
+        return Personality.FLOW_REMINDER_CONFIRM.format(
+            recurrence=recurrence,
+            minutes=minutes,
+            text=params.get('text')
         )
 
     @staticmethod
@@ -60,14 +58,15 @@ class RemindersFlow:
         Processa a resposta do usuário dentro do fluxo.
         """
         if not text:
-             return "Não entendi."
+             return Personality.get_response("ERROR")
 
-        # Global Cancel / Back / Restart
-        if text.lower().strip() in ["cancelar", "voltar", "reiniciar"]:
+        # Global Cancel / Back / Restart / Negative
+        stop_words = ["cancelar", "voltar", "reiniciar", "não", "nao", "cancel"]
+        if text.lower().strip() in stop_words:
             # Clear flow only
             context_data.pop("flow", None)
             ContextEngine.save_context(chat_id, {"flow": None})
-            return "🛑 Fluxo cancelado. Pode falar outra coisa."
+            return Personality.FLOW_REMINDER_CANCEL
 
         flow = context_data.get("flow")
         if not flow or flow["type"] != "reminder_creation":
@@ -95,7 +94,7 @@ class RemindersFlow:
                 flow["step"] = "ask_cup"
                 flow["data"] = data
                 ContextEngine.save_context(chat_id, {"flow": flow})
-                return f"Beleza. Meta diária: {num} ml.\nQual o volume do copo (em ml)?"
+                return Personality.FLOW_REMINDER_ASK_CUP
             else:
                 return "Não entendi o número. Tenta de novo (ex: 2000 ou 2 litros)."
 
@@ -115,14 +114,14 @@ class RemindersFlow:
 
         # --- Passo: Confirmação Genérica ---
         if step == "confirmation":
-            if text.lower() in ["sim", "s", "ok", "pode", "confirmo", "beleza"]:
+            if text.lower() in ["sim", "s", "ok", "pode", "confirmo", "beleza", "bora", "pode ser"]:
                 return RemindersFlow.finalize_creation(chat_id, data)
             else:
-                # Cancelar
+                # Cancelar (fallback)
                 ContextEngine.save_context(chat_id, {"flow": None})
-                return "❌ Lembrete cancelado."
+                return Personality.FLOW_REMINDER_CANCEL
 
-        return "Não entendi. Responda a pergunta ou diga 'cancelar'."
+        return Personality.get_response("ERROR")
 
     @staticmethod
     def finalize_creation(chat_id: int, data: Dict) -> str:
@@ -160,10 +159,13 @@ class RemindersFlow:
         ContextEngine.save_context(chat_id, {"flow": None})
 
         if action_type == "hydration":
-            return (
-                f"✅ Lembrete de Hidratação Salvo!\n"
-                f"🎯 Meta: {meta['meta_ml']}ml | 🥛 Copo: {meta['cup_ml']}ml\n"
-                f"⏰ A cada {minutes} minutos."
+            return Personality.FLOW_REMINDER_SAVED_HYDRATION.format(
+                meta=meta['meta_ml'],
+                cup=meta['cup_ml'],
+                minutes=minutes
             )
         else:
-            return f"✅ Lembrete salvo: {text} para daqui a {minutes} min."
+            return Personality.FLOW_REMINDER_SAVED.format(
+                text=text,
+                minutes=minutes
+            )

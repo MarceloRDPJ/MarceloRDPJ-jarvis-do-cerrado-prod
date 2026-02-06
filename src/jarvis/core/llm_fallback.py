@@ -6,6 +6,9 @@ logger = logging.getLogger(__name__)
 
 class LLMFallbackEngine:
     def __init__(self):
+        # Default to localhost, but allows for docker internal networking if needed
+        # In a real Docker setup, this might be "http://host.docker.internal:11434"
+        # or specific IP, but localhost covers the requirement for "validar Ollama rodando no host".
         self.url = "http://localhost:11434/api/generate"
         self.model = "tinyllama"
 
