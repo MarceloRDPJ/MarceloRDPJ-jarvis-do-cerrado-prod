@@ -75,7 +75,7 @@ class NetworkModule:
         if not result:
             return "⚠️ Nenhum dispositivo ativo encontrado."
 
-        header = "🕵️‍♂️ *Dispositivos na Rede:*\n"
+        header = "🕵️‍♂️ Dispositivos na Rede:\n"
         return header + "\n".join(result)
 
     @staticmethod
@@ -120,7 +120,7 @@ class NetworkModule:
             display_name = custom_name if custom_name else vendor
             extra_info = f" - {vendor}" if custom_name else ""
 
-            devices.append(f"🖥️ `{ip}` ({display_name}){extra_info}")
+            devices.append(f"🖥️ {ip} ({display_name}){extra_info}")
 
         return devices
 

@@ -13,7 +13,15 @@ class HybridIntentEngine:
             "reminder_set": [
                 "lembra", "lembrete", "me lembra", "me avisa", "avisa",
                 "nao deixa eu esquecer", "me recorda", "lembre", "me lembre",
-                "lembrar de beber agua", "avisa a cada minuto"
+                "lembrar de beber agua", "avisa a cada minuto", "criar lembrete"
+            ],
+            "reminder_list": [
+                "listar lembretes", "ver meus lembretes", "quais sao meus lembretes",
+                "ver avisos", "mostrar lembretes", "lista de tarefas", "o que tenho pra hoje"
+            ],
+            "reminder_delete": [
+                "cancelar lembrete", "apagar lembrete", "remover aviso",
+                "deleta esse lembrete", "esquecer lembrete", "excluir tarefa"
             ],
             "network_scan": [
                 "quem ta na rede", "quem esta conectado",
@@ -22,7 +30,7 @@ class HybridIntentEngine:
             ],
             "network_rename": [
                 "mudar o nome do", "renomear dispositivo", "chamar o dispositivo",
-                "apelidar o ip", "alterar nome na rede"
+                "apelidar o ip", "alterar nome na rede", "editar o nome da", "editar nome"
             ],
             "hydration_status": [
                 "quantas aguas eu ja bebi", "status hidratacao", "meta de agua",
@@ -118,6 +126,20 @@ def detect_intent(text: str) -> Dict:
     if intent == "hydration_log":
         return {"intent": "hydration_log"}
 
+    if intent == "reminder_list":
+        return {"intent": "reminder_list"}
+
+    if intent == "reminder_delete":
+        # Tenta extrair ID ou termo de busca
+        import re
+        match = re.search(r'(\d+)', text)
+        target_id = int(match.group(1)) if match else None
+        return {
+            "intent": "reminder_delete",
+            "target_id": target_id,
+            "text": text
+        }
+
     return result
 
 # =============================================================================
@@ -137,7 +159,9 @@ def _parse_rename(text: str) -> Dict:
     # Extract Name (simple heuristic: everything after "para" or "de")
     name = None
     if target:
-        match = re.search(r'(?:para|de)\s+(.+)', text, re.IGNORECASE)
+        # Tenta pegar tudo depois de "para" ou "de"
+        # Melhorar regex para pegar nome composto até o fim da string
+        match = re.search(r'(?:para|de)\s+(.+)$', text, re.IGNORECASE)
         if match:
             name = match.group(1).strip()
 
