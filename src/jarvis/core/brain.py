@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime
 
 try:
-    import google.generativeai as genai
+    from google import genai
 except Exception:
     genai = None
 
@@ -28,18 +28,14 @@ class Brain:
 
         if genai and Config.GEMINI_API_KEY:
             try:
-                genai.configure(api_key=Config.GEMINI_API_KEY)
-                self.model = genai.GenerativeModel(
-                    model_name=Config.GEMINI_MODEL,
-                    generation_config={"response_mime_type": "application/json"},
-                )
+                self.client = genai.Client(api_key=Config.GEMINI_API_KEY)
                 self.enabled = True
                 logger.info("Brain (Gemini) inicializado.")
             except Exception as e:
                 logger.warning(f"IA (Gemini) desativada: {e}")
-                self.model = None
+                self.client = None
         else:
-            self.model = None
+            self.client = None
             logger.warning("Gemini não configurado.")
 
     async def process_intent(self, user_text: str) -> dict:
@@ -99,7 +95,11 @@ Frase:
 """
 
         try:
-            response = self.model.generate_content(prompt)
+            response = self.client.models.generate_content(
+                model=Config.GEMINI_MODEL,
+                contents=prompt,
+                config={"response_mime_type": "application/json"}
+            )
             raw = response.text.replace("```json", "").replace("```", "").strip()
             data = json.loads(raw)
 
