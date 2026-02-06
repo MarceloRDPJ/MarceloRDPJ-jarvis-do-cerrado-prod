@@ -59,7 +59,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         # Roteamento Centralizado (Regras -> NLP -> IA)
-        intent = await router.route(text)
+        intent = await router.route(text, chat_id)
 
         executor: Executor = context.application.bot_data["executor"]
         response = await executor.execute(intent, chat_id)

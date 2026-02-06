@@ -38,7 +38,7 @@ class RemindersFlow:
             ContextEngine.save_context(chat_id, {"flow": flow_state})
             return (
                 "💧 Certo. Vou te lembrar de beber água.\n"
-                "Antes de salvar, qual é sua **meta diária** de água (em ml)?"
+                "Antes de salvar, qual é sua meta diária de água (em ml)?"
             )
 
         # Fluxo padrão (genérico)
@@ -49,8 +49,8 @@ class RemindersFlow:
         recurrence = "recorrente" if params.get("repeat") else "único"
 
         return (
-            f"📝 Entendi: Lembrete *{recurrence}* a cada {minutes} minutos.\n"
-            f"Texto: *{params.get('text')}*\n\n"
+            f"📝 Entendi: Lembrete {recurrence} a cada {minutes} minutos.\n"
+            f"Texto: {params.get('text')}\n\n"
             "Confirma? (Sim/Não)"
         )
 
@@ -59,6 +59,16 @@ class RemindersFlow:
         """
         Processa a resposta do usuário dentro do fluxo.
         """
+        if not text:
+             return "Não entendi."
+
+        # Global Cancel / Back / Restart
+        if text.lower().strip() in ["cancelar", "voltar", "reiniciar"]:
+            # Clear flow only
+            context_data.pop("flow", None)
+            ContextEngine.save_context(chat_id, {"flow": None})
+            return "🛑 Fluxo cancelado. Pode falar outra coisa."
+
         flow = context_data.get("flow")
         if not flow or flow["type"] != "reminder_creation":
             return None
@@ -68,41 +78,48 @@ class RemindersFlow:
 
         # --- Passo: Meta de Água ---
         if step == "ask_meta":
-            # Tenta extrair número
-            try:
-                import re
-                nums = re.findall(r'\d+', text)
-                meta = int(nums[0]) if nums else 2000
-                data["meta_ml"] = meta
+            import re
+            # Normalização de número (ex: 6 litros -> 6000)
+            match = re.search(r'(\d+)\s*(l|ml|litros?)?', text, re.IGNORECASE)
+
+            if match:
+                num = int(match.group(1))
+                unit = match.group(2)
+
+                if unit and unit.lower().startswith('l'):
+                    num *= 1000
+
+                data["meta_ml"] = num
 
                 # Próximo passo: Copo
                 flow["step"] = "ask_cup"
                 flow["data"] = data
                 ContextEngine.save_context(chat_id, {"flow": flow})
-                return f"Ok, meta de {meta}ml. E qual o tamanho do seu **copo** (em ml)?"
-            except:
-                return "Não entendi o número. Digite apenas o valor (ex: 2000)."
+                return f"Beleza. Meta diária: {num} ml.\nQual o volume do copo (em ml)?"
+            else:
+                return "Não entendi o número. Tenta de novo (ex: 2000 ou 2 litros)."
 
         # --- Passo: Tamanho do Copo ---
         if step == "ask_cup":
-            try:
-                import re
-                nums = re.findall(r'\d+', text)
-                cup = int(nums[0]) if nums else 250
+            import re
+            match = re.search(r'(\d+)\s*(ml)?', text, re.IGNORECASE)
+
+            if match:
+                cup = int(match.group(1))
                 data["cup_ml"] = cup
 
                 # Finalizar
                 return RemindersFlow.finalize_creation(chat_id, data)
-            except:
+            else:
                 return "Não entendi o tamanho do copo. Ex: 250."
 
         # --- Passo: Confirmação Genérica ---
         if step == "confirmation":
-            if text.lower() in ["sim", "s", "ok", "pode", "confirmo"]:
+            if text.lower() in ["sim", "s", "ok", "pode", "confirmo", "beleza"]:
                 return RemindersFlow.finalize_creation(chat_id, data)
             else:
                 # Cancelar
-                ContextEngine.clear_context(chat_id) # Limpa fluxo
+                ContextEngine.save_context(chat_id, {"flow": None})
                 return "❌ Lembrete cancelado."
 
         return "Não entendi. Responda a pergunta ou diga 'cancelar'."
@@ -140,15 +157,13 @@ class RemindersFlow:
         )
 
         # Limpa fluxo
-        # ContextEngine.clear_context(chat_id) # Precisaria implementar clear parcial ou total
-        # Por hora, sobrescrevemos com vazio ou deixamos expirar
-        ContextEngine.save_context(chat_id, {})
+        ContextEngine.save_context(chat_id, {"flow": None})
 
         if action_type == "hydration":
             return (
-                f"✅ **Lembrete de Hidratação Salvo!**\n"
+                f"✅ Lembrete de Hidratação Salvo!\n"
                 f"🎯 Meta: {meta['meta_ml']}ml | 🥛 Copo: {meta['cup_ml']}ml\n"
                 f"⏰ A cada {minutes} minutos."
             )
         else:
-            return f"✅ Lembrete salvo: *{text}* para daqui a {minutes} min."
+            return f"✅ Lembrete salvo: {text} para daqui a {minutes} min."

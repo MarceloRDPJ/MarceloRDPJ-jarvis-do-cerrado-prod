@@ -79,16 +79,6 @@ class Executor:
         # -----------------------------
         # CONTEXTO (MEMÓRIA CURTA)
         # -----------------------------
-        # Se for chat, verificamos se há um fluxo ativo (ex: lembretes)
-        current_context = ContextEngine.get_context(chat_id) or {}
-
-        # Se estivermos em um fluxo de criação de lembrete e a intenção for 'chat' (texto livre)
-        # ou 'action_confirm' (sim/não), tentamos processar pelo fluxo.
-        if current_context.get("flow") and intent in ["chat", "action_confirm", "action_cancel"]:
-            response = RemindersFlow.handle_response(chat_id, intent_data.get("text", intent), current_context)
-            if response:
-                return response
-
         try:
             ContextEngine.save_context(chat_id, intent_data)
         except Exception:
@@ -130,6 +120,12 @@ class Executor:
         chat_id: int,
     ) -> str:
 
+        # ---------------- FLOW INPUT ----------------
+        if intent == "flow_input":
+            # Delega para o fluxo ativo
+            ctx = ContextEngine.get_context(chat_id)
+            return RemindersFlow.handle_response(chat_id, params.get("text"), ctx)
+
         # ---------------- CHAT ----------------
         if intent == "chat":
             return params.get(
@@ -143,13 +139,12 @@ class Executor:
 
         if intent == "help":
             return (
-                "🧠 *Posso te ajudar com:*\n"
-                "- status do sistema\n"
-                "- quem tá na rede\n"
-                "- lembretes\n"
-                "- mudou algo hoje?\n"
-                "- isso é normal?\n"
-                "- bloqueios e segurança\n"
+                "🧠 Posso te ajudar com:\n\n"
+                "status do sistema\n"
+                "rede (dispositivos, alertas)\n"
+                "lembretes (criar, listar, cancelar)\n"
+                "segurança\n"
+                "diagnósticos"
             )
 
         # ---------------- SYSTEM ----------------
