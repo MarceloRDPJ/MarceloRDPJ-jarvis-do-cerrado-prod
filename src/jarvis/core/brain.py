@@ -112,6 +112,14 @@ Frase:
             return data
 
         except Exception as e:
+            if "403" in str(e) or "PERMISSION_DENIED" in str(e):
+                logger.critical("🚨 API KEY BLOQUEADA/REVOGADA! Verifique o Google AI Studio.")
+                return {
+                     "intent": "chat",
+                     "response": "⚠️ Minha chave de cérebro (API Key) foi revogada. Preciso de uma nova lá no .env!",
+                     "confidence": 1.0
+                }
+
             logger.warning(f"IA falhou (ignorado): {e}")
             return self._fallback(user_text)
 
