@@ -28,6 +28,10 @@ class HybridIntentEngine:
                 "quantas aguas eu ja bebi", "status hidratacao", "meta de agua",
                 "quanto eu bebi hoje", "contagem de agua"
             ],
+            "hydration_log": [
+                "bebi", "tomei agua", "mais um copo", "bebi agua", "tomei mais uma",
+                "registra agua", "anota ai bebi"
+            ],
             "system_status": [
                 "status da cpu", "uso da cpu", "memoria",
                 "ram", "status do sistema", "como ta o sistema", "status",
@@ -111,6 +115,9 @@ def detect_intent(text: str) -> Dict:
     if intent == "network_rename":
         return _parse_rename(text)
 
+    if intent == "hydration_log":
+        return {"intent": "hydration_log"}
+
     return result
 
 # =============================================================================
@@ -139,7 +146,12 @@ def _parse_rename(text: str) -> Dict:
         "action": "rename",
         "target": target,
         "name": name,
-        "text": text
+        "text": text,
+        "params": { # Ensure params are populated for Executor
+            "target": target,
+            "name": name,
+            "text": text
+        }
     }
 
 def _parse_reminder(text: str) -> Dict:
@@ -148,7 +160,8 @@ def _parse_reminder(text: str) -> Dict:
     """
     # Usa o parser temporal aprimorado
     time_data = parse_time_command(text)
-    minutes = time_data["minutes"] or 1
+    # Permite 0 para forçar clarificação se o tempo for ambíguo
+    minutes = time_data["minutes"]
     recurrence = time_data["recurrence"]
     is_recurring = time_data["is_recurring"]
 

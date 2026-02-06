@@ -189,7 +189,7 @@ class Executor:
 
             # Precisamos do MAC para salvar. NetworkModule não expõe fácil o MAC pelo IP ainda.
             # Vamos fazer um scan rápido (cacheado idealmente) ou ler do raw snapshot.
-            raw = await NetworkModule.get_raw_status_snapshot_internal() # Método novo necessário ou usar scan_network_human_sync modificado
+            # raw = await NetworkModule.get_raw_snapshot()
             # Simplificação: Vamos implementar helper no NetworkModule para pegar MAC pelo IP
             mac = await NetworkModule.resolve_mac_by_ip(target)
 
@@ -228,6 +228,26 @@ class Executor:
         # ---------------- FUTUROS ----------------
         if intent == "energy_status":
             return "⚡ Monitoramento de energia em fase de coleta."
+
+        if intent == "hydration_log":
+            # 1. Encontrar uma task de hidratação ativa para vincular
+            # Se não houver, cria um log 'órfão' ou usa uma task dummy?
+            # Melhor: logar como interação de uma task existente ou criar um registro ad-hoc.
+            # O Persistence.log_interaction exige task_id.
+
+            tasks = Persistence.get_tasks_by_action(chat_id, "hydration")
+            task_id = tasks[0]["id"] if tasks else -1 # -1 ou lidar com erro
+
+            # Se não tem task de hidratação, talvez devesse sugerir criar?
+            # Por simplicidade, vamos logar se existir, senão avisa.
+            if task_id == -1:
+                return "❌ Você não tem lembretes de água ativos. Cria um primeiro ('me lembre de beber água')."
+
+            Persistence.log_interaction(task_id, "confirm", "manual_log")
+
+            # Feedback positivo
+            count = Persistence.get_hydration_count_today(chat_id)
+            return f"🌊 Boa! +1 copo pra conta. Total hoje: {count}."
 
         if intent == "hydration_status":
             count = Persistence.get_hydration_count_today(chat_id)
