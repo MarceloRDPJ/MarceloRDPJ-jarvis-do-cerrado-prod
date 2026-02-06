@@ -1,5 +1,6 @@
 import json
 import logging
+import asyncio
 from datetime import datetime
 
 try:
@@ -9,6 +10,7 @@ except Exception:
 
 from jarvis.config import Config
 from jarvis.database.persistence import Persistence
+from jarvis.core.llm_fallback import LLMFallbackEngine
 
 logger = logging.getLogger("core.brain")
 
@@ -22,6 +24,7 @@ class Brain:
 
     def __init__(self):
         self.enabled = False
+        self.local_llm = LLMFallbackEngine()
 
         if genai and Config.GEMINI_API_KEY:
             try:
@@ -31,13 +34,13 @@ class Brain:
                     generation_config={"response_mime_type": "application/json"},
                 )
                 self.enabled = True
-                logger.info("Brain (IA) inicializado.")
+                logger.info("Brain (Gemini) inicializado.")
             except Exception as e:
-                logger.warning(f"IA desativada: {e}")
+                logger.warning(f"IA (Gemini) desativada: {e}")
                 self.model = None
         else:
             self.model = None
-            logger.warning("IA não configurada. Operando sem IA.")
+            logger.warning("Gemini não configurado.")
 
     async def process_intent(self, user_text: str) -> dict:
         """
@@ -60,7 +63,20 @@ class Brain:
             }
 
         # ==================================================
-        # IA DESATIVADA
+        # 1. LOCAL LLM (PHASE 3)
+        # ==================================================
+        local_result = await asyncio.to_thread(self.local_llm.interpret, user_text)
+        if local_result:
+            local_result.setdefault("intent", "unknown")
+            local_result.setdefault("action", None)
+            local_result.setdefault("entity", None)
+            local_result.setdefault("confidence", 0.8) # Arbitrary low confidence for LLM
+            local_result["text"] = user_text
+            local_result["source"] = "local_llm"
+            return local_result
+
+        # ==================================================
+        # 2. CLOUD LLM (GEMINI)
         # ==================================================
         if not self.enabled:
             return self._fallback(user_text)

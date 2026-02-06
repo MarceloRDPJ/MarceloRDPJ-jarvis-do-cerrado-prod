@@ -1,104 +1,97 @@
 from typing import Dict
+from rapidfuzz import process, fuzz
+import re
 from jarvis.nlp.time_parser import parse_time_command
 
 # =============================================================================
-# BASE SEMÂNTICA DE INTENÇÕES (EXTENSÍVEL)
+# ENGINE HÍBRIDO (PHASE 1)
 # =============================================================================
 
-INTENT_RULES = {
-    "reminder_set": {
-        "keywords": [
-            "lembra", "lembrete", "me lembra", "me avisa", "avisa",
-            "nao deixa eu esquecer", "me recorda", "lembre", "me lembre"
-        ]
-    },
-    "network_scan": {
-        "keywords": [
-            "quem ta na rede", "quem esta conectado",
-            "dispositivos conectados", "quem ta usando internet",
-            "quem ta online"
-        ]
-    },
-    "system_status": {
-        "keywords": [
-            "status da cpu", "uso da cpu", "memoria",
-            "ram", "status do sistema", "como ta o sistema", "status"
-        ]
-    },
-    "energy_status": {
-        "keywords": [
-            "consumo de energia", "energia hoje",
-            "energia mensal", "quanto gasta energia"
-        ]
-    },
-    "greet": {
-        "keywords": [
-            "oi", "ola", "bom dia", "boa tarde", "boa noite"
-        ]
-    },
-    "help": {
-        "keywords": [
-            "ajuda", "o que voce faz", "comandos",
-            "o que da pra fazer"
-        ]
-    }
-}
+class HybridIntentEngine:
+    def __init__(self):
+        self.intent_patterns = {
+            "reminder_set": [
+                "lembra", "lembrete", "me lembra", "me avisa", "avisa",
+                "nao deixa eu esquecer", "me recorda", "lembre", "me lembre",
+                "lembrar de beber agua", "avisa a cada minuto"
+            ],
+            "network_scan": [
+                "quem ta na rede", "quem esta conectado",
+                "dispositivos conectados", "quem ta usando internet",
+                "quem ta online", "verificar rede", "scan de rede"
+            ],
+            "system_status": [
+                "status da cpu", "uso da cpu", "memoria",
+                "ram", "status do sistema", "como ta o sistema", "status",
+                "tudo bem", "como você está", "saúde do sistema"
+            ],
+            "energy_status": [
+                "consumo de energia", "energia hoje",
+                "energia mensal", "quanto gasta energia"
+            ],
+            "greet": [
+                "oi", "ola", "bom dia", "boa tarde", "boa noite", "e ai"
+            ],
+            "help": [
+                "ajuda", "o que voce faz", "comandos",
+                "o que da pra fazer", "menu", "opcoes"
+            ],
+            "light_on": [
+                "ligar a luz", "acender luz", "acenda a luz da sala", "ligar", "acender",
+                "ligar a luz da sala", "ligar a luz do quarto", "ligar a luz da cozinha"
+            ],
+            "light_off": [
+                "apagar luz", "desligar a luz", "apague a luz do quarto", "apagar", "desligar",
+                "apagar a luz da sala", "apagar a luz do quarto", "apagar a luz da cozinha"
+            ],
+        }
+        self.similarity_threshold = 88
 
-# =============================================================================
-# ENGINE PRINCIPAL
-# =============================================================================
+    def identify_intent(self, user_input: str) -> Dict:
+        if not user_input or not isinstance(user_input, str):
+             return {"intent": "unknown", "confidence": 0.0}
+
+        best_intent = "unknown"
+        best_score = 0
+
+        for intent, examples in self.intent_patterns.items():
+            # WRatio handles partial matches and casing better
+            match_result = process.extractOne(user_input, examples, scorer=fuzz.WRatio, score_cutoff=self.similarity_threshold)
+            if match_result:
+                match, score, _ = match_result
+                if score > best_score:
+                    best_score = score
+                    best_intent = intent
+
+        if best_score >= self.similarity_threshold:
+            return {"intent": best_intent, "confidence": best_score / 100.0}
+
+        return {"intent": "unknown", "confidence": 0.0}
+
+# Global instance
+engine = HybridIntentEngine()
 
 def detect_intent(text: str) -> Dict:
     """
-    Motor de intenção do Jarvis.
-    Recebe TEXTO NORMALIZADO.
-    Retorna intenção estruturada.
+    Detecta intenção usando similaridade (RapidFuzz).
+    Mantém compatibilidade com chamadas existentes.
     """
+    result = engine.identify_intent(text)
+    intent = result["intent"]
 
-    if not text or not isinstance(text, str):
+    if intent == "unknown":
         return _fallback()
 
-    text_lower = text.lower()
+    if intent == "reminder_set":
+        return _parse_reminder(text)
 
-    # ===============================
-    # GREET / HELP (rápido)
-    # ===============================
-    for intent in ("greet", "help"):
-        if _match(intent, text_lower):
-            return {"intent": intent}
-
-    # ===============================
-    # REMINDER (com parser dedicado)
-    # ===============================
-    if _match("reminder_set", text_lower):
-        return _parse_reminder(text) # Passa texto original (com case) ou lower? time_parser usa lower internamente.
-
-    # ===============================
-    # NETWORK
-    # ===============================
-    if _match("network_scan", text_lower):
-        return {"intent": "network_scan"}
-
-    # ===============================
-    # SYSTEM
-    # ===============================
-    if _match("system_status", text_lower):
-        return {"intent": "system_status"}
-
-    # ===============================
-    # ENERGY (futuro próximo)
-    # ===============================
-    if _match("energy_status", text_lower):
+    if intent == "energy_status":
         return {
             "intent": "energy_status",
-            "period": _extract_period(text_lower)
+            "period": _extract_period(text.lower())
         }
 
-    # ===============================
-    # FALLBACK
-    # ===============================
-    return _fallback()
-
+    return result
 
 # =============================================================================
 # PARSERS ESPECÍFICOS
@@ -108,7 +101,6 @@ def _parse_reminder(text: str) -> Dict:
     """
     Parser de lembrete em linguagem natural.
     """
-
     # Usa o parser temporal aprimorado
     time_data = parse_time_command(text)
     minutes = time_data["minutes"] or 1
@@ -117,22 +109,26 @@ def _parse_reminder(text: str) -> Dict:
 
     reminder_text = text
 
-    # remove palavras de controle (case insensitive)
-    # Aqui fazemos um replace meio bruto, ideal seria regex
-    for rule in INTENT_RULES["reminder_set"]["keywords"]:
-        # Replace case insensitive é chato em python sem regex, vamos simplificar assumindo texto próximo
-        # Para produção melhor usar re.sub(rule, "", text, flags=re.I)
-        import re
-        reminder_text = re.sub(re.escape(rule), "", reminder_text, flags=re.IGNORECASE)
+    # Remove palavras-chave da intenção para limpar o texto
+    # Usa a lista do engine para garantir consistência
+    keywords = engine.intent_patterns["reminder_set"]
 
-    # remove tempo explícito (limpeza básica)
+    # Ordena por tamanho decrescente para remover frases longas primeiro
+    sorted_keywords = sorted(keywords, key=len, reverse=True)
+
+    for rule in sorted_keywords:
+        if rule in reminder_text.lower():
+             # Replace case insensitive simples para termos exatos
+             reminder_text = re.sub(re.escape(rule), "", reminder_text, flags=re.IGNORECASE)
+
+    # Remove termos de tempo explícitos
     for w in ["minuto", "minutos", "hora", "horas", "a cada", "cada", "todo dia", "todos os dias"]:
-        import re
         reminder_text = re.sub(re.escape(w), "", reminder_text, flags=re.IGNORECASE)
 
     reminder_text = reminder_text.strip()
+    # Limpeza extra de pontuação/espaços duplicados
+    reminder_text = re.sub(r'\s+', ' ', reminder_text).strip(' .,-')
 
-    # Detecção de ação específica (ex: hidratação)
     action = "default"
     text_lower = text.lower()
     if "agua" in text_lower or "água" in text_lower or "beber" in text_lower:
@@ -140,7 +136,7 @@ def _parse_reminder(text: str) -> Dict:
 
     return {
         "intent": "reminder_set",
-        "action": "create_request", # Changed to create_request to trigger flow
+        "action": "create_request",
         "text": reminder_text if reminder_text else "Lembrete",
         "params": {
             "text": reminder_text if reminder_text else "Lembrete",
@@ -151,11 +147,7 @@ def _parse_reminder(text: str) -> Dict:
         }
     }
 
-
 def _extract_period(text: str) -> str:
-    """
-    Extrai período temporal simples.
-    """
     if "hoje" in text:
         return "daily"
     if "mes" in text or "mensal" in text:
@@ -163,22 +155,6 @@ def _extract_period(text: str) -> str:
     if "semana" in text:
         return "weekly"
     return "current"
-
-
-# =============================================================================
-# MATCHER
-# =============================================================================
-
-def _match(intent: str, text: str) -> bool:
-    for keyword in INTENT_RULES.get(intent, {}).get("keywords", []):
-        if keyword in text:
-            return True
-    return False
-
-
-# =============================================================================
-# FALLBACK
-# =============================================================================
 
 def _fallback() -> Dict:
     return {
