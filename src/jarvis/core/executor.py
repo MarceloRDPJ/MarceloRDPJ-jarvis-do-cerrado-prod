@@ -151,12 +151,25 @@ class Executor:
 
         if intent == "help":
             return (
-                "🧠 Posso te ajudar com:\n\n"
-                "status do sistema\n"
-                "rede (dispositivos, alertas)\n"
-                "lembretes (criar, listar, cancelar)\n"
-                "segurança\n"
-                "diagnósticos"
+                "🧠 *Menu de Ajuda do Jarvis*\n\n"
+                "Aqui está o que eu posso fazer por você:\n\n"
+                "🌐 *Rede & Dispositivos*\n"
+                "- *\"Quem tá na rede?\"* - Mostra dispositivos conectados.\n"
+                "- *\"Mudar o nome do 192.168.1.X para TV Sala\"* - Organiza sua rede.\n"
+                "- *\"Status da internet\"* - Faz um teste de velocidade.\n\n"
+                "⏰ *Lembretes & Tarefas*\n"
+                "- *\"Me lembre de tomar remédio a cada 8 horas\"* - Cria lembretes recorrentes.\n"
+                "- *\"Me lembre no sábado as 14h\"* - Agenda compromissos.\n"
+                "- *\"Me lembre de beber água\"* - Ativa o modo hidratação.\n\n"
+                "💧 *Saúde & Hidratação*\n"
+                "- *\"Quantas águas eu bebi?\"* - Mostra seu progresso diário.\n\n"
+                "🖥️ *Sistema & Segurança*\n"
+                "- *\"Status do sistema\"* - Mostra uso de CPU, memória e temperatura.\n"
+                "- *\"Reiniciar sistema\"* - (Cuidado) Reinicia o servidor.\n\n"
+                "💬 *Conversa*\n"
+                "- Eu entendo linguagem natural, então pode falar do seu jeito!\n"
+                "- Se eu não entender, vou perguntar.\n\n"
+                "É só chamar! 👊"
             )
 
         # ---------------- SYSTEM ----------------
