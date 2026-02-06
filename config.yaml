@@ -1,0 +1,14 @@
+system:
+  retry_attempts: 3
+  retry_delay: 2
+  log_level: "INFO"
+
+network:
+  ping_host: "8.8.8.8"
+  scan_range: "192.168.1.1/24"
+
+smarthome:
+  command_timeout: 5
+
+bot:
+  persona: "jarvis_cerrado"

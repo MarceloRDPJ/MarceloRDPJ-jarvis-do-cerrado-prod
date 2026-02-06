@@ -1,0 +1,11 @@
+python-telegram-bot==20.8
+python-dotenv
+pyyaml
+
+psutil
+speedtest-cli
+wakeonlan
+mac-vendor-lookup
+scapy
+bleak
+google-generativeai
