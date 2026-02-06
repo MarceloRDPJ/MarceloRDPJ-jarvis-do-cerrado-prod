@@ -119,7 +119,7 @@ class TestHomeAssistantBot(unittest.IsolatedAsyncioTestCase):
         # 3. Provide Cup
         response = RemindersFlow.handle_response(chat_id, "300ml", ctx)
         # Personality string: "Show! Lembrete de hidratação salvo."
-        self.assertIn("Lembrete de hidratação salvo", response)
+        self.assertIn("Hidratação configurada", response)
 
         # Verify flow cleared
         ctx = ContextEngine.get_context(chat_id)

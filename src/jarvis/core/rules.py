@@ -134,7 +134,38 @@ def apply_rules(text: str) -> Optional[Dict]:
         }
 
     # =====================================================
-    # LEMBRETES (BÁSICO — NLP COMPLETO FICA NA IA)
+    # LEMBRETES - GERENCIAMENTO (PRIORITÁRIO)
+    # =====================================================
+    if any(x in t for x in ["listar lembretes", "meus lembretes", "quais lembretes", "agenda", "o que tenho marcado"]):
+        return {
+            "intent": "reminder_list",
+            "action": "list",
+            "entity": "reminder",
+            "confidence": 1.0,
+        }
+
+    delete_match = re.search(r"(?:apagar|remover|esquecer|deletar)\s+lembrete\s+(\d+)", t)
+    if delete_match:
+        return {
+            "intent": "reminder_delete",
+            "action": "delete",
+            "entity": "reminder",
+            "params": {"index": int(delete_match.group(1))},
+            "confidence": 1.0,
+        }
+
+    update_match = re.search(r"(?:editar|mudar|alterar)\s+lembrete\s+(\d+)", t)
+    if update_match:
+        return {
+            "intent": "reminder_update",
+            "action": "update",
+            "entity": "reminder",
+            "params": {"index": int(update_match.group(1))},
+            "confidence": 1.0,
+        }
+
+    # =====================================================
+    # LEMBRETES (CRIAÇÃO BÁSICA)
     # =====================================================
     if "lembra" in t or "lembrete" in t:
         return {

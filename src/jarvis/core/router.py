@@ -26,7 +26,27 @@ def _extract_entities(text: str):
     return entities
 
 async def route(text: str, chat_id: int = None):
-    # 0. Fluxo Ativo (Prioridade Máxima)
+    # 1. Regras Determinísticas (Alta Prioridade & Interrupção de Fluxo)
+    rule = apply_rules(text)
+
+    # Se for um comando de gerenciamento, PRIORIZA sobre o fluxo (interrompe o fluxo)
+    management_intents = ["reminder_list", "reminder_delete", "reminder_update"]
+    if rule and rule["intent"] in management_intents:
+        if chat_id:
+             # Mata o fluxo silenciosamente para permitir que o comando execute
+             ContextEngine.save_context(chat_id, {"flow": None})
+
+        return {
+            "intent": rule["intent"],
+            "action": rule["action"],
+            "entity": rule["entity"],
+            "confidence": 1.0,
+            "source": "rule",
+            "params": rule.get("params", {}),
+            "text": text
+        }
+
+    # 0. Fluxo Ativo (Prioridade Máxima - salvo exceções acima)
     if chat_id:
         context = ContextEngine.get_context(chat_id)
         if context.get("flow"):
@@ -40,8 +60,7 @@ async def route(text: str, chat_id: int = None):
                 "params": {"text": text}
             }
 
-    # 1. Regras Determinísticas (Alta Prioridade)
-    rule = apply_rules(text)
+    # Processamento normal de Regras (se não for gerenciamento e não tiver fluxo)
     if rule:
         # Se a regra for um lembrete simples, deixamos o NLP lidar para extrair tempo
         # A menos que seja um comando muito específico
