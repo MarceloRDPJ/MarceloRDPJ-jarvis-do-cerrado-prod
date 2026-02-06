@@ -15,7 +15,8 @@ setup(
         "mac-vendor-lookup",
         "scapy",
         "bleak",
-        "google-generativeai",
-        "tinytuya"
+        "google-genai",
+        "tinytuya",
+        "rapidfuzz"
     ],
 )

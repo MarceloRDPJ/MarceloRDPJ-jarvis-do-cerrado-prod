@@ -25,12 +25,12 @@ class TestHomeAssistantBot(unittest.IsolatedAsyncioTestCase):
     @patch('jarvis.core.brain.genai')
     @patch('jarvis.core.brain.Config.GEMINI_API_KEY', 'fake_key')
     async def test_brain_process_intent(self, mock_genai):
-        mock_model = MagicMock()
-        mock_genai.GenerativeModel.return_value = mock_model
+        mock_client = MagicMock()
+        mock_genai.Client.return_value = mock_client
 
         mock_response = MagicMock()
         mock_response.text = '{"intent": "smarthome", "action": "turn_on", "device": "luz_sala"}'
-        mock_model.generate_content.return_value = mock_response
+        mock_client.models.generate_content.return_value = mock_response
 
         brain = Brain()
         result = await brain.process_intent("Liga a luz da sala")
