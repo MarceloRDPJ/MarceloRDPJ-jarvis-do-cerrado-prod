@@ -158,6 +158,24 @@ class Executor:
         if intent == "network_scan":
             return await NetworkModule.scan_network()
 
+        if intent == "network_rename":
+            target = params.get("target") # IP
+            new_name = params.get("name")
+
+            # Precisamos do MAC para salvar. NetworkModule não expõe fácil o MAC pelo IP ainda.
+            # Vamos fazer um scan rápido (cacheado idealmente) ou ler do raw snapshot.
+            raw = await NetworkModule.get_raw_status_snapshot_internal() # Método novo necessário ou usar scan_network_human_sync modificado
+            # Simplificação: Vamos implementar helper no NetworkModule para pegar MAC pelo IP
+            mac = await NetworkModule.resolve_mac_by_ip(target)
+
+            if mac and new_name:
+                Persistence.set_device_name(mac, new_name)
+                return f"✅ Dispositivo {target} agora é conhecido como *{new_name}*."
+            elif not mac:
+                return f"❌ Não encontrei o IP {target} na rede agora."
+            else:
+                return "❌ Preciso do IP e do novo nome. Ex: mudar nome do 192.168.1.5 para TV Sala"
+
         if intent == "network_block_device":
             return "🚫 Bloqueio de dispositivo ainda não conectado ao AdGuard."
 
@@ -185,6 +203,32 @@ class Executor:
         # ---------------- FUTUROS ----------------
         if intent == "energy_status":
             return "⚡ Monitoramento de energia em fase de coleta."
+
+        if intent == "hydration_status":
+            count = Persistence.get_hydration_count_today(chat_id)
+            # Assumindo meta padrão de 2000ml e copo de 250ml se não tiver config
+            # Idealmente leríamos a meta do usuário do banco, mas tasks de hidratação têm meta.
+            # Vamos simplificar: mostrar contagem de copos/garrafas.
+
+            # Buscar meta da última tarefa de hidratação ativa se houver
+            tasks = Persistence.get_tasks_by_action(chat_id, "hydration")
+            meta_ml = 2000
+            cup_ml = 250
+            if tasks:
+                import json
+                meta_data = json.loads(tasks[0].get("meta", "{}"))
+                meta_ml = meta_data.get("meta_ml", 2000)
+                cup_ml = meta_data.get("cup_ml", 250)
+
+            total_ml = count * cup_ml
+            percentage = int((total_ml / meta_ml) * 100)
+
+            return (
+                f"💧 **Hidratação Hoje**\n"
+                f"Copos bebidos: {count}\n"
+                f"Total aproximado: {total_ml}ml / {meta_ml}ml\n"
+                f"Progresso: {percentage}%"
+            )
 
         if intent == "automation_create":
             return "🤖 Automação registrada. Vou observar."

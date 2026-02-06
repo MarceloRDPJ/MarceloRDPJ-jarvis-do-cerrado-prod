@@ -96,6 +96,14 @@ class Persistence:
         """)
 
         c.execute("""
+        CREATE TABLE IF NOT EXISTS devices (
+            mac TEXT PRIMARY KEY,
+            name TEXT,
+            updated_at TEXT
+        )
+        """)
+
+        c.execute("""
         CREATE TABLE IF NOT EXISTS snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT NOT NULL,
@@ -113,6 +121,29 @@ class Persistence:
 
         conn.commit()
         conn.close()
+
+    # ==================================================
+    # DEVICES (CUSTOM NAMES)
+    # ==================================================
+    @staticmethod
+    def set_device_name(mac: str, name: str):
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute(
+            "INSERT OR REPLACE INTO devices (mac, name, updated_at) VALUES (?, ?, ?)",
+            (mac, name, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+        conn.close()
+
+    @staticmethod
+    def get_device_name(mac: str) -> Optional[str]:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT name FROM devices WHERE mac=?", (mac,))
+        row = c.fetchone()
+        conn.close()
+        return row[0] if row else None
 
     # ==================================================
     # EVENTS
@@ -272,6 +303,30 @@ class Persistence:
         rows = c.fetchall()
         conn.close()
         return [row[0] for row in rows]
+
+    @staticmethod
+    def get_hydration_count_today(chat_id: int) -> int:
+        """
+        Conta quantas interações de 'confirm' para tarefas do tipo 'hydration' ocorreram hoje.
+        """
+        start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        # Join tasks and task_interactions
+        query = """
+            SELECT COUNT(*)
+            FROM task_interactions i
+            JOIN tasks t ON i.task_id = t.id
+            WHERE t.chat_id = ?
+              AND t.action = 'hydration'
+              AND i.interaction_type = 'confirm'
+              AND i.timestamp >= ?
+        """
+        c.execute(query, (chat_id, start_of_day))
+        row = c.fetchone()
+        conn.close()
+        return row[0] if row else 0
 
     # ==================================================
     # SNAPSHOTS (RAW)
