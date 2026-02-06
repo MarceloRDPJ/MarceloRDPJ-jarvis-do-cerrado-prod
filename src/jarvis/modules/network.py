@@ -10,6 +10,7 @@ from mac_vendor_lookup import MacLookup
 
 from jarvis.config import Config
 from jarvis.core.utils import retry_with_backoff
+from jarvis.database.persistence import Persistence
 
 logger = logging.getLogger(__name__)
 
@@ -63,11 +64,6 @@ class NetworkModule:
     # ==================================================
     @staticmethod
     async def scan_network(ip_range: str = "192.168.1.0/24") -> str:
-        header = (
-            "🕵️‍♂️ *Scanner do Cerrado*\n"
-            "Dispositivos ativos na rede:\n\n"
-        )
-
         result = await asyncio.to_thread(
             NetworkModule._scan_network_human_sync,
             ip_range
@@ -79,6 +75,7 @@ class NetworkModule:
         if not result:
             return "⚠️ Nenhum dispositivo ativo encontrado."
 
+        header = "🕵️‍♂️ *Dispositivos na Rede:*\n"
         return header + "\n".join(result)
 
     @staticmethod
@@ -101,22 +98,56 @@ class NetworkModule:
 
         devices = []
 
-        for element in result:
+        # Sort by IP for cleaner list
+        sorted_results = sorted(result, key=lambda x: int(x[1].psrc.split('.')[-1]))
+
+        for element in sorted_results:
             ip = element[1].psrc
             mac = element[1].hwsrc
 
+            # 1. Custom Name (Persistence)
+            custom_name = Persistence.get_device_name(mac)
+
+            # 2. Vendor Lookup
             try:
                 vendor = mac_lookup.lookup(mac)
             except Exception:
-                vendor = "Desconhecido"
+                vendor = "Genérico"
 
-            devices.append(
-                f"🖥️ *{ip}*\n"
-                f"   └ MAC: `{mac}`\n"
-                f"   └ Fabricante: *{vendor}*\n"
-            )
+            # Format: 🖥️ 192.168.1.52 (PC Marcelo) - Dell Inc.
+            # OR:     🖥️ 192.168.1.50 (LG Innotek)
+
+            display_name = custom_name if custom_name else vendor
+            extra_info = f" - {vendor}" if custom_name else ""
+
+            devices.append(f"🖥️ `{ip}` ({display_name}){extra_info}")
 
         return devices
+
+    # ==================================================
+    # HELPER: RESOLVE IP -> MAC
+    # ==================================================
+    @staticmethod
+    async def resolve_mac_by_ip(ip: str) -> str | None:
+        """
+        Tenta resolver o MAC address de um IP específico usando ARP scan rápido.
+        """
+        # 1. Tenta cache rápido (Raw Snapshot) se for recente?
+        # Por enquanto faz scan direto focado no IP para garantir.
+        return await asyncio.to_thread(NetworkModule._resolve_mac_by_ip_sync, ip)
+
+    @staticmethod
+    def _resolve_mac_by_ip_sync(ip: str) -> str | None:
+        try:
+            arp = scapy.ARP(pdst=ip)
+            ether = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")
+            result = scapy.srp(ether / arp, timeout=2, verbose=0)[0]
+
+            if result:
+                return result[0][1].hwsrc
+        except Exception as e:
+            logger.error(f"Erro ao resolver MAC para {ip}: {e}")
+        return None
 
     # ==================================================
     # WAKE ON LAN

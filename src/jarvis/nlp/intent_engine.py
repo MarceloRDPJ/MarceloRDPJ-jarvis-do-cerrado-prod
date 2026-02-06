@@ -20,6 +20,14 @@ class HybridIntentEngine:
                 "dispositivos conectados", "quem ta usando internet",
                 "quem ta online", "verificar rede", "scan de rede"
             ],
+            "network_rename": [
+                "mudar o nome do", "renomear dispositivo", "chamar o dispositivo",
+                "apelidar o ip", "alterar nome na rede"
+            ],
+            "hydration_status": [
+                "quantas aguas eu ja bebi", "status hidratacao", "meta de agua",
+                "quanto eu bebi hoje", "contagem de agua"
+            ],
             "system_status": [
                 "status da cpu", "uso da cpu", "memoria",
                 "ram", "status do sistema", "como ta o sistema", "status",
@@ -91,11 +99,39 @@ def detect_intent(text: str) -> Dict:
             "period": _extract_period(text.lower())
         }
 
+    if intent == "network_rename":
+        return _parse_rename(text)
+
     return result
 
 # =============================================================================
 # PARSERS ESPECÍFICOS
 # =============================================================================
+
+def _parse_rename(text: str) -> Dict:
+    """
+    Extrai IP/MAC e novo nome.
+    Ex: "mudar o nome do 192.168.1.52 para PC marcelo"
+    """
+    import re
+    # Extract IP
+    ip_match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', text)
+    target = ip_match.group(1) if ip_match else None
+
+    # Extract Name (simple heuristic: everything after "para" or "de")
+    name = None
+    if target:
+        match = re.search(r'(?:para|de)\s+(.+)', text, re.IGNORECASE)
+        if match:
+            name = match.group(1).strip()
+
+    return {
+        "intent": "network_rename",
+        "action": "rename",
+        "target": target,
+        "name": name,
+        "text": text
+    }
 
 def _parse_reminder(text: str) -> Dict:
     """
