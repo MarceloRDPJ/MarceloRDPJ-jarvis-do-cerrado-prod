@@ -60,9 +60,9 @@ class Personality:
     # Fluxo de Lembretes
     FLOW_REMINDER_ASK_META = "Certo. Vou te lembrar de beber água. Antes de salvar, qual é sua meta diária de água (em ml)?"
     FLOW_REMINDER_ASK_CUP = "Beleza. Meta definida. E qual o tamanho do seu copo (em ml)?"
-    FLOW_REMINDER_CONFIRM = "Entendi: Lembrete {recurrence} a cada {minutes} minutos.\nTexto: {text}\n\nConfirma? (Sim/Não)"
+    FLOW_REMINDER_CONFIRM = "Entendi: Lembrete {recurrence}.\nTexto: {text}\nTempo: daqui a {minutes} minutos.\n\nConfirma? (Sim/Não)"
     FLOW_REMINDER_CANCEL = "Beleza, cancelei aqui. Se precisar é só chamar."
-    FLOW_REMINDER_SAVED = "Pronto! Lembrete salvo: {text} pra daqui a {minutes} min."
+    FLOW_REMINDER_SAVED = "Pronto! Lembrete salvo: {text}."
     FLOW_REMINDER_SAVED_HYDRATION = "Show! Lembrete de hidratação salvo.\nMeta: {meta}ml | Copo: {cup}ml\nA cada {minutes} minutos."
 
     # NOVAS RESPOSTAS (CLARIFICAÇÃO)

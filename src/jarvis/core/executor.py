@@ -11,6 +11,7 @@ from jarvis.core.personality import Personality
 from jarvis.modules.system import SystemModule
 from jarvis.modules.network import NetworkModule
 # from jarvis.modules.reminders import set_reminder_job # Deprecated in favor of Scheduler
+from datetime import datetime
 
 logger = logging.getLogger("core.executor")
 
@@ -151,25 +152,24 @@ class Executor:
 
         if intent == "help":
             return (
-                "🧠 *Menu de Ajuda do Jarvis*\n\n"
-                "Aqui está o que eu posso fazer por você:\n\n"
-                "🌐 *Rede & Dispositivos*\n"
-                "- *\"Quem tá na rede?\"* - Mostra dispositivos conectados.\n"
-                "- *\"Mudar o nome do 192.168.1.X para TV Sala\"* - Organiza sua rede.\n"
-                "- *\"Status da internet\"* - Faz um teste de velocidade.\n\n"
-                "⏰ *Lembretes & Tarefas*\n"
-                "- *\"Me lembre de tomar remédio a cada 8 horas\"* - Cria lembretes recorrentes.\n"
-                "- *\"Me lembre no sábado as 14h\"* - Agenda compromissos.\n"
-                "- *\"Me lembre de beber água\"* - Ativa o modo hidratação.\n\n"
-                "💧 *Saúde & Hidratação*\n"
-                "- *\"Quantas águas eu bebi?\"* - Mostra seu progresso diário.\n\n"
-                "🖥️ *Sistema & Segurança*\n"
-                "- *\"Status do sistema\"* - Mostra uso de CPU, memória e temperatura.\n"
-                "- *\"Reiniciar sistema\"* - (Cuidado) Reinicia o servidor.\n\n"
-                "💬 *Conversa*\n"
-                "- Eu entendo linguagem natural, então pode falar do seu jeito!\n"
-                "- Se eu não entender, vou perguntar.\n\n"
-                "É só chamar! 👊"
+                "🧠 Menu de Ajuda do Jarvis do Cerrado\n\n"
+                "Uai, aqui tá o que eu dou conta de fazer:\n\n"
+                "🌐 Rede & Dispositivos\n"
+                "- \"Quem tá na rede?\" - Mostra quem tá conectado.\n"
+                "- \"Mudar o nome do 192.168.1.X para TV Sala\" - Arruma os nomes.\n"
+                "- \"Status da internet\" - Teste de velocidade.\n\n"
+                "⏰ Lembretes & Tarefas\n"
+                "- \"Me lembre de tomar remédio a cada 8 horas\" - Lembretes que repetem.\n"
+                "- \"Me lembre no sábado as 14h\" - Agendamentos.\n"
+                "- \"Me lembre de beber água\" - Modo hidratação.\n"
+                "- \"Listar lembretes\" - Ver o que tem marcado.\n"
+                "- \"Cancelar lembrete X\" - Apagar um aviso.\n\n"
+                "💧 Saúde & Hidratação\n"
+                "- \"Quantas águas eu bebi?\" - Seu progresso hoje.\n"
+                "- \"Bebi água\" - Marca um copo pra conta.\n\n"
+                "🖥️ Sistema & Segurança\n"
+                "- \"Status do sistema\" - Como tá a máquina.\n\n"
+                "Pode falar do seu jeito que eu entendo. Se não entender, eu pergunto!"
             )
 
         # ---------------- SYSTEM ----------------
@@ -224,6 +224,33 @@ class Executor:
             else:
                 # Fallback antigo ou direto
                 return "Modo de criação direta descontinuado. Use fluxo interativo."
+
+        if intent == "reminder_list":
+            tasks = Persistence.get_active_tasks(chat_id)
+            if not tasks:
+                return "📭 Você não tem lembretes ativos no momento."
+
+            msg = "📋 *Seus Lembretes:*\n\n"
+            for t in tasks:
+                # Format next_run nice
+                try:
+                    dt = datetime.fromisoformat(t['next_run'])
+                    time_str = dt.strftime("%d/%m às %H:%M")
+                except:
+                    time_str = t['next_run']
+
+                msg += f"🆔 *{t['id']}* - {t['text']}\n   📅 Próximo: {time_str}\n\n"
+
+            msg += "Pra cancelar, diga 'cancelar lembrete X' (usando o ID)."
+            return msg
+
+        if intent == "reminder_delete":
+            target_id = params.get("target_id")
+            if target_id:
+                Persistence.update_task_status(target_id, "cancelled")
+                return f"🗑️ Lembrete {target_id} cancelado com sucesso."
+            else:
+                return "❌ Preciso do número (ID) do lembrete pra cancelar. Tenta 'listar lembretes' primeiro."
 
         # ---------------- FUTUROS ----------------
         if intent == "energy_status":

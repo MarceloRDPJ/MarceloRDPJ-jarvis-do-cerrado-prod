@@ -268,6 +268,19 @@ class Persistence:
         return [dict(row) for row in rows]
 
     @staticmethod
+    def get_active_tasks(chat_id: int):
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute(
+            "SELECT * FROM tasks WHERE chat_id = ? AND status = 'active' ORDER BY next_run ASC",
+            (chat_id,),
+        )
+        rows = c.fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+
+    @staticmethod
     def get_tasks_by_action(chat_id: int, action: str):
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
