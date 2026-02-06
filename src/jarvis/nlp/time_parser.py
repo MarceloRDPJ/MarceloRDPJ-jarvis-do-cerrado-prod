@@ -108,9 +108,12 @@ def parse_time_command(text: str) -> Dict[str, Any]:
         if target_weekday is not None and "vez" not in text: # "1 vez" nega recorrência
              pass # Por enquanto tratamos como one-shot se não tiver "toda semana"
 
-    # Fallback para "daqui a pouco" -> 15 min (exemplo de regra de negócio suave)
+    # Fallback para "daqui a pouco" -> 15 min
     if result["minutes"] == 0 and "daqui a pouco" in text:
         result["minutes"] = 15
+
+    # 🚫 REGRA DE OURO: Sem default silencioso.
+    # Se minutes é 0, retorna 0 explicitamente para que o fluxo pergunte.
 
     return result
 
