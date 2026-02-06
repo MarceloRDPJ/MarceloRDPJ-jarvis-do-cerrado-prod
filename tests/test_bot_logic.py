@@ -22,20 +22,22 @@ class TestHomeAssistantBot(unittest.IsolatedAsyncioTestCase):
         # Initialize DB
         Persistence.init_db()
 
-    @patch('jarvis.core.brain.genai')
-    @patch('jarvis.core.brain.Config.GEMINI_API_KEY', 'fake_key')
-    async def test_brain_process_intent(self, mock_genai):
-        mock_client = MagicMock()
-        mock_genai.Client.return_value = mock_client
-
-        mock_response = MagicMock()
-        mock_response.text = '{"intent": "smarthome", "action": "turn_on", "device": "luz_sala"}'
-        mock_client.models.generate_content.return_value = mock_response
+    @patch('jarvis.core.brain.LLMFallbackEngine')
+    async def test_brain_process_intent_local(self, mock_llm_cls):
+        # Configurar mock do LLM local
+        mock_llm_instance = mock_llm_cls.return_value
+        mock_llm_instance.interpret.return_value = {
+            "intent": "smarthome",
+            "action": "turn_on",
+            "entity": "luz_sala"
+        }
 
         brain = Brain()
         result = await brain.process_intent("Liga a luz da sala")
+
         self.assertIsInstance(result, dict)
         self.assertEqual(result['intent'], 'smarthome')
+        self.assertEqual(result['source'], 'local_llm')
 
     @patch('jarvis.modules.network.send_magic_packet')
     @patch('jarvis.core.utils.asyncio.sleep')
