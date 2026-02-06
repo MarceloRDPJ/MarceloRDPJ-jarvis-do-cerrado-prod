@@ -1,5 +1,5 @@
-from core.rules import apply_rules
-from core.brain import Brain
+from jarvis.core.rules import apply_rules
+from jarvis.core.brain import Brain
 
 brain = Brain()
 

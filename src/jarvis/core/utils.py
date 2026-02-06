@@ -2,7 +2,7 @@ import asyncio
 import logging
 import random
 from functools import wraps
-from config import Config
+from jarvis.config import Config
 
 logger = logging.getLogger(__name__)
 

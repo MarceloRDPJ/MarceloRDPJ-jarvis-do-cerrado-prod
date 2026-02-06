@@ -1,5 +1,5 @@
-from typing import Dict, Optional
-from nlp.time_parser import parse_minutes, is_recurrent
+from typing import Dict
+from jarvis.nlp.time_parser import parse_minutes, is_recurrent
 
 # =============================================================================
 # BASE SEMÂNTICA DE INTENÇÕES (EXTENSÍVEL)

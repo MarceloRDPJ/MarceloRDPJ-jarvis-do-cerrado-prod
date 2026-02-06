@@ -1,7 +1,7 @@
 import logging
 from typing import Dict, Any, List
 
-from database.persistence import Persistence
+from jarvis.database.persistence import Persistence
 
 logger = logging.getLogger("services.automations")
 

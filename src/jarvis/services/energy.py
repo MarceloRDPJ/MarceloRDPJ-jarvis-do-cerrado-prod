@@ -1,7 +1,7 @@
 import psutil
 import time
 from datetime import datetime, timedelta
-from database.persistence import Persistence
+from jarvis.database.persistence import Persistence
 
 # =============================================================================
 # CONFIGURA\xc7\xc3O BASE (Raspberry Pi 3B)

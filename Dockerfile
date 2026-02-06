@@ -18,8 +18,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code
 COPY . .
 
+# Install local package
+RUN pip install -e .
+
 # Environment variables
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app/src
 
 # Run the bot
-CMD ["python", "main.py"]
+CMD ["python", "-m", "jarvis.main"]

@@ -3,3 +3,8 @@ __pycache__/
 .env
 .DS_Store
 homebot.db
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/

@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 
-from database.persistence import Persistence
+from jarvis.database.persistence import Persistence
 
 
 class ContextEngine:

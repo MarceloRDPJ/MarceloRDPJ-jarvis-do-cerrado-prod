@@ -4,11 +4,11 @@ import asyncio
 import logging
 from datetime import datetime
 
-from database.persistence import Persistence
-from core.context import ContextEngine
+from jarvis.database.persistence import Persistence
+from jarvis.core.context import ContextEngine
 
-from modules.system import SystemModule
-from modules.network import NetworkModule
+from jarvis.modules.system import SystemModule
+from jarvis.modules.network import NetworkModule
 
 logger = logging.getLogger("services.collector")
 

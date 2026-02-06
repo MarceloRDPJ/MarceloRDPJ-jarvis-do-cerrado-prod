@@ -1,4 +1,4 @@
-from database.persistence import Persistence
+from jarvis.database.persistence import Persistence
 from statistics import mean
 
 class BaselineEngine:

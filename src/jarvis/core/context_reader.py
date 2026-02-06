@@ -1,8 +1,8 @@
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 
-from core.context import ContextEngine
-from database.persistence import Persistence
+from jarvis.core.context import ContextEngine
+from jarvis.database.persistence import Persistence
 
 
 class ContextReader:

@@ -8,8 +8,8 @@ import scapy.all as scapy
 from wakeonlan import send_magic_packet
 from mac_vendor_lookup import MacLookup
 
-from config import Config
-from core.utils import retry_with_backoff
+from jarvis.config import Config
+from jarvis.core.utils import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 

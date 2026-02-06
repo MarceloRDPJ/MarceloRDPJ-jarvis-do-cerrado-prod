@@ -9,3 +9,4 @@ mac-vendor-lookup
 scapy
 bleak
 google-generativeai
+tinytuya

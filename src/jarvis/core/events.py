@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 import uuid
 
 @dataclass

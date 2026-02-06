@@ -7,8 +7,8 @@ try:
 except Exception:
     genai = None
 
-from config import Config
-from database.persistence import Persistence
+from jarvis.config import Config
+from jarvis.database.persistence import Persistence
 
 logger = logging.getLogger("core.brain")
 

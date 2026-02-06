@@ -1,14 +1,14 @@
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
-from database.persistence import Persistence
-from core.events import Event
-from core.context import ContextEngine
-from core.context_reader import ContextReader
+from jarvis.database.persistence import Persistence
+from jarvis.core.events import Event
+from jarvis.core.context import ContextEngine
+from jarvis.core.context_reader import ContextReader
 
-from modules.system import SystemModule
-from modules.network import NetworkModule
-from modules.reminders import set_reminder_job
+from jarvis.modules.system import SystemModule
+from jarvis.modules.network import NetworkModule
+from jarvis.modules.reminders import set_reminder_job
 
 logger = logging.getLogger("core.executor")
 

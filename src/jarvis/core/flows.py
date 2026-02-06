@@ -1,4 +1,4 @@
-from database.persistence import Persistence
+from jarvis.database.persistence import Persistence
 
 def handle_lock_setup(text, chat_id):
     state = Persistence.get_state(f"flow:{chat_id}")

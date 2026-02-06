@@ -9,14 +9,14 @@ from telegram.ext import (
     filters,
 )
 
-from config import Config
-from core.brain import Brain
-from core.executor import Executor
-from core.rules import apply_rules
-from database.persistence import Persistence
-from core.events import Event
+from jarvis.config import Config
+from jarvis.core.brain import Brain
+from jarvis.core.executor import Executor
+from jarvis.core.rules import apply_rules
+from jarvis.database.persistence import Persistence
+from jarvis.core.events import Event
 
-from services.collector import CollectorService
+from jarvis.services.collector import CollectorService
 
 # =====================================================
 # LOGGING

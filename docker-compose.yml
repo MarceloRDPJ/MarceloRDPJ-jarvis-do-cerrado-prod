@@ -5,8 +5,9 @@ services:
     restart: unless-stopped
     network_mode: host
     volumes:
-      - ./database:/app/database
+      - ./src/jarvis/database:/app/src/jarvis/database
+      - ./src/jarvis/storage:/app/src/jarvis/storage
       - ./.env:/app/.env
-      - ./config.yaml:/app/config.yaml
+      - ./src/jarvis/config.yaml:/app/src/jarvis/config.yaml
     environment:
       - TZ=America/Sao_Paulo

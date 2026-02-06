@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis-do-cerrado"
+version = "0.1.0"
+description = "Jarvis do Cerrado - Home Automation Bot"
+authors = [
+  { name="Marcelo", email="marcelo@example.com" },
+]
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "python-telegram-bot==20.8",
+    "python-dotenv",
+    "pyyaml",
+    "psutil",
+    "speedtest-cli",
+    "wakeonlan",
+    "mac-vendor-lookup",
+    "scapy",
+    "bleak",
+    "google-generativeai",
+    "tinytuya"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/MarceloRDPJ/MarceloRDPJ-jarvis-do-cerrado-prod"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 88
+target-version = ['py310']
+
+[tool.isort]
+profile = "black"
+line_length = 88

@@ -1,7 +1,7 @@
 import json
 import os
 
-STATE_FILE = "storage/state.json"
+STATE_FILE = os.path.join(os.path.dirname(__file__), "state.json")
 
 
 def load_state():
