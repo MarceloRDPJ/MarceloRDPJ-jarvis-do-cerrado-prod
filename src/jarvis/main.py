@@ -12,7 +12,7 @@ from telegram.ext import (
 from jarvis.config import Config
 from jarvis.core.brain import Brain
 from jarvis.core.executor import Executor
-from jarvis.core.rules import apply_rules
+from jarvis.core import router
 from jarvis.database.persistence import Persistence
 from jarvis.core.events import Event
 
@@ -27,8 +27,6 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger("Jarvis")
-
-brain = Brain()
 
 
 # =====================================================
@@ -60,12 +58,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(chat_id, "typing")
 
     try:
-        # 1️⃣ Regras determinísticas
-        intent = apply_rules(text)
-
-        # 2️⃣ IA (se existir) apenas como fallback
-        if not intent:
-            intent = await brain.process_intent(text)
+        # Roteamento Centralizado (Regras -> NLP -> IA)
+        intent = await router.route(text)
 
         executor: Executor = context.application.bot_data["executor"]
         response = await executor.execute(intent, chat_id)

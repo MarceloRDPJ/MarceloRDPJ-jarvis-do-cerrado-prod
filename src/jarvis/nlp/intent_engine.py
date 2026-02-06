@@ -9,7 +9,7 @@ INTENT_RULES = {
     "reminder_set": {
         "keywords": [
             "lembra", "lembrete", "me lembra", "me avisa", "avisa",
-            "nao deixa eu esquecer", "me recorda"
+            "nao deixa eu esquecer", "me recorda", "lembre", "me lembre"
         ]
     },
     "network_scan": {
@@ -22,7 +22,7 @@ INTENT_RULES = {
     "system_status": {
         "keywords": [
             "status da cpu", "uso da cpu", "memoria",
-            "ram", "status do sistema", "como ta o sistema"
+            "ram", "status do sistema", "como ta o sistema", "status"
         ]
     },
     "energy_status": {
@@ -58,38 +58,40 @@ def detect_intent(text: str) -> Dict:
     if not text or not isinstance(text, str):
         return _fallback()
 
+    text_lower = text.lower()
+
     # ===============================
     # GREET / HELP (rápido)
     # ===============================
     for intent in ("greet", "help"):
-        if _match(intent, text):
+        if _match(intent, text_lower):
             return {"intent": intent}
 
     # ===============================
     # REMINDER (com parser dedicado)
     # ===============================
-    if _match("reminder_set", text):
-        return _parse_reminder(text)
+    if _match("reminder_set", text_lower):
+        return _parse_reminder(text) # Passa texto original (com case) ou lower? time_parser usa lower internamente.
 
     # ===============================
     # NETWORK
     # ===============================
-    if _match("network_scan", text):
+    if _match("network_scan", text_lower):
         return {"intent": "network_scan"}
 
     # ===============================
     # SYSTEM
     # ===============================
-    if _match("system_status", text):
+    if _match("system_status", text_lower):
         return {"intent": "system_status"}
 
     # ===============================
     # ENERGY (futuro próximo)
     # ===============================
-    if _match("energy_status", text):
+    if _match("energy_status", text_lower):
         return {
             "intent": "energy_status",
-            "period": _extract_period(text)
+            "period": _extract_period(text_lower)
         }
 
     # ===============================
@@ -115,21 +117,25 @@ def _parse_reminder(text: str) -> Dict:
 
     reminder_text = text
 
-    # remove palavras de controle
+    # remove palavras de controle (case insensitive)
+    # Aqui fazemos um replace meio bruto, ideal seria regex
     for rule in INTENT_RULES["reminder_set"]["keywords"]:
-        reminder_text = reminder_text.replace(rule, "")
+        # Replace case insensitive é chato em python sem regex, vamos simplificar assumindo texto próximo
+        # Para produção melhor usar re.sub(rule, "", text, flags=re.I)
+        import re
+        reminder_text = re.sub(re.escape(rule), "", reminder_text, flags=re.IGNORECASE)
 
     # remove tempo explícito (limpeza básica)
-    # Isso pode ser melhorado com regex mais robusto para remover o trecho exato
-    # mas por hora removemos as palavras chaves simples
     for w in ["minuto", "minutos", "hora", "horas", "a cada", "cada", "todo dia", "todos os dias"]:
-        reminder_text = reminder_text.replace(w, "")
+        import re
+        reminder_text = re.sub(re.escape(w), "", reminder_text, flags=re.IGNORECASE)
 
     reminder_text = reminder_text.strip()
 
     # Detecção de ação específica (ex: hidratação)
     action = "default"
-    if "agua" in text or "água" in text or "beber" in text:
+    text_lower = text.lower()
+    if "agua" in text_lower or "água" in text_lower or "beber" in text_lower:
         action = "hydration"
 
     return {
