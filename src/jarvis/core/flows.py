@@ -40,10 +40,18 @@ class RemindersFlow:
             return Personality.FLOW_REMINDER_ASK_META
 
         # Fluxo padrão (genérico)
+        minutes = params.get("minutes", 0)
+
+        # 1. Validação de Tempo (Regra de Ouro)
+        if minutes <= 0:
+            flow_state["step"] = "awaiting_clarification"
+            flow_state["missing_field"] = "time"
+            ContextEngine.save_context(chat_id, {"flow": flow_state})
+            return Personality.FLOW_REMINDER_ASK_TIME
+
         flow_state["step"] = "confirmation"
         ContextEngine.save_context(chat_id, {"flow": flow_state})
 
-        minutes = params.get("minutes", 0)
         recurrence = "recorrente" if params.get("repeat") else "único"
 
         return Personality.FLOW_REMINDER_CONFIRM.format(
@@ -74,6 +82,37 @@ class RemindersFlow:
 
         step = flow["step"]
         data = flow["data"]
+
+        # --- Passo: Clarificação (Tempo) ---
+        if step == "awaiting_clarification" and flow.get("missing_field") == "time":
+            from jarvis.nlp.time_parser import parse_time_command
+
+            # Tenta parser novamente com a resposta do usuário
+            # Ex: "meio dia", "10 minutos"
+            time_data = parse_time_command(text)
+
+            if time_data["minutes"] > 0:
+                data["minutes"] = time_data["minutes"]
+                data["repeat"] = time_data["is_recurring"] or data.get("repeat", False)
+                data["recurrence"] = time_data["recurrence"]
+
+                # Avança para confirmação
+                flow["step"] = "confirmation"
+                flow["data"] = data
+                # Limpa campo faltante
+                flow.pop("missing_field", None)
+
+                ContextEngine.save_context(chat_id, {"flow": flow})
+
+                recurrence = "recorrente" if data["repeat"] else "único"
+                return Personality.FLOW_REMINDER_CONFIRM.format(
+                    recurrence=recurrence,
+                    minutes=data["minutes"],
+                    text=data.get('text')
+                )
+            else:
+                # Ainda não entendeu
+                return "Ainda não entendi o horário. Tenta dizer algo como 'em 10 minutos' ou 'as 14h'."
 
         # --- Passo: Meta de Água ---
         if step == "ask_meta":

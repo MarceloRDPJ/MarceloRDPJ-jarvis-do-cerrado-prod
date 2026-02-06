@@ -65,6 +65,10 @@ class Personality:
     FLOW_REMINDER_SAVED = "Pronto! Lembrete salvo: {text} pra daqui a {minutes} min."
     FLOW_REMINDER_SAVED_HYDRATION = "Show! Lembrete de hidratação salvo.\nMeta: {meta}ml | Copo: {cup}ml\nA cada {minutes} minutos."
 
+    # NOVAS RESPOSTAS (CLARIFICAÇÃO)
+    FLOW_REMINDER_ASK_TIME = "Uai… antes de salvar, me fala que horas você quer esse lembrete."
+    FLOW_REMINDER_ASK_REPEAT = "É pra uma vez só ou pra repetir?"
+
     @staticmethod
     def get_response(category: str) -> str:
         """Retorna uma resposta aleatória da categoria solicitada."""
