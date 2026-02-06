@@ -17,6 +17,7 @@ from jarvis.database.persistence import Persistence
 from jarvis.core.events import Event
 
 from jarvis.services.collector import CollectorService
+from jarvis.services.scheduler import SchedulerService
 
 # =====================================================
 # LOGGING
@@ -107,14 +108,21 @@ async def post_init(application):
     # COLETOR AUTOMÁTICO (PASSO 5)
     # -------------------------
     collector = CollectorService(interval_seconds=60)
+    scheduler = SchedulerService(application, interval_seconds=30)
 
     application.bot_data["collector"] = collector
-    application.bot_data["tasks"] = []
+    application.bot_data["scheduler"] = scheduler
 
-    task = asyncio.create_task(collector.start())
-    application.bot_data["tasks"].append(task)
+    if "tasks" not in application.bot_data:
+        application.bot_data["tasks"] = []
 
-    logger.info("📡 Collector automático iniciado")
+    task_collector = asyncio.create_task(collector.start())
+    task_scheduler = asyncio.create_task(scheduler.start())
+
+    application.bot_data["tasks"].append(task_collector)
+    application.bot_data["tasks"].append(task_scheduler)
+
+    logger.info("📡 Collector e Scheduler iniciados")
 
     # FUTURO:
     # GuardianService entra aqui

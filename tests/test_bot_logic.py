@@ -12,14 +12,13 @@ from jarvis.core.executor import Executor
 from jarvis.config import Config
 from jarvis.database.persistence import Persistence
 from jarvis.core.events import Event
+from jarvis.core.flows import RemindersFlow
 
 class TestHomeAssistantBot(unittest.IsolatedAsyncioTestCase):
 
     @classmethod
     def setUpClass(cls):
         # Initialize DB
-        # Note: Persistence likely writes to where it is located or configured.
-        # Check jarvis/database/persistence.py logic.
         Persistence.init_db()
 
     @patch('jarvis.core.brain.genai')
@@ -44,31 +43,21 @@ class TestHomeAssistantBot(unittest.IsolatedAsyncioTestCase):
         Config.PC_MAC = "AA:BB:CC:DD:EE:FF"
         app = MagicMock()
         Executor(app)
-
-        # Test logic seems incomplete in original repo regarding wake_pc, skipping assertion logic
-        # keeping structure for coverage if implementation is added.
         pass
 
-    @patch('jarvis.core.executor.set_reminder_job')
-    async def test_executor_reminder_persistence(self, mock_set_reminder):
-        app = MagicMock()
-        executor = Executor(app)
+    async def test_executor_reminder_persistence(self):
+        # Updated test to use RemindersFlow manually since Executor triggers flow
 
-        intent_data = {
-            "intent": "reminder_set",
-            "action": "set",
-            "params": {
-                "text": "Teste DB",
-                "minutes": 5,
-                "repeat": True
-            }
+        chat_id = 123
+        data = {
+            "text": "Teste DB",
+            "minutes": 5,
+            "repeat": True,
+            "action_type": "default"
         }
 
-        await executor.execute(intent_data, chat_id=123)
-
-        # Verify DB - path logic might be tricky depending on where persistence thinks it is.
-        # Persistence uses: DB_PATH = os.path.join(os.path.dirname(__file__), "homebot.db")
-        # So it is in src/jarvis/database/homebot.db
+        # Simulate final step of flow
+        RemindersFlow.finalize_creation(chat_id, data)
 
         db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../src/jarvis/database/homebot.db'))
 

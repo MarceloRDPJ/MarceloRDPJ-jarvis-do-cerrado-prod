@@ -1,5 +1,5 @@
 from typing import Dict
-from jarvis.nlp.time_parser import parse_minutes, is_recurrent
+from jarvis.nlp.time_parser import parse_time_command
 
 # =============================================================================
 # BASE SEMÂNTICA DE INTENÇÕES (EXTENSÍVEL)
@@ -107,8 +107,11 @@ def _parse_reminder(text: str) -> Dict:
     Parser de lembrete em linguagem natural.
     """
 
-    minutes = parse_minutes(text) or 1
-    repeat = is_recurrent(text)
+    # Usa o parser temporal aprimorado
+    time_data = parse_time_command(text)
+    minutes = time_data["minutes"] or 1
+    recurrence = time_data["recurrence"]
+    is_recurring = time_data["is_recurring"]
 
     reminder_text = text
 
@@ -116,19 +119,30 @@ def _parse_reminder(text: str) -> Dict:
     for rule in INTENT_RULES["reminder_set"]["keywords"]:
         reminder_text = reminder_text.replace(rule, "")
 
-    # remove tempo explícito
-    reminder_text = reminder_text.replace(str(minutes), "")
-    for w in ["minuto", "minutos", "hora", "horas", "a cada", "cada"]:
+    # remove tempo explícito (limpeza básica)
+    # Isso pode ser melhorado com regex mais robusto para remover o trecho exato
+    # mas por hora removemos as palavras chaves simples
+    for w in ["minuto", "minutos", "hora", "horas", "a cada", "cada", "todo dia", "todos os dias"]:
         reminder_text = reminder_text.replace(w, "")
 
     reminder_text = reminder_text.strip()
 
+    # Detecção de ação específica (ex: hidratação)
+    action = "default"
+    if "agua" in text or "água" in text or "beber" in text:
+        action = "hydration"
+
     return {
         "intent": "reminder_set",
-        "action": "create",
+        "action": "create_request", # Changed to create_request to trigger flow
         "text": reminder_text if reminder_text else "Lembrete",
-        "minutes": minutes,
-        "repeat": repeat
+        "params": {
+            "text": reminder_text if reminder_text else "Lembrete",
+            "minutes": minutes,
+            "repeat": is_recurring,
+            "recurrence": recurrence,
+            "action_type": action
+        }
     }
 
 

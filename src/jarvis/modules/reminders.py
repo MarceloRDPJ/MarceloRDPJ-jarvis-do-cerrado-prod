@@ -1,100 +1,46 @@
 import logging
-from telegram.ext import ContextTypes
+import json
+from datetime import datetime
+from typing import Dict, Any
 
 logger = logging.getLogger("modules.reminders")
 
-
 # ===============================
-# JOB EXECUTADO PELO TELEGRAM
+# FUNÇÕES DE MENSAGEM (PERSONALIDADE)
 # ===============================
-async def reminder_job(context: ContextTypes.DEFAULT_TYPE):
-    job = context.job
-    data = job.data or {}
-
-    text = data.get("text", "Lembrete")
-    count = data.get("count", 0) + 1
-
-    # Atualiza contador (memória curta do job)
-    data["count"] = count
-    job.data = data
-
-    # Mensagem mais humana
-    if count == 1:
-        message = f"⏰ Ei! Hora de {text}."
-    else:
-        message = f"⏰ Lembrete ({count}x): {text}"
-
-    await context.bot.send_message(
-        chat_id=job.chat_id,
-        text=message
-    )
-
-
-# ===============================
-# REGISTRO DO JOB
-# ===============================
-def set_reminder_job(
-    application,
-    chat_id: int,
-    text: str,
-    minutes: int,
-    repeat: bool = False,
-    job_name: str | None = None
-) -> str:
+def get_reminder_message(task: Dict[str, Any], now: datetime) -> str:
     """
-    Cria um lembrete no JobQueue.
-
-    Retorna o nome do job (ID lógico).
+    Gera a mensagem do lembrete com base no horário e tipo.
     """
+    text = task['text']
+    meta = json.loads(task['meta'] or '{}')
 
-    delay_seconds = minutes * 60
+    # Horário local aproximado (UTC-3)
+    hour = (now.hour - 3) % 24
 
-    # Nome único e previsível (essencial para cancelar depois)
-    job_name = job_name or f"reminder_{chat_id}_{abs(hash(text))}"
+    is_madrugada = 23 <= hour or hour < 6
+    is_dia = 6 <= hour < 18
+    is_noite = 18 <= hour < 23
 
-    job_data = {
-        "text": text,
-        "count": 0,
-        "repeat": repeat,
-        "interval_minutes": minutes
-    }
+    # Hidratação
+    if task.get('action') == 'hydration':
+        return _get_hydration_message(text, meta, is_madrugada, is_dia)
 
-    # Remove job antigo com mesmo nome (idempotência)
-    for job in application.job_queue.get_jobs_by_name(job_name):
-        job.schedule_removal()
+    # Genérico
+    if is_madrugada:
+        return f"🌙 {text}"
 
-    if repeat:
-        application.job_queue.run_repeating(
-            reminder_job,
-            interval=delay_seconds,
-            first=delay_seconds,
-            chat_id=chat_id,
-            data=job_data,
-            name=job_name
-        )
-        logger.info(f"Lembrete recorrente criado: {job_name}")
-    else:
-        application.job_queue.run_once(
-            reminder_job,
-            delay_seconds,
-            chat_id=chat_id,
-            data=job_data,
-            name=job_name
-        )
-        logger.info(f"Lembrete único criado: {job_name}")
+    if is_dia:
+        return f"⏰ {text}"
 
-    return job_name
+    return f"⏰ Lembrete: {text}"
 
+def _get_hydration_message(text: str, meta: Dict, is_madrugada: bool, is_dia: bool) -> str:
+    if is_madrugada:
+        return f"🌙 Hora de beber água."
 
-# ===============================
-# CANCELAMENTO (PREPARADO)
-# ===============================
-def cancel_reminder(application, job_name: str) -> bool:
-    jobs = application.job_queue.get_jobs_by_name(job_name)
-    if not jobs:
-        return False
+    if is_dia:
+        cup = meta.get('cup_ml', 250)
+        return f"💧 Hora de beber água ({cup}ml). Bora manter o ritmo."
 
-    for job in jobs:
-        job.schedule_removal()
-
-    return True
+    return f"💧 Lembrete de hidratação."

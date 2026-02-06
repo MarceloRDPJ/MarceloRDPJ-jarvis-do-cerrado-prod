@@ -5,10 +5,11 @@ from jarvis.database.persistence import Persistence
 from jarvis.core.events import Event
 from jarvis.core.context import ContextEngine
 from jarvis.core.context_reader import ContextReader
+from jarvis.core.flows import RemindersFlow
 
 from jarvis.modules.system import SystemModule
 from jarvis.modules.network import NetworkModule
-from jarvis.modules.reminders import set_reminder_job
+# from jarvis.modules.reminders import set_reminder_job # Deprecated in favor of Scheduler
 
 logger = logging.getLogger("core.executor")
 
@@ -78,6 +79,16 @@ class Executor:
         # -----------------------------
         # CONTEXTO (MEMÓRIA CURTA)
         # -----------------------------
+        # Se for chat, verificamos se há um fluxo ativo (ex: lembretes)
+        current_context = ContextEngine.get_context(chat_id) or {}
+
+        # Se estivermos em um fluxo de criação de lembrete e a intenção for 'chat' (texto livre)
+        # ou 'action_confirm' (sim/não), tentamos processar pelo fluxo.
+        if current_context.get("flow") and intent in ["chat", "action_confirm", "action_cancel"]:
+            response = RemindersFlow.handle_response(chat_id, intent_data.get("text", intent), current_context)
+            if response:
+                return response
+
         try:
             ContextEngine.save_context(chat_id, intent_data)
         except Exception:
@@ -169,27 +180,12 @@ class Executor:
 
         # ---------------- REMINDERS ----------------
         if intent == "reminder_set":
-            text = params.get("text", "Lembrete")
-            minutes = int(params.get("minutes", 1))
-            repeat = bool(params.get("repeat", False))
-
-            Persistence.add_task(
-                chat_id=chat_id,
-                text=text,
-                due_timestamp=minutes * 60,
-                repeat=repeat,
-                interval_minutes=minutes,
-            )
-
-            set_reminder_job(
-                self.app,
-                chat_id,
-                text,
-                minutes,
-                repeat,
-            )
-
-            return f"⏰ Certo. Vou te lembrar de: *{text}*."
+            if action == "create_request":
+                # Inicia fluxo interativo
+                return RemindersFlow.start_flow(chat_id, params)
+            else:
+                # Fallback antigo ou direto
+                return "Modo de criação direta descontinuado. Use fluxo interativo."
 
         # ---------------- FUTUROS ----------------
         if intent == "energy_status":
