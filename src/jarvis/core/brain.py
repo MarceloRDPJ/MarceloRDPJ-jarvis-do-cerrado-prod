@@ -6,6 +6,7 @@ from datetime import datetime
 from jarvis.config import Config
 from jarvis.database.persistence import Persistence
 from jarvis.core.llm_fallback import LLMFallbackEngine
+from jarvis.core.personality import Personality
 
 logger = logging.getLogger("core.brain")
 
@@ -78,10 +79,7 @@ class Brain:
         """
         return {
             "intent": "chat",
-            "response": (
-                "Posso te ajudar com status do sistema, rede, lembretes e segurança. "
-                "Se quiser, é só falar."
-            ),
+            "response": Personality.get_response("FALLBACK"),
             "text": user_text,
             "confidence": 1.0,
         }
