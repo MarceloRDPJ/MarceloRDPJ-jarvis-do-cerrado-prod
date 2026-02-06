@@ -13,6 +13,7 @@ from jarvis.config import Config
 from jarvis.database.persistence import Persistence
 from jarvis.core.events import Event
 from jarvis.core.flows import RemindersFlow
+from jarvis.core.context import ContextEngine
 
 class TestHomeAssistantBot(unittest.IsolatedAsyncioTestCase):
 
@@ -22,6 +23,7 @@ class TestHomeAssistantBot(unittest.IsolatedAsyncioTestCase):
         Persistence.init_db()
 
     @patch('jarvis.core.brain.genai')
+    @patch('jarvis.core.brain.Config.GEMINI_API_KEY', 'fake_key')
     async def test_brain_process_intent(self, mock_genai):
         mock_model = MagicMock()
         mock_genai.GenerativeModel.return_value = mock_model
@@ -86,6 +88,37 @@ class TestHomeAssistantBot(unittest.IsolatedAsyncioTestCase):
         conn.close()
 
         self.assertEqual(row[0], "test.event")
+
+    async def test_reminders_flow_conversation(self):
+        chat_id = 999
+        # 1. Start Flow
+        params = {"action_type": "hydration", "minutes": 60, "repeat": True, "text": "Drink water"}
+        response = RemindersFlow.start_flow(chat_id, params)
+        self.assertIn("meta diária", response)
+
+        # Verify context saved
+        ctx = ContextEngine.get_context(chat_id)
+        self.assertIsNotNone(ctx.get("flow"))
+        self.assertEqual(ctx["flow"]["step"], "ask_meta")
+
+        # 2. Provide Meta (with normalization)
+        # Note: In real flow, router would detect flow and call handle_response.
+        # Here we call handle_response directly.
+        response = RemindersFlow.handle_response(chat_id, "6 litros", ctx)
+        self.assertIn("Meta diária: 6000 ml", response)
+
+        # Verify context updated
+        ctx = ContextEngine.get_context(chat_id)
+        self.assertEqual(ctx["flow"]["step"], "ask_cup")
+        self.assertEqual(ctx["flow"]["data"]["meta_ml"], 6000)
+
+        # 3. Provide Cup
+        response = RemindersFlow.handle_response(chat_id, "300ml", ctx)
+        self.assertIn("Lembrete de Hidratação Salvo", response)
+
+        # Verify flow cleared
+        ctx = ContextEngine.get_context(chat_id)
+        self.assertIsNone(ctx.get("flow"))
 
 if __name__ == '__main__':
     unittest.main()

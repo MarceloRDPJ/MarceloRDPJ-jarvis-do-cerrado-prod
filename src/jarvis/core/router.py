@@ -1,10 +1,25 @@
 from jarvis.core.rules import apply_rules
 from jarvis.nlp.intent_engine import detect_intent
 from jarvis.core.brain import Brain
+from jarvis.core.context import ContextEngine
 
 brain = Brain()
 
-async def route(text: str):
+async def route(text: str, chat_id: int = None):
+    # 0. Fluxo Ativo (Prioridade Máxima)
+    if chat_id:
+        context = ContextEngine.get_context(chat_id)
+        if context.get("flow"):
+            return {
+                "intent": "flow_input",
+                "action": "handle_input",
+                "entity": None,
+                "confidence": 1.0,
+                "source": "flow",
+                "text": text,
+                "params": {"text": text}
+            }
+
     # 1. Regras Determinísticas (Alta Prioridade)
     rule = apply_rules(text)
     if rule:

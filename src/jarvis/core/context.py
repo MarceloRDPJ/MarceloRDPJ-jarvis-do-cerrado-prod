@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
 
 from jarvis.database.persistence import Persistence
@@ -23,14 +23,20 @@ class ContextEngine:
     # MEMÓRIA CURTA (CHAT)
     # ==================================================
     @staticmethod
-    def save_context(chat_id: int, intent_data: dict) -> None:
-        Persistence.set_state(
-            f"context:{chat_id}",
-            {
-                "last_intent": intent_data.get("intent"),
-                "timestamp": datetime.utcnow().isoformat(),
-            },
-        )
+    def save_context(chat_id: int, data: dict) -> None:
+        """
+        Salva ou atualiza o contexto do chat.
+        Faz merge com dados existentes.
+        """
+        current = ContextEngine.get_context(chat_id)
+        current.update(data)
+
+        # Atualiza timestamp e last_intent se disponível
+        current["timestamp"] = datetime.now(timezone.utc).isoformat()
+        if "intent" in data:
+            current["last_intent"] = data["intent"]
+
+        Persistence.set_state(f"context:{chat_id}", current)
 
     @staticmethod
     def get_context(chat_id: int) -> Dict[str, Any]:
@@ -48,7 +54,12 @@ class ContextEngine:
             return False
 
         try:
-            delta = datetime.utcnow() - datetime.fromisoformat(ts)
+            # Handle both naive and aware timestamps for compatibility
+            last_ts = datetime.fromisoformat(ts)
+            if last_ts.tzinfo is None:
+                last_ts = last_ts.replace(tzinfo=timezone.utc)
+
+            delta = datetime.now(timezone.utc) - last_ts
             return delta < timedelta(minutes=minutes)
         except Exception:
             return False
@@ -107,7 +118,7 @@ class ContextEngine:
             f"pending_action:{chat_id}",
             {
                 "action": action,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         )
 
