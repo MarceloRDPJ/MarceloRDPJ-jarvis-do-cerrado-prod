@@ -32,15 +32,18 @@ class SystemModule:
 
         temp = None
         try:
-            out = subprocess.check_output(
-                "vcgencmd measure_temp",
-                shell=True
-            ).decode()
-            temp = float(out.replace("temp=", "").replace("'C", "").strip())
+            # Tenta ler arquivo do sistema primeiro (mais rápido e padrão Linux)
+            with open("/sys/class/thermal/thermal_zone0/temp") as f:
+                temp = int(f.read()) / 1000
         except Exception:
+            # Fallback para vcgencmd (específico Raspberry Pi antigo)
             try:
-                with open("/sys/class/thermal/thermal_zone0/temp") as f:
-                    temp = int(f.read()) / 1000
+                out = subprocess.check_output(
+                    "vcgencmd measure_temp",
+                    shell=True,
+                    stderr=subprocess.DEVNULL
+                ).decode()
+                temp = float(out.replace("temp=", "").replace("'C", "").strip())
             except Exception:
                 temp = None
 

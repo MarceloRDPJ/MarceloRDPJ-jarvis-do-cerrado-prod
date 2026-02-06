@@ -38,7 +38,8 @@ class LLMFallbackEngine:
             return json.loads(generated_text)
 
         except requests.exceptions.ConnectionError:
-            logger.warning("Ollama não está acessível (ConnectionError).")
+            # Log as debug to reduce noise, as Ollama might simply be offline
+            logger.debug("Ollama não está acessível (ConnectionError) - Ignorando fallback local.")
             return None
         except json.JSONDecodeError:
             logger.warning(f"Falha ao decodificar JSON do LLM: {generated_text}")
