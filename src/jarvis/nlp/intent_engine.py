@@ -136,8 +136,8 @@ def detect_intent(text: str) -> Dict:
         target_id = int(match.group(1)) if match else None
         return {
             "intent": "reminder_delete",
-            "target_id": target_id,
-            "text": text
+            "text": text,
+            "params": {"target_id": target_id} # Fixed: put in params for executor
         }
 
     return result
@@ -184,7 +184,6 @@ def _parse_reminder(text: str) -> Dict:
     """
     # Usa o parser temporal aprimorado
     time_data = parse_time_command(text)
-    # Permite 0 para forçar clarificação se o tempo for ambíguo
     minutes = time_data["minutes"]
     recurrence = time_data["recurrence"]
     is_recurring = time_data["is_recurring"]
@@ -192,24 +191,38 @@ def _parse_reminder(text: str) -> Dict:
 
     reminder_text = text
 
-    # Remove palavras-chave da intenção para limpar o texto
-    # Usa a lista do engine para garantir consistência
+    # 1. Remove palavras-chave da intenção
     keywords = engine.intent_patterns["reminder_set"]
-
-    # Ordena por tamanho decrescente para remover frases longas primeiro
     sorted_keywords = sorted(keywords, key=len, reverse=True)
 
     for rule in sorted_keywords:
         if rule in reminder_text.lower():
-             # Replace case insensitive simples para termos exatos
              reminder_text = re.sub(re.escape(rule), "", reminder_text, flags=re.IGNORECASE)
 
-    # Remove termos de tempo explícitos
+    # 2. Remove expressões de tempo (Cleaning agressivo)
+    # Dias da semana
+    weekdays = ["domingo", "segunda", "segunda-feira", "terca", "terça", "terça-feira", "quarta", "quarta-feira", "quinta", "quinta-feira", "sexta", "sexta-feira", "sabado", "sábado"]
+    for day in weekdays:
+        reminder_text = re.sub(rf"\b(?:no|na|em)?\s*{day}\b", "", reminder_text, flags=re.IGNORECASE)
+
+    # Hoje/Amanhã/Daqui
+    reminder_text = re.sub(r"\b(hoje|amanha|amanhã)\b", "", reminder_text, flags=re.IGNORECASE)
+    reminder_text = re.sub(r"\bdaqui a pouco\b", "", reminder_text, flags=re.IGNORECASE)
+    reminder_text = re.sub(r"\bdaqui (?:a )?[\d]+ (?:minutos|min|horas|h)\b", "", reminder_text, flags=re.IGNORECASE)
+
+    # Horários (às 14h, 12:30, etc)
+    reminder_text = re.sub(r"\b(?:as|às|ás)\s+\d{1,2}(?:[:h]\d{2})?h?\b", "", reminder_text, flags=re.IGNORECASE)
+    reminder_text = re.sub(r"\b\d{1,2}:\d{2}\b", "", reminder_text, flags=re.IGNORECASE)
+
+    # Termos soltos
     for w in ["minuto", "minutos", "hora", "horas", "a cada", "cada", "todo dia", "todos os dias"]:
         reminder_text = re.sub(re.escape(w), "", reminder_text, flags=re.IGNORECASE)
 
+    # Limpeza final
     reminder_text = reminder_text.strip()
-    # Limpeza extra de pontuação/espaços duplicados
+    # Remove preposições de ligação que sobraram no início (ex: "de puxar" -> "puxar")
+    reminder_text = re.sub(r"^(?:de|pra|que|o|a)\s+", "", reminder_text, flags=re.IGNORECASE)
+
     reminder_text = re.sub(r'\s+', ' ', reminder_text).strip(' .,-')
 
     action = "default"

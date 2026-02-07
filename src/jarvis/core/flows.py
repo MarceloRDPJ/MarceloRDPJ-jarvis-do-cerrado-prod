@@ -48,7 +48,7 @@ class RemindersFlow:
             flow_state["step"] = "awaiting_clarification"
             flow_state["missing_field"] = "time"
             ContextEngine.save_context(chat_id, {"flow": flow_state})
-            return "Certo. Que horas (e dia) você quer esse lembrete?"
+            return "Certo. Que horas (e dia) é pra lembrar?"
 
         # Validação de Texto
         text = params.get("text")
@@ -56,7 +56,7 @@ class RemindersFlow:
             flow_state["step"] = "awaiting_clarification"
             flow_state["missing_field"] = "text"
             ContextEngine.save_context(chat_id, {"flow": flow_state})
-            return "Sobre o que é o lembrete?"
+            return "E pra lembrar do quê exatamente?"
 
         # Tudo certo -> Confirmação
         flow_state["step"] = "confirmation"
@@ -75,9 +75,9 @@ class RemindersFlow:
             ContextEngine.save_context(chat_id, {"flow": flow_state})
 
         return (
-            f"Então ficou assim:\n"
+            f"Beleza, vê se tá certo:\n\n"
             f"📅 {time_display}\n"
-            f"📝 {text}\n"
+            f"📝 {text}\n\n"
             f"Confirma?"
         )
 
@@ -87,7 +87,7 @@ class RemindersFlow:
         Processa a resposta do usuário dentro do fluxo.
         """
         if not text:
-             return "Não entendi."
+             return "Uai, não entendi nada."
 
         # Cancelamento Global dentro do fluxo
         stop_words = ["cancelar", "voltar", "reiniciar", "não", "nao", "cancel", "esquece", "deixa"]
@@ -106,7 +106,7 @@ class RemindersFlow:
         if text.lower().strip() in stop_words:
             context_data.pop("flow", None)
             ContextEngine.save_context(chat_id, {"flow": None})
-            return "Beleza, cancelei o lembrete. Contexto limpo."
+            return "Fechado, cancelei tudo. Sem lembrete."
 
         # --- Passo: Clarificação (Tempo) ---
         if step == "awaiting_clarification" and flow.get("missing_field") == "time":
@@ -137,13 +137,13 @@ class RemindersFlow:
                 time_display = format_pt_br(dt)
 
                 return (
-                    f"Então ficou assim:\n"
+                    f"Beleza, vê se tá certo:\n\n"
                     f"📅 {time_display}\n"
-                    f"📝 {data.get('text')}\n"
+                    f"📝 {data.get('text')}\n\n"
                     f"Confirma?"
                 )
             else:
-                return "Ainda não entendi o horário. Tenta dizer algo como 'sábado às 14h' ou 'daqui 10 minutos'."
+                return "Entendi a hora não. Tenta 'sábado às 14h' ou 'daqui 10 minutos'."
 
         # --- Passo: Clarificação (Texto) ---
         if step == "awaiting_clarification" and flow.get("missing_field") == "text":
@@ -163,9 +163,9 @@ class RemindersFlow:
                 time_display = "horário indefinido (erro)"
 
             return (
-                f"Então ficou assim:\n"
+                f"Beleza, vê se tá certo:\n\n"
                 f"📅 {time_display}\n"
-                f"📝 {text}\n"
+                f"📝 {text}\n\n"
                 f"Confirma?"
             )
 
@@ -188,7 +188,7 @@ class RemindersFlow:
                 ContextEngine.save_context(chat_id, {"flow": flow})
                 return Personality.FLOW_REMINDER_ASK_CUP
             else:
-                return "Não entendi o número. Tenta de novo (ex: 2000 ou 2 litros)."
+                return "Entendi o número não. Tenta assim: 2000 ou 2 litros."
 
         # --- Passo: Tamanho do Copo ---
         if step == "ask_cup":
@@ -201,18 +201,18 @@ class RemindersFlow:
                 # Finalizar
                 return RemindersFlow.finalize_creation(chat_id, data)
             else:
-                return "Não entendi o tamanho do copo. Ex: 250."
+                return "Qual tamanho do copo? Ex: 250."
 
         # --- Passo: Confirmação Genérica ---
         if step == "confirmation":
-            if text.lower() in ["sim", "s", "ok", "pode", "confirmo", "beleza", "bora", "pode ser", "isso"]:
+            if text.lower() in ["sim", "s", "ok", "pode", "confirmo", "beleza", "bora", "pode ser", "isso", "vambora"]:
                 return RemindersFlow.finalize_creation(chat_id, data)
             else:
                 # Cancelar (Se falou qualquer outra coisa que não seja sim)
                 ContextEngine.save_context(chat_id, {"flow": None})
-                return "Entendido. Lembrete cancelado."
+                return "Beleza, cancelei. Se mudar de ideia é só chamar."
 
-        return "Não entendi o que você disse. O fluxo está confuso."
+        return "Uai, me perdi aqui. Vamos começar de novo?"
 
     @staticmethod
     def finalize_creation(chat_id: int, data: Dict) -> str:
@@ -234,16 +234,6 @@ class RemindersFlow:
         # Calcular next_run
         if target_date_iso:
              next_run = datetime.fromisoformat(target_date_iso)
-             # Recalcula minutes para o scheduler (delta)
-             now = datetime.now() # Naive/Local to match logic in parser
-             # Wait, persistence uses UTC.
-             # We should probably trust next_run as absolute.
-             # But Persistence.add_task expects next_run.
-             # We need to make sure next_run is offset-aware or consistent.
-             # Current project seems to mix naive and UTC.
-             # Let's try to stick to what parser returns (naive local) and let persistence handle it or convert.
-             # Persistence.add_task takes datetime and calls .isoformat().
-
         else:
              now = datetime.now(timezone.utc)
              next_run = now + timedelta(minutes=minutes)
@@ -281,7 +271,7 @@ class RemindersFlow:
         if not tasks:
             return "Você não tem nenhum lembrete ativo no momento."
 
-        response = "📅 Seus Lembretes:\n"
+        response = "📝 *Seus Lembretes:*\n\n"
 
         for i, task in enumerate(tasks, 1):
             next_run_iso = task['next_run']
@@ -296,7 +286,7 @@ class RemindersFlow:
             if task['type'] == 'recurring':
                 time_display += " (Recorrente)"
 
-            response += f"{i}️⃣ {time_display} — {text}\n"
+            response += f"*{i}.* {time_display}\n   ↳ {text}\n\n"
 
         return response
 
@@ -308,9 +298,67 @@ class RemindersFlow:
         tasks = Persistence.get_active_tasks(chat_id)
 
         if index < 1 or index > len(tasks):
-            return f"Não encontrei o lembrete número {index}. Tente 'listar lembretes' para ver os números."
+            return f"Não achei o lembrete número {index} não. Dá um 'listar lembretes' pra conferir."
 
         task_to_delete = tasks[index - 1]
         Persistence.update_task_status(task_to_delete['id'], 'cancelled')
 
-        return f"Feito. Lembrete '{task_to_delete['text']}' apagado."
+        return f"Pronto! Apaguei o lembrete: {task_to_delete['text']}."
+
+    @staticmethod
+    def update_reminder(chat_id: int, index: int, modification: str = None) -> str:
+        """
+        Atualiza (recria) um lembrete.
+        """
+        tasks = Persistence.get_active_tasks(chat_id)
+        if index < 1 or index > len(tasks):
+            return f"Não achei o lembrete número {index}."
+
+        old_task = tasks[index - 1]
+
+        if not modification:
+             return f"Pra editar, me fala o que mudar. Ex: 'mudar lembrete {index} para 16h' ou 'alterar lembrete {index} para Comprar Pão'."
+
+        # Tenta detectar se é mudança de horário
+        time_data = parse_time_command(modification)
+
+        new_text = old_task['text']
+        new_next_run = None
+        new_minutes = 0 # Não usamos mais minutes relativo no DB se for absolute, mas mantemos compatibilidade
+
+        if time_data["target_date"]:
+             # É uma mudança de horário
+             new_next_run = time_data["target_date"].isoformat()
+             # Mantém o texto antigo
+             # Mas se o modification tiver texto extra?
+             # Simplificação: Se detectou hora, muda SÓ a hora.
+        else:
+             # Assume que é mudança de texto
+             # Remove palavras comuns se necessário
+             new_text = modification
+
+        # Se não mudou hora, mantém a antiga?
+        # A antiga está no DB. Precisamos calcular.
+        if not new_next_run:
+             new_next_run = old_task['next_run']
+
+        # Cancelar antigo
+        Persistence.update_task_status(old_task['id'], 'cancelled')
+
+        # Criar novo
+        # Recalcular minutes delta se necessário (opcional)
+
+        # Salva
+        params = {
+            "text": new_text,
+            "target_date": new_next_run,
+            "minutes": 0, # Ignorado se target_date existe
+            "repeat": old_task['type'] == 'recurring',
+            "action_type": old_task['action']
+        }
+
+        # Reutiliza finalize_creation para salvar e formatar resposta
+        # Mas finalize_creation espera Dict não serializado em 'target_date' se for datetime...
+        # Não, finalize_creation aceita string iso no 'target_date'.
+
+        return RemindersFlow.finalize_creation(chat_id, params).replace("Combinado. Lembrete salvo", "Lembrete atualizado")
