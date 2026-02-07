@@ -226,31 +226,23 @@ class Executor:
                 return "Modo de criação direta descontinuado. Use fluxo interativo."
 
         if intent == "reminder_list":
-            tasks = Persistence.get_active_tasks(chat_id)
-            if not tasks:
-                return "📭 Você não tem lembretes ativos no momento."
-
-            msg = "📋 *Seus Lembretes:*\n\n"
-            for t in tasks:
-                # Format next_run nice
-                try:
-                    dt = datetime.fromisoformat(t['next_run'])
-                    time_str = dt.strftime("%d/%m às %H:%M")
-                except:
-                    time_str = t['next_run']
-
-                msg += f"🆔 *{t['id']}* - {t['text']}\n   📅 Próximo: {time_str}\n\n"
-
-            msg += "Pra cancelar, diga 'cancelar lembrete X' (usando o ID)."
-            return msg
+            return RemindersFlow.list_reminders(chat_id)
 
         if intent == "reminder_delete":
-            target_id = params.get("target_id")
-            if target_id:
-                Persistence.update_task_status(target_id, "cancelled")
-                return f"🗑️ Lembrete {target_id} cancelado com sucesso."
+            # Suporte a params de Rules ('index') ou NLP ('target_id')
+            index = params.get("index") or params.get("target_id")
+            if index:
+                return RemindersFlow.delete_reminder(chat_id, int(index))
             else:
-                return "❌ Preciso do número (ID) do lembrete pra cancelar. Tenta 'listar lembretes' primeiro."
+                return "❌ Preciso do número do lembrete. Tenta 'listar lembretes' pra ver os números."
+
+        if intent == "reminder_update":
+            index = params.get("index")
+            modification = params.get("modification")
+            if index:
+                return RemindersFlow.update_reminder(chat_id, int(index), modification)
+            else:
+                 return "❌ Preciso do número do lembrete pra editar."
 
         # ---------------- FUTUROS ----------------
         if intent == "energy_status":

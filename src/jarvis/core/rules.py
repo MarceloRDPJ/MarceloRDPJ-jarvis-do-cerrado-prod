@@ -144,7 +144,7 @@ def apply_rules(text: str) -> Optional[Dict]:
             "confidence": 1.0,
         }
 
-    delete_match = re.search(r"(?:apagar|remover|esquecer|deletar)\s+lembrete\s+(\d+)", t)
+    delete_match = re.search(r"(?:apagar|remover|esquecer|deletar|cancelar)\s+lembrete\s+(\d+)", t)
     if delete_match:
         return {
             "intent": "reminder_delete",
@@ -154,13 +154,20 @@ def apply_rules(text: str) -> Optional[Dict]:
             "confidence": 1.0,
         }
 
-    update_match = re.search(r"(?:editar|mudar|alterar)\s+lembrete\s+(\d+)", t)
+    update_match = re.search(r"(?:editar|mudar|alterar)\s+lembrete\s+(\d+)\s*(.*)", t)
     if update_match:
+        index = int(update_match.group(1))
+        payload = update_match.group(2).strip()
+        # Remove conectivos comuns do início do payload (para, por, as, etc) se necessário
+        # Mas vamos deixar o fluxo tratar
         return {
             "intent": "reminder_update",
             "action": "update",
             "entity": "reminder",
-            "params": {"index": int(update_match.group(1))},
+            "params": {
+                "index": index,
+                "modification": payload if payload else None
+            },
             "confidence": 1.0,
         }
 
