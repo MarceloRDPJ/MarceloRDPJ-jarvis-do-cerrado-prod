@@ -151,26 +151,48 @@ class Executor:
             return Personality.get_response("GREET")
 
         if intent == "help":
-            return (
-                "🧠 Menu de Ajuda do Jarvis do Cerrado\n\n"
-                "Uai, aqui tá o que eu dou conta de fazer:\n\n"
-                "🌐 Rede & Dispositivos\n"
-                "- \"Quem tá na rede?\" - Mostra quem tá conectado.\n"
-                "- \"Mudar o nome do 192.168.1.X para TV Sala\" - Arruma os nomes.\n"
-                "- \"Status da internet\" - Teste de velocidade.\n\n"
-                "⏰ Lembretes & Tarefas\n"
-                "- \"Me lembre de tomar remédio a cada 8 horas\" - Lembretes que repetem.\n"
-                "- \"Me lembre no sábado as 14h\" - Agendamentos.\n"
-                "- \"Me lembre de beber água\" - Modo hidratação.\n"
-                "- \"Listar lembretes\" - Ver o que tem marcado.\n"
-                "- \"Cancelar lembrete X\" - Apagar um aviso.\n\n"
-                "💧 Saúde & Hidratação\n"
-                "- \"Quantas águas eu bebi?\" - Seu progresso hoje.\n"
-                "- \"Bebi água\" - Marca um copo pra conta.\n\n"
-                "🖥️ Sistema & Segurança\n"
-                "- \"Status do sistema\" - Como tá a máquina.\n\n"
-                "Pode falar do seu jeito que eu entendo. Se não entender, eu pergunto!"
+            try:
+                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+
+                keyboard = [
+                    [
+                        InlineKeyboardButton("📅 Meus Lembretes", callback_data="listar lembretes"),
+                        InlineKeyboardButton("💧 Status Água", callback_data="status hidratacao")
+                    ],
+                    [
+                        InlineKeyboardButton("🛜 Scan Rede", callback_data="quem ta na rede"),
+                        InlineKeyboardButton("🖥️ Sistema", callback_data="status do sistema")
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+            except ImportError:
+                reply_markup = None
+
+            text = (
+                "🧠 *Menu de Ajuda do Jarvis do Cerrado*\n\n"
+                "_Uai, aqui tá o que eu dou conta de fazer:_\n\n"
+                "🌐 *Rede & Dispositivos*\n"
+                "• `Quem tá na rede?` - Mostra conexões.\n"
+                "• `Mudar o nome do 192.168.1.X para TV` - Renomeia.\n"
+                "• `Status da internet` - Teste de velocidade.\n\n"
+                "⏰ *Lembretes & Tarefas*\n"
+                "• `Me lembre de tomar remédio a cada 8 horas`\n"
+                "• `Me lembre no sábado as 14h`\n"
+                "• `Me lembre de beber água`\n"
+                "• `Listar lembretes` - Ver agenda.\n"
+                "• `Cancelar lembrete 1` - Apagar aviso.\n\n"
+                "💧 *Saúde & Hidratação*\n"
+                "• `Quantas águas eu bebi?` - Progresso.\n"
+                "• `Bebi água` - Marca +1.\n\n"
+                "🖥️ *Sistema & Segurança*\n"
+                "• `Status do sistema` - Diagnóstico.\n\n"
+                "_Pode falar do seu jeito que eu entendo. Se não entender, eu pergunto!_"
             )
+
+            return {
+                "text": text,
+                "reply_markup": reply_markup
+            }
 
         # ---------------- SYSTEM ----------------
         if intent == "system_status":
