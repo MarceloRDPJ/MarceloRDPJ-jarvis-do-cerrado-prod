@@ -29,8 +29,9 @@ class HybridIntentEngine:
                 "quem ta online", "verificar rede", "scan de rede"
             ],
             "network_rename": [
-                "mudar o nome do", "renomear dispositivo", "chamar o dispositivo",
-                "apelidar o ip", "alterar nome na rede", "editar o nome da", "editar nome"
+                "mudar o nome do", "renomear", "renomear dispositivo", "chamar o dispositivo",
+                "apelidar o ip", "alterar nome na rede", "editar o nome da", "editar nome",
+                "mudar nome de", "trocar nome"
             ],
             "hydration_status": [
                 "quantas aguas eu ja bebi", "status hidratacao", "meta de agua",
@@ -164,6 +165,14 @@ def _parse_rename(text: str) -> Dict:
         match = re.search(r'(?:para|de)\s+(.+)$', text, re.IGNORECASE)
         if match:
             name = match.group(1).strip()
+
+        # Fallback: Se não tem "para" e é formato "renomear 1.2.3.4 novo nome"
+        if not name and "para" not in text and "de" not in text:
+            parts = text.split(target)
+            if len(parts) > 1:
+                potential = parts[1].strip()
+                if potential:
+                    name = potential
 
     return {
         "intent": "network_rename",

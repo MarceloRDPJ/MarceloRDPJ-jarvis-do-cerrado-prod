@@ -201,9 +201,24 @@ class Executor:
         if intent == "system_reboot":
             return SystemModule.reboot_device()
 
+        if intent == "menu_system":
+            return self._build_menu("System")
+
         # ---------------- NETWORK ----------------
+        if intent == "menu_network":
+            return self._build_menu("Network")
+
         if intent == "network_scan":
-            return await NetworkModule.scan_network()
+            result = await NetworkModule.scan_network()
+            # Se for texto simples, envolve com botão de update
+            if isinstance(result, str):
+                try:
+                    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                    keyboard = [[InlineKeyboardButton("🔄 Escanear Novamente", callback_data="quem ta na rede")]]
+                    return {"text": result, "reply_markup": InlineKeyboardMarkup(keyboard)}
+                except:
+                    return result
+            return result
 
         if intent == "network_rename":
             target = params.get("target") # IP
@@ -247,8 +262,23 @@ class Executor:
                 # Fallback antigo ou direto
                 return "Modo de criação direta descontinuado. Use fluxo interativo."
 
+        if intent == "menu_reminders":
+            return self._build_menu("Reminders", chat_id)
+
         if intent == "reminder_list":
-            return RemindersFlow.list_reminders(chat_id)
+            text = RemindersFlow.list_reminders(chat_id)
+            # Envolve com botões
+            try:
+                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                keyboard = [
+                    [
+                        InlineKeyboardButton("➕ Novo Lembrete", callback_data="criar lembrete"),
+                        InlineKeyboardButton("🗑️ Apagar Lembrete", callback_data="cancelar lembrete")
+                    ]
+                ]
+                return {"text": text, "reply_markup": InlineKeyboardMarkup(keyboard)}
+            except:
+                return text
 
         if intent == "reminder_delete":
             # Suporte a params de Rules ('index') ou NLP ('target_id')
@@ -351,3 +381,46 @@ class Executor:
             return "🛑 Ação cancelada com sucesso."
 
         return "⚠️ Nenhuma ação pendente para cancelar."
+
+    # =====================================================
+    # HELPER: MENUS DINÂMICOS
+    # =====================================================
+    def _build_menu(self, menu_type: str, chat_id: int = None) -> Dict[str, Any]:
+        try:
+            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+        except ImportError:
+            return "❌ Erro ao carregar interface gráfica."
+
+        if menu_type == "Network":
+            text = "🌐 *Menu de Rede*\n\nGerencie dispositivos e conexões."
+            keyboard = [
+                [InlineKeyboardButton("🔍 Escanear Rede", callback_data="quem ta na rede")],
+                [InlineKeyboardButton("✏️ Renomear Dispositivo", callback_data="ajuda renomear")],
+                [InlineKeyboardButton("🚀 Teste Velocidade", callback_data="status da internet")],
+                [InlineKeyboardButton("🔙 Voltar", callback_data="help")]
+            ]
+
+        elif menu_type == "Reminders":
+            text = "⏰ *Menu de Lembretes*\n\nNunca mais esqueça nada (espero)."
+            keyboard = [
+                [InlineKeyboardButton("📋 Listar Todos", callback_data="listar lembretes")],
+                [InlineKeyboardButton("➕ Novo Lembrete", callback_data="criar lembrete")],
+                [InlineKeyboardButton("💧 Hidratação", callback_data="status hidratacao")],
+                [InlineKeyboardButton("🔙 Voltar", callback_data="help")]
+            ]
+
+        elif menu_type == "System":
+            text = "🖥️ *Menu do Sistema*\n\nStatus e controle do Jarvis."
+            keyboard = [
+                [InlineKeyboardButton("📊 Status Completo", callback_data="status do sistema")],
+                [InlineKeyboardButton("🔄 Reiniciar Sistema", callback_data="reiniciar sistema")],
+                [InlineKeyboardButton("🔙 Voltar", callback_data="help")]
+            ]
+
+        else:
+            return "Menu desconhecido."
+
+        return {
+            "text": text,
+            "reply_markup": InlineKeyboardMarkup(keyboard)
+        }
