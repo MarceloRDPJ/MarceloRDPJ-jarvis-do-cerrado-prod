@@ -30,7 +30,10 @@ async def route(text: str, chat_id: int = None):
     rule = apply_rules(text)
 
     # Se for um comando de gerenciamento, PRIORIZA sobre o fluxo (interrompe o fluxo)
-    management_intents = ["reminder_list", "reminder_delete", "reminder_update"]
+    management_intents = [
+        "reminder_list", "reminder_delete", "reminder_update",
+        "hydration_control", "hydration_status", "hydration_log"
+    ]
     if rule and rule["intent"] in management_intents:
         if chat_id:
              # Mata o fluxo silenciosamente para permitir que o comando execute

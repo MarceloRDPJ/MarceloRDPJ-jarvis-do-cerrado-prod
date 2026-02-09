@@ -183,6 +183,63 @@ def apply_rules(text: str) -> Optional[Dict]:
         }
 
     # =====================================================
+    # HIDRATAÇÃO (CONTROLE E LOG)
+    # =====================================================
+    # Log de consumo
+    log_match = re.search(r"(?:bebi|tomei|mais)\s*(\d+)\s*(?:ml|l)?", t)
+    if log_match:
+        # Se especificou número, é log com valor
+        return {
+            "intent": "hydration_log",
+            "action": "log",
+            "entity": "hydration",
+            "params": {"amount": int(log_match.group(1))},
+            "confidence": 1.0,
+        }
+
+    if any(x in t for x in ["bebi agua", "bebi água", "tomei agua", "tomei água", "mais um copo", "mais uma garrafa", "bebi", "ta pago"]):
+        # Log simples (copo padrão) - Apenas se frase curta/específica
+        # Cuidado com "bebi agua ontem" -> Brain deve tratar?
+        # Por enquanto, assumimos log imediato.
+        return {
+            "intent": "hydration_log",
+            "action": "log",
+            "entity": "hydration",
+            "params": {"amount": None}, # Usa padrão
+            "confidence": 0.95,
+        }
+
+    # Status
+    if any(x in t for x in ["status hidratacao", "status da agua", "quanto bebi", "como ta a agua", "meta de agua"]):
+        return {
+            "intent": "hydration_status",
+            "action": "check",
+            "entity": "hydration",
+            "confidence": 1.0,
+        }
+
+    # Controle
+    if re.search(r"(?:pausar|parar|cancelar|silenciar)\s+(?:lembrete|hidratação|agua|água)", t):
+        # Detectar se é pausa ou parada total?
+        # O módulo hydration vai decidir baseado na string do comando.
+        return {
+            "intent": "hydration_control",
+            "action": "control",
+            "entity": "hydration",
+            "params": {"command": t},
+            "confidence": 1.0,
+        }
+
+    if re.search(r"(?:retomar|voltar)\s+(?:com\s+)?(?:a\s+)?(?:hidratação|agua|água)", t):
+        return {
+            "intent": "hydration_control",
+            "action": "control",
+            "entity": "hydration",
+            "params": {"command": t},
+            "confidence": 1.0,
+        }
+
+    # =====================================================
     # BLOQUEIO DE DISPOSITIVO (PREPARADO – PASSO 9)
     # =====================================================
     if re.search(r"\b(bloquear dispositivo|bloqueia esse dispositivo)\b", t):
