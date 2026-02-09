@@ -223,6 +223,10 @@ class Executor:
         if intent == "system_reboot":
             return SystemModule.reboot_device()
 
+        if intent == "system_restart_adguard":
+            # Hardcoded container name "adguardhome" based on user context
+            return SystemModule.restart_container("adguardhome")
+
         if intent == "menu_system":
             return self._build_menu("System")
 
@@ -404,7 +408,8 @@ class Executor:
             text = "🖥️ *Menu do Sistema*\n\nStatus e controle do Jarvis."
             keyboard = [
                 [InlineKeyboardButton("📊 Status Completo", callback_data="status do sistema")],
-                [InlineKeyboardButton("🔄 Reiniciar Sistema", callback_data="reiniciar sistema")],
+                [InlineKeyboardButton("🛡️ Reiniciar AdGuard", callback_data="reiniciar adguard")],
+                [InlineKeyboardButton("🔄 Reiniciar Raspberry", callback_data="reiniciar sistema")],
                 [InlineKeyboardButton("🔙 Voltar", callback_data="help")]
             ]
 

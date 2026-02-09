@@ -120,9 +120,30 @@ class SystemModule:
             return "🐳 Docker não disponível."
 
     # ==================================================
-    # AÇÃO PERIGOSA
+    # AÇÕES DO SISTEMA (PERIGOSAS)
     # ==================================================
     @staticmethod
     def reboot_device() -> str:
-        subprocess.Popen("sleep 2 && sudo reboot", shell=True)
-        return "🔄 Reiniciando o sistema."
+        try:
+            # Tenta reiniciar o host (requer privilégios ou mapeamento de dbus/systemd)
+            # Em container não privilegiado isso falha, mas assumimos setup correto.
+            subprocess.Popen("sleep 2 && sudo reboot", shell=True)
+            return "🔄 Reiniciando o Raspberry Pi em 2 segundos..."
+        except Exception as e:
+            return f"❌ Falha ao solicitar reboot: {e}"
+
+    @staticmethod
+    def restart_container(container_name: str) -> str:
+        try:
+            # Síncrono pois é uma ação de comando rápida
+            res = subprocess.run(
+                ["docker", "restart", container_name],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            return f"✅ Container '{container_name}' reiniciado com sucesso."
+        except subprocess.CalledProcessError as e:
+            return f"❌ Erro ao reiniciar '{container_name}': {e.stderr}"
+        except Exception as e:
+            return f"❌ Erro inesperado: {e}"

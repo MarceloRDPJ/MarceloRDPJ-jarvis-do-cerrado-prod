@@ -92,6 +92,18 @@ def apply_rules(text: str) -> Optional[Dict]:
         }
 
     # =====================================================
+    # RESTART ADGUARD (DNS / INTERNET)
+    # =====================================================
+    if "adguard" in t or "dns" in t or "internet" in t and "reiniciar" in t:
+        return {
+            "intent": "system_restart_adguard",
+            "action": "request",
+            "entity": "container",
+            "requires_confirmation": True,
+            "confidence": 0.95,
+        }
+
+    # =====================================================
     # NETWORK SCAN (HUMANO)
     # =====================================================
     if (
