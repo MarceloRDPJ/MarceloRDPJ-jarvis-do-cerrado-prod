@@ -2,7 +2,9 @@ import asyncio
 import logging
 import subprocess
 import time
-from typing import List, Dict, Any
+import socket
+import struct
+from typing import List, Dict, Any, Set
 
 import scapy.all as scapy
 from wakeonlan import send_magic_packet
@@ -29,6 +31,91 @@ class NetworkModule:
     """
 
     # ==================================================
+    # SCANNING HELPERS (mDNS / SSDP)
+    # ==================================================
+    @staticmethod
+    def _scan_ssdp(timeout: float = 2.0) -> Set[str]:
+        """
+        Envia M-SEARCH (SSDP) para descobrir dispositivos UPnP (Smart TVs, Routers, etc).
+        Retorna conjunto de IPs.
+        """
+        ips = set()
+        msg = (
+            'M-SEARCH * HTTP/1.1\r\n'
+            'HOST:239.255.255.250:1900\r\n'
+            'ST:ssdp:all\r\n'
+            'MX:2\r\n'
+            'MAN:"ssdp:discover"\r\n'
+            '\r\n'
+        ).encode('utf-8')
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock.settimeout(timeout)
+        try:
+            sock.sendto(msg, ('239.255.255.250', 1900))
+            start = time.time()
+            while time.time() - start < timeout:
+                try:
+                    data, addr = sock.recvfrom(65507)
+                    ips.add(addr[0])
+                except socket.timeout:
+                    break
+                except Exception:
+                    break
+        except Exception as e:
+            logger.error(f"SSDP Scan Error: {e}")
+        finally:
+            sock.close()
+
+        return ips
+
+    @staticmethod
+    def _scan_mdns(timeout: float = 2.0) -> Set[str]:
+        """
+        Envia query mDNS para descobrir dispositivos Bonjour/ZeroConf (Apple, Google, IoT).
+        Retorna conjunto de IPs.
+        """
+        ips = set()
+        # Query genérica para _services._dns-sd._udp.local (Standard Discovery)
+        # Header: ID=0, Flags=0, QDCOUNT=1, ANCOUNT=0...
+        # QNAME: \x09_services\x07_dns-sd\x04_udp\x05local\x00
+        # QTYPE: 0x000C (PTR), QCLASS: 0x0001 (IN)
+        packet = (
+            b'\x00\x00'  # Transaction ID
+            b'\x00\x00'  # Flags
+            b'\x00\x01'  # Questions
+            b'\x00\x00'  # Answer RRs
+            b'\x00\x00'  # Authority RRs
+            b'\x00\x00'  # Additional RRs
+            b'\x09_services\x07_dns-sd\x04_udp\x05local\x00'
+            b'\x00\x0c'  # Type PTR
+            b'\x00\x01'  # Class IN
+        )
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock.settimeout(timeout)
+        # Necessário para multicast
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+
+        try:
+            sock.sendto(packet, ('224.0.0.251', 5353))
+            start = time.time()
+            while time.time() - start < timeout:
+                try:
+                    data, addr = sock.recvfrom(65507)
+                    ips.add(addr[0])
+                except socket.timeout:
+                    break
+                except Exception:
+                    break
+        except Exception as e:
+            logger.error(f"mDNS Scan Error: {e}")
+        finally:
+            sock.close()
+
+        return ips
+
+    # ==================================================
     # RAW NETWORK DATA (PASSO 5)
     # ==================================================
     @staticmethod
@@ -40,6 +127,7 @@ class NetworkModule:
         devices: List[Dict[str, str]] = []
 
         try:
+            # Simple ARP for raw snapshot (fast)
             arp = scapy.ARP(pdst="192.168.1.0/24")
             ether = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")
             result = scapy.srp(ether / arp, timeout=2, verbose=0)[0]
@@ -60,7 +148,7 @@ class NetworkModule:
         }
 
     # ==================================================
-    # HUMANO — SCAN PARA CHAT
+    # HUMANO — SCAN PARA CHAT (HÍBRIDO)
     # ==================================================
     @staticmethod
     async def scan_network(ip_range: str = "192.168.1.0/24") -> str:
@@ -75,42 +163,70 @@ class NetworkModule:
         if not result:
             return "⚠️ Nenhum dispositivo ativo encontrado."
 
-        header = "🕵️‍♂️ Dispositivos na Rede:\n"
+        header = f"🕵️‍♂️ Dispositivos na Rede ({len(result)} encontrados):\n"
         return header + "\n".join(result)
 
     @staticmethod
     def _scan_network_human_sync(ip_range: str) -> List[str] | str:
-        # Tenta duas vezes para garantir mais dispositivos
+        found_devices = {} # Map IP -> MAC
+
+        # 1. ARP Scan (Base)
         try:
-            # 1ª Tentativa (Rápida)
             arp = scapy.ARP(pdst=ip_range)
             ether = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")
-            result = scapy.srp(ether / arp, timeout=2, verbose=0)[0]
+            # Increased timeout for robustness
+            result = scapy.srp(ether / arp, timeout=3, verbose=0)[0]
 
-            # 2ª Tentativa (Se achou pouco, tenta mais lento)
-            if len(result) < 3:
-                 result = scapy.srp(ether / arp, timeout=4, verbose=0)[0]
+            for sent, received in result:
+                found_devices[received.psrc] = received.hwsrc
 
-        except PermissionError:
-            return "❌ Permissão insuficiente para escanear a rede."
         except Exception as e:
-            logger.error(f"Erro scan humano: {e}")
-            return "❌ Erro ao escanear a rede."
+            logger.error(f"ARP Scan Error: {e}")
+            # Continue to other methods even if ARP fails (e.g. permission issue)
 
+        # 2. Hybrid Discovery (SSDP + mDNS)
+        # Finds IPs of smart devices that might ignore ARP broadcast or be sleepy
+        try:
+            ssdp_ips = NetworkModule._scan_ssdp(timeout=2.5)
+            mdns_ips = NetworkModule._scan_mdns(timeout=2.5)
+            hybrid_ips = ssdp_ips.union(mdns_ips)
+
+            # Remove IPs we already have MACs for
+            unknown_mac_ips = [ip for ip in hybrid_ips if ip not in found_devices]
+
+            # 3. Targeted ARP Resolution for unknown IPs
+            # Unicast ARP is often more reliable than broadcast for specific targets
+            for ip in unknown_mac_ips:
+                try:
+                    mac = NetworkModule._resolve_mac_by_ip_sync(ip)
+                    if mac:
+                        found_devices[ip] = mac
+                except:
+                    pass
+
+        except Exception as e:
+            logger.error(f"Hybrid Scan Error: {e}")
+
+        if not found_devices:
+             return []
+
+        # 4. Enrichment (Vendor + Custom Name)
         mac_lookup = MacLookup()
         try:
-            mac_lookup.update_vendors()
+            # Update vendors strictly if older than X?
+            # Doing it every time slows down. Let's assume it's cached or updated elsewhere.
+            # mac_lookup.update_vendors()
+            pass
         except Exception:
             pass
 
-        devices = []
+        output_list = []
 
-        # Sort by IP for cleaner list
-        sorted_results = sorted(result, key=lambda x: int(x[1].psrc.split('.')[-1]))
+        # Sort by IP
+        sorted_ips = sorted(found_devices.keys(), key=lambda x: int(x.split('.')[-1]) if x.count('.')==3 else 0)
 
-        for element in sorted_results:
-            ip = element[1].psrc
-            mac = element[1].hwsrc
+        for ip in sorted_ips:
+            mac = found_devices[ip]
 
             # 1. Custom Name (Persistence)
             custom_name = Persistence.get_device_name(mac)
@@ -121,15 +237,12 @@ class NetworkModule:
             except Exception:
                 vendor = "Genérico"
 
-            # Format: 🖥️ 192.168.1.52 (PC Marcelo) - Dell Inc.
-            # OR:     🖥️ 192.168.1.50 (LG Innotek)
-
             display_name = custom_name if custom_name else vendor
             extra_info = f" - {vendor}" if custom_name else ""
 
-            devices.append(f"🖥️ {ip} ({display_name}){extra_info}")
+            output_list.append(f"🖥️ {ip} ({display_name}){extra_info}")
 
-        return devices
+        return output_list
 
     # ==================================================
     # HELPER: RESOLVE IP -> MAC
@@ -139,8 +252,6 @@ class NetworkModule:
         """
         Tenta resolver o MAC address de um IP específico usando ARP scan rápido.
         """
-        # 1. Tenta cache rápido (Raw Snapshot) se for recente?
-        # Por enquanto faz scan direto focado no IP para garantir.
         return await asyncio.to_thread(NetworkModule._resolve_mac_by_ip_sync, ip)
 
     @staticmethod
@@ -148,7 +259,8 @@ class NetworkModule:
         try:
             arp = scapy.ARP(pdst=ip)
             ether = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")
-            result = scapy.srp(ether / arp, timeout=2, verbose=0)[0]
+            # Unicast/Targeted ARP usually responds faster
+            result = scapy.srp(ether / arp, timeout=1, verbose=0)[0]
 
             if result:
                 return result[0][1].hwsrc
