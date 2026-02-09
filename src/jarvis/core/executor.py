@@ -10,6 +10,7 @@ from jarvis.core.personality import Personality
 
 from jarvis.modules.system import SystemModule
 from jarvis.modules.network import NetworkModule
+from jarvis.modules.hydration import HydrationModule
 # from jarvis.modules.reminders import set_reminder_job # Deprecated in favor of Scheduler
 from datetime import datetime
 
@@ -126,6 +127,20 @@ class Executor:
         if intent == "flow_input":
             # Delega para o fluxo ativo
             ctx = ContextEngine.get_context(chat_id)
+            flow = ctx.get("flow")
+
+            if flow:
+                if flow.get("type") == "hydration_confirm":
+                    result = HydrationModule.handle_flow(chat_id, params.get("text"), ctx)
+                    if result: return result
+                    # Se retornou None, talvez não fosse uma resposta válida, ou cancelamento silencioso.
+                    # Mas se o fluxo é de hidratação, RemindersFlow não vai saber lidar.
+                    # Então retornamos o que vier ou mensagem de erro?
+                    # HydrationModule retorna None se não entendeu.
+                    # Se não entendeu, talvez o usuário esteja conversando.
+                    # Mas como é flow_input, o Router já decidiu que é fluxo.
+                    return "Uai, não entendi. Era pra confirmar a água?"
+
             return RemindersFlow.handle_response(chat_id, params.get("text"), ctx)
 
         # ---------------- CHAT ----------------
@@ -301,75 +316,16 @@ class Executor:
             return "⚡ Monitoramento de energia em fase de coleta."
 
         if intent == "hydration_log":
-            # 1. Encontrar uma task de hidratação ativa para vincular
-            tasks = Persistence.get_tasks_by_action(chat_id, "hydration")
-
-            if tasks:
-                task_id = tasks[0]["id"]
-                Persistence.log_interaction(task_id, "confirm", "manual_log")
-            else:
-                # Se não tem task, cria uma oculta/completa apenas para rastreio ou usa ID 0
-                # Vamos usar um padrão: cria task "hydration_tracker" se não existir, mas em status 'completed' ou 'tracking'
-                # Por simplicidade: Logamos com task_id=0 se o banco permitir, ou criamos uma task 'tracker'
-                # Melhor: Permitir logar sem task ativa. Vamos criar uma task 'dummy' completada hoje se precisar.
-                now = datetime.now(timezone.utc)
-                # Criação silenciosa de tracker se não existir
-                task_id = Persistence.add_task(
-                    chat_id=chat_id,
-                    text="Rastreador de Hidratação",
-                    next_run=now,
-                    action="hydration",
-                    task_type="tracker",
-                    status="tracking" # Novo status para não aparecer na lista
-                )
-                Persistence.log_interaction(task_id, "confirm", "manual_log")
-
-            # Feedback positivo
-            count = Persistence.get_hydration_count_today(chat_id)
-            return f"🌊 Boa! +1 copo pra conta. Total hoje: {count}."
+            amount = params.get("amount")
+            if amount is None:
+                amount = 250 # Default
+            return HydrationModule.log_intake(chat_id, amount, manual=True)
 
         if intent == "hydration_status":
-            count = Persistence.get_hydration_count_today(chat_id)
-            # Assumindo meta padrão de 2000ml e copo de 250ml se não tiver config
-            # Idealmente leríamos a meta do usuário do banco, mas tasks de hidratação têm meta.
-            # Vamos simplificar: mostrar contagem de copos/garrafas.
+            return HydrationModule.get_status_message(chat_id)
 
-            # Buscar meta da última tarefa de hidratação ativa se houver
-            tasks = Persistence.get_tasks_by_action(chat_id, "hydration")
-            meta_ml = 2000
-            cup_ml = 250
-            if tasks:
-                import json
-                meta_data = json.loads(tasks[0].get("meta", "{}"))
-                meta_ml = meta_data.get("meta_ml", 2000)
-                cup_ml = meta_data.get("cup_ml", 250)
-
-            total_ml = count * cup_ml
-            percentage = int((total_ml / meta_ml) * 100)
-
-            # Cálculo de tempo restante para o próximo (se houver)
-            next_msg = ""
-            if tasks:
-                next_run_iso = tasks[0].get("next_run")
-                if next_run_iso:
-                    try:
-                        next_run = datetime.fromisoformat(next_run_iso)
-                        now = datetime.now(timezone.utc)
-                        delta = next_run - now
-                        if delta.total_seconds() > 0:
-                            minutes = int(delta.total_seconds() / 60)
-                            next_msg = f"\n⏳ Próximo gole em: {minutes} min"
-                        else:
-                            next_msg = "\n⏳ Próximo gole: Agora!"
-                    except:
-                        pass
-
-            return (
-                f"💧 **Hidratação Hoje**\n"
-                f"Copos bebidos: {count}\n"
-                f"Total aproximado: {total_ml}ml / {meta_ml}ml\n"
-                f"Progresso: {percentage}%{next_msg}"
-            )
+        if intent == "hydration_control":
+            return HydrationModule.control_hydration(chat_id, params.get("command", ""))
 
         if intent == "automation_create":
             return "🤖 Automação registrada. Vou observar."

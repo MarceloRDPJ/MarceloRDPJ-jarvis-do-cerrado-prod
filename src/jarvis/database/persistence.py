@@ -342,6 +342,68 @@ class Persistence:
         conn.close()
         return row[0] if row else 0
 
+    @staticmethod
+    def get_hydration_volume_today(chat_id: int) -> int:
+        """
+        Soma o volume (ml) de interações 'confirm' para tarefas 'hydration' hoje.
+        """
+        start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        # Join tasks and task_interactions
+        # value é TEXT, precisamos converter
+        query = """
+            SELECT SUM(CAST(value AS INTEGER))
+            FROM task_interactions i
+            JOIN tasks t ON i.task_id = t.id
+            WHERE t.chat_id = ?
+              AND t.action = 'hydration'
+              AND i.interaction_type = 'confirm'
+              AND i.timestamp >= ?
+        """
+        c.execute(query, (chat_id, start_of_day))
+        row = c.fetchone()
+        conn.close()
+        # row[0] pode ser None se não houver registros
+        return row[0] if row and row[0] else 0
+
+    @staticmethod
+    def get_last_cancelled_task_by_action(chat_id: int, action: str) -> Optional[Dict[str, Any]]:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute(
+            """
+            SELECT * FROM tasks
+            WHERE chat_id = ? AND action = ? AND status = 'cancelled'
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (chat_id, action),
+        )
+        row = c.fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    @staticmethod
+    def get_tasks_by_status(chat_id: int, status: str, action: str = None):
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        query = "SELECT * FROM tasks WHERE chat_id = ? AND status = ?"
+        params = [chat_id, status]
+
+        if action:
+            query += " AND action = ?"
+            params.append(action)
+
+        c.execute(query, tuple(params))
+        rows = c.fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+
     # ==================================================
     # SNAPSHOTS (RAW)
     # ==================================================

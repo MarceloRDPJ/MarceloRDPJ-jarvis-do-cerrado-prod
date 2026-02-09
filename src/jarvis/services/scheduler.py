@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Dict
 from jarvis.database.persistence import Persistence
 from jarvis.modules.reminders import get_reminder_message
+from jarvis.modules.hydration import HydrationModule
 
 logger = logging.getLogger("services.scheduler")
 
@@ -84,13 +85,21 @@ class SchedulerService:
                 Persistence.update_task_next_run(task_id, next_run_utc)
                 return
 
-        # === 2. Envio da Mensagem ===
-        message = get_reminder_message(task, now)
-        try:
-            await self.app.bot.send_message(chat_id=chat_id, text=message)
-        except Exception as e:
-            logger.error(f"Falha ao enviar lembrete {task_id}: {e}")
-            return # Não reagenda em caso de falha de transporte? (Discutível, mas seguro evitar loop de erro)
+            # Delega envio para o Módulo de Hidratação
+            await HydrationModule.send_reminder(self.app, task)
+
+            # Pula passo 2 e vai para reagendamento
+            # (Poderíamos retornar aqui se HydrationModule lidasse com reagendamento,
+            # mas o Scheduler é quem gerencia o tempo. Então continuamos para o passo 3)
+
+        else:
+            # === 2. Envio da Mensagem (Genérico) ===
+            message = get_reminder_message(task, now)
+            try:
+                await self.app.bot.send_message(chat_id=chat_id, text=message)
+            except Exception as e:
+                logger.error(f"Falha ao enviar lembrete {task_id}: {e}")
+                return # Não reagenda em caso de falha de transporte
 
         # === 3. Reagendamento ===
         if task['type'] == 'recurring':
