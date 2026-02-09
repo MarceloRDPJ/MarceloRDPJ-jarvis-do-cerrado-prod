@@ -80,10 +80,17 @@ class NetworkModule:
 
     @staticmethod
     def _scan_network_human_sync(ip_range: str) -> List[str] | str:
+        # Tenta duas vezes para garantir mais dispositivos
         try:
+            # 1ª Tentativa (Rápida)
             arp = scapy.ARP(pdst=ip_range)
             ether = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")
             result = scapy.srp(ether / arp, timeout=2, verbose=0)[0]
+
+            # 2ª Tentativa (Se achou pouco, tenta mais lento)
+            if len(result) < 3:
+                 result = scapy.srp(ether / arp, timeout=4, verbose=0)[0]
+
         except PermissionError:
             return "❌ Permissão insuficiente para escanear a rede."
         except Exception as e:

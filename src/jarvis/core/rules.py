@@ -207,6 +207,18 @@ def apply_rules(text: str) -> Optional[Dict]:
         }
 
     # =====================================================
+    # MENUS (ATALHOS)
+    # =====================================================
+    if "menu rede" in t or "opcoes de rede" in t:
+        return {"intent": "menu_network", "action": "show", "entity": "network", "confidence": 1.0}
+
+    if "menu lembrete" in t or "menu tarefas" in t:
+        return {"intent": "menu_reminders", "action": "show", "entity": "reminder", "confidence": 1.0}
+
+    if "menu sistema" in t or "opcoes do sistema" in t:
+        return {"intent": "menu_system", "action": "show", "entity": "system", "confidence": 1.0}
+
+    # =====================================================
     # NENHUMA REGRA CASOU
     # =====================================================
     return None
