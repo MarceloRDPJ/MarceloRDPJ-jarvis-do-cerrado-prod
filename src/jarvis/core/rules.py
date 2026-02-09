@@ -136,7 +136,7 @@ def apply_rules(text: str) -> Optional[Dict]:
     # =====================================================
     # LEMBRETES - GERENCIAMENTO (PRIORITÁRIO)
     # =====================================================
-    if any(x in t for x in ["listar lembretes", "meus lembretes", "quais lembretes", "agenda", "o que tenho marcado"]):
+    if any(x in t for x in ["listar lembretes", "meus lembretes", "quais lembretes", "agenda", "o que tenho marcado", "lembretes ativos"]):
         return {
             "intent": "reminder_list",
             "action": "list",
@@ -180,6 +180,30 @@ def apply_rules(text: str) -> Optional[Dict]:
             "action": "create",
             "entity": "reminder",
             "confidence": 0.8,
+        }
+
+    # Typos comuns (lmebra, lmembra, lembar)
+    if re.search(r"\b(l[ea]mbra|lmebra|lembar)\b", t):
+        return {
+            "intent": "reminder_set",
+            "action": "create",
+            "entity": "reminder",
+            "confidence": 0.7,
+        }
+
+    # Ativação direta de Hidratação
+    if "ativar hidratação" in t or "ativar hidratacao" in t or "começar agua" in t or "iniciar agua" in t:
+         return {
+            "intent": "reminder_set",
+            "action": "create_request", # Força fluxo
+            "entity": "reminder",
+            "params": {
+                "action_type": "hydration",
+                "text": "Beber água",
+                "repeat": True,
+                "minutes": 60 # Default
+            },
+            "confidence": 1.0,
         }
 
     # =====================================================
@@ -236,6 +260,19 @@ def apply_rules(text: str) -> Optional[Dict]:
             "action": "control",
             "entity": "hydration",
             "params": {"command": t},
+            "confidence": 1.0,
+        }
+
+    # Edição de Hidratação
+    update_match = re.search(r"(?:editar|corrigir|mudar|alterar)\s+(?:meta|copo|total|tamanho)(?:.*de\s+)?(?:agua|água)?\s*(?:pra|para)?\s*(\d+)?", t)
+    if update_match or ("corrigir meta" in t or "editar meta" in t):
+        # Se encontrou número, extrai. Se não, o módulo pergunta ou tenta parsear o resto.
+        val = update_match.group(1) if update_match else None
+        return {
+            "intent": "hydration_update",
+            "action": "update",
+            "entity": "hydration",
+            "params": {"value": val, "text": t},
             "confidence": 1.0,
         }
 

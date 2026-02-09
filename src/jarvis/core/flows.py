@@ -228,6 +228,12 @@ class RemindersFlow:
         # Meta dados
         meta = {}
         if action_type == "hydration":
+            # GARANTIA: Apenas UMA tarefa de hidratação ativa por usuário.
+            # Cancela todas as anteriores antes de criar a nova.
+            existing_tasks = Persistence.get_tasks_by_action(chat_id, "hydration")
+            for t in existing_tasks:
+                Persistence.update_task_status(t['id'], 'cancelled')
+
             meta["meta_ml"] = data.get("meta_ml", 2000)
             meta["cup_ml"] = data.get("cup_ml", 250)
             # Garantir que texto tenha marcador se necessário, ou só confiar no action

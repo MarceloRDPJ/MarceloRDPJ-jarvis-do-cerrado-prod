@@ -128,20 +128,27 @@ class Executor:
             # Delega para o fluxo ativo
             ctx = ContextEngine.get_context(chat_id)
             flow = ctx.get("flow")
+            text_input = params.get("text", "")
 
             if flow:
                 if flow.get("type") == "hydration_confirm":
-                    result = HydrationModule.handle_flow(chat_id, params.get("text"), ctx)
+                    result = HydrationModule.handle_flow(chat_id, text_input, ctx)
                     if result: return result
-                    # Se retornou None, talvez não fosse uma resposta válida, ou cancelamento silencioso.
-                    # Mas se o fluxo é de hidratação, RemindersFlow não vai saber lidar.
-                    # Então retornamos o que vier ou mensagem de erro?
-                    # HydrationModule retorna None se não entendeu.
-                    # Se não entendeu, talvez o usuário esteja conversando.
-                    # Mas como é flow_input, o Router já decidiu que é fluxo.
-                    return "Uai, não entendi. Era pra confirmar a água?"
 
-            return RemindersFlow.handle_response(chat_id, params.get("text"), ctx)
+                    # Se HydrationModule retornou None, o usuário falou algo fora do contexto (Sim/Não).
+                    # Ao invés de travar, tentamos Small Talk ou Chat fallback para manter a fluidez.
+                    # Isso permite "Qual a previsão do tempo?" no meio do fluxo sem travar.
+
+                    # Tenta Small Talk
+                    st_response = Personality.get_small_talk(text_input)
+                    if st_response:
+                        return st_response
+
+                    # Se não for small talk, manda fallback genérico (ou deixaria o Brain tratar se tivéssemos acesso)
+                    # Como Executor não acessa Brain, usamos fallback da Personalidade.
+                    return Personality.get_response("FALLBACK")
+
+            return RemindersFlow.handle_response(chat_id, text_input, ctx)
 
         # ---------------- CHAT ----------------
         if intent == "chat":
@@ -326,6 +333,9 @@ class Executor:
 
         if intent == "hydration_control":
             return HydrationModule.control_hydration(chat_id, params.get("command", ""))
+
+        if intent == "hydration_update":
+            return HydrationModule.update_config(chat_id, params)
 
         if intent == "automation_create":
             return "🤖 Automação registrada. Vou observar."
