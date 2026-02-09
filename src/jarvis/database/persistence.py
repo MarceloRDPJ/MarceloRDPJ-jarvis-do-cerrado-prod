@@ -202,7 +202,8 @@ class Persistence:
         action: str = "default",
         task_type: str = "unique",
         interval_minutes: int = 0,
-        meta: Dict = None
+        meta: Dict = None,
+        status: str = "active"
     ):
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
@@ -221,7 +222,7 @@ class Persistence:
                 task_type,
                 interval_minutes,
                 next_run.isoformat(),
-                "active",
+                status,
                 json.dumps(meta or {}),
                 datetime.now(timezone.utc).isoformat()
             ),
