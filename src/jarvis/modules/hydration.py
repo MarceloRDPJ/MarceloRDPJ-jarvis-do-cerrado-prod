@@ -1,6 +1,7 @@
 import logging
 import random
 import json
+import re
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional
 
@@ -88,10 +89,9 @@ class HydrationModule:
         ContextEngine.save_context(chat_id, {"flow": flow_state})
 
         # Envia mensagem
+        reply_markup = None
         try:
             # Se possível, adicionar botões (InlineKeyboard) para facilitar
-            # Mas o requisito pede "Linguagem Natural" como prioridade.
-            # Vamos enviar texto, e se o executor suportar, botões também.
             from telegram import InlineKeyboardMarkup, InlineKeyboardButton
             keyboard = [
                 [
@@ -100,7 +100,11 @@ class HydrationModule:
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
+        except Exception:
+            # Se falhar import ou algo assim, segue sem botões
+            pass
 
+        try:
             await app.bot.send_message(
                 chat_id=chat_id,
                 text=text,
@@ -299,6 +303,68 @@ class HydrationModule:
         return "Comando de hidratação não entendi."
 
     @staticmethod
+    def update_config(chat_id: int, params: Dict[str, Any]) -> str:
+        """
+        Atualiza configurações da tarefa ativa de hidratação (Meta, Copo).
+        """
+        text = params.get("text", "").lower()
+        val = params.get("value") # Capturado pelo regex se simples
+
+        # 1. Encontrar tarefa ativa
+        tasks = Persistence.get_tasks_by_action(chat_id, "hydration")
+        if not tasks:
+            return "Não achei nenhuma hidratação ativa pra corrigir. Que tal 'ativar hidratação'?"
+
+        task = tasks[0]
+        meta = json.loads(task.get('meta', '{}'))
+
+        # 2. Interpretar o que mudar
+        new_meta = meta.get("meta_ml", 2000)
+        new_cup = meta.get("cup_ml", 250)
+        changed = False
+
+        # Parse value if not provided directly
+        if not val:
+            match = re.search(r'(\d+)\s*(l|ml|litros?)?', text)
+            if match:
+                num = int(match.group(1))
+                unit = match.group(2)
+                if unit and unit.lower().startswith('l'):
+                    num *= 1000
+                val = num
+
+        if val:
+            val = int(val)
+            if "meta" in text or "total" in text:
+                new_meta = val
+                changed = True
+                msg = f"Beleza, meta corrigida para {new_meta}ml."
+            elif "copo" in text or "tamanho" in text:
+                new_cup = val
+                changed = True
+                msg = f"Beleza, copo ajustado para {new_cup}ml."
+            else:
+                # Se não especificou, assume meta se for grande, copo se for pequeno?
+                if val > 1000:
+                    new_meta = val
+                    changed = True
+                    msg = f"Assumi que é a meta: {new_meta}ml."
+                else:
+                    new_cup = val
+                    changed = True
+                    msg = f"Assumi que é o copo: {new_cup}ml."
+        else:
+            return "Entendi que quer mudar, mas pra quanto? Fala tipo 'mudar meta pra 3000'."
+
+        if changed:
+            meta["meta_ml"] = new_meta
+            meta["cup_ml"] = new_cup
+            Persistence.update_task_meta(task['id'], meta)
+            return msg
+
+        return "Não entendi o que mudar."
+
+    @staticmethod
     def get_status_message(chat_id: int) -> str:
         """
         Retorna status formatado.
@@ -316,9 +382,9 @@ class HydrationModule:
         bars = "🟦" * (percentage // 10) + "⬜" * (10 - (percentage // 10))
 
         return (
-            f"💧 *Status Hidratação*\n\n"
+            f"💧 Status Hidratação\n\n"
             f"{bars} {percentage}%\n"
-            f"**Total:** {total}ml / {meta_ml}ml\n\n"
+            f"Total: {total}ml / {meta_ml}ml\n\n"
             f"Falta {max(0, meta_ml - total)}ml pra meta."
         )
 

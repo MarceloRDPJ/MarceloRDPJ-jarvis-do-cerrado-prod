@@ -137,6 +137,17 @@ class Persistence:
         conn.close()
 
     @staticmethod
+    def update_task_meta(task_id: int, meta: Dict):
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute(
+            "UPDATE tasks SET meta = ? WHERE id = ?",
+            (json.dumps(meta), task_id),
+        )
+        conn.commit()
+        conn.close()
+
+    @staticmethod
     def get_device_name(mac: str) -> Optional[str]:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()

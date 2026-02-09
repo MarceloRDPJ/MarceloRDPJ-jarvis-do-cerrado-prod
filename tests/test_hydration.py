@@ -88,5 +88,31 @@ class TestHydrationModule(unittest.TestCase):
         mock_persistence.update_task_status.assert_called_with(1, "active")
         self.assertIn("retomada", response)
 
+    @patch("jarvis.modules.hydration.Persistence")
+    def test_update_config_meta(self, mock_persistence):
+        # Setup
+        mock_persistence.get_tasks_by_action.return_value = [{"id": 1, "meta": '{"meta_ml": 2000, "cup_ml": 250}'}]
+
+        # Test "corrigir meta pra 3000"
+        params = {"text": "corrigir meta pra 3000", "value": 3000}
+        response = HydrationModule.update_config(self.chat_id, params)
+
+        # Verify
+        mock_persistence.update_task_meta.assert_called_with(1, {"meta_ml": 3000, "cup_ml": 250})
+        self.assertIn("3000ml", response)
+
+    @patch("jarvis.modules.hydration.Persistence")
+    def test_update_config_cup(self, mock_persistence):
+        # Setup
+        mock_persistence.get_tasks_by_action.return_value = [{"id": 1, "meta": '{"meta_ml": 2000, "cup_ml": 250}'}]
+
+        # Test "mudar copo para 300"
+        params = {"text": "mudar copo para 300", "value": 300}
+        response = HydrationModule.update_config(self.chat_id, params)
+
+        # Verify
+        mock_persistence.update_task_meta.assert_called_with(1, {"meta_ml": 2000, "cup_ml": 300})
+        self.assertIn("300ml", response)
+
 if __name__ == "__main__":
     unittest.main()
