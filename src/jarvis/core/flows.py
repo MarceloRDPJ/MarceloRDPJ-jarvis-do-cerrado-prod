@@ -230,6 +230,7 @@ class RemindersFlow:
         if action_type == "hydration":
             meta["meta_ml"] = data.get("meta_ml", 2000)
             meta["cup_ml"] = data.get("cup_ml", 250)
+            # Garantir que texto tenha marcador se necessário, ou só confiar no action
 
         # Calcular next_run
         if target_date_iso:

@@ -302,19 +302,27 @@ class Executor:
 
         if intent == "hydration_log":
             # 1. Encontrar uma task de hidratação ativa para vincular
-            # Se não houver, cria um log 'órfão' ou usa uma task dummy?
-            # Melhor: logar como interação de uma task existente ou criar um registro ad-hoc.
-            # O Persistence.log_interaction exige task_id.
-
             tasks = Persistence.get_tasks_by_action(chat_id, "hydration")
-            task_id = tasks[0]["id"] if tasks else -1 # -1 ou lidar com erro
 
-            # Se não tem task de hidratação, talvez devesse sugerir criar?
-            # Por simplicidade, vamos logar se existir, senão avisa.
-            if task_id == -1:
-                return "❌ Você não tem lembretes de água ativos. Cria um primeiro ('me lembre de beber água')."
-
-            Persistence.log_interaction(task_id, "confirm", "manual_log")
+            if tasks:
+                task_id = tasks[0]["id"]
+                Persistence.log_interaction(task_id, "confirm", "manual_log")
+            else:
+                # Se não tem task, cria uma oculta/completa apenas para rastreio ou usa ID 0
+                # Vamos usar um padrão: cria task "hydration_tracker" se não existir, mas em status 'completed' ou 'tracking'
+                # Por simplicidade: Logamos com task_id=0 se o banco permitir, ou criamos uma task 'tracker'
+                # Melhor: Permitir logar sem task ativa. Vamos criar uma task 'dummy' completada hoje se precisar.
+                now = datetime.now(timezone.utc)
+                # Criação silenciosa de tracker se não existir
+                task_id = Persistence.add_task(
+                    chat_id=chat_id,
+                    text="Rastreador de Hidratação",
+                    next_run=now,
+                    action="hydration",
+                    task_type="tracker",
+                    status="tracking" # Novo status para não aparecer na lista
+                )
+                Persistence.log_interaction(task_id, "confirm", "manual_log")
 
             # Feedback positivo
             count = Persistence.get_hydration_count_today(chat_id)
@@ -339,11 +347,28 @@ class Executor:
             total_ml = count * cup_ml
             percentage = int((total_ml / meta_ml) * 100)
 
+            # Cálculo de tempo restante para o próximo (se houver)
+            next_msg = ""
+            if tasks:
+                next_run_iso = tasks[0].get("next_run")
+                if next_run_iso:
+                    try:
+                        next_run = datetime.fromisoformat(next_run_iso)
+                        now = datetime.now(timezone.utc)
+                        delta = next_run - now
+                        if delta.total_seconds() > 0:
+                            minutes = int(delta.total_seconds() / 60)
+                            next_msg = f"\n⏳ Próximo gole em: {minutes} min"
+                        else:
+                            next_msg = "\n⏳ Próximo gole: Agora!"
+                    except:
+                        pass
+
             return (
                 f"💧 **Hidratação Hoje**\n"
                 f"Copos bebidos: {count}\n"
                 f"Total aproximado: {total_ml}ml / {meta_ml}ml\n"
-                f"Progresso: {percentage}%"
+                f"Progresso: {percentage}%{next_msg}"
             )
 
         if intent == "automation_create":

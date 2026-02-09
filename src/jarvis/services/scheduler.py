@@ -55,37 +55,56 @@ class SchedulerService:
     async def process_task(self, task: Dict, now: datetime):
         chat_id = task['chat_id']
         task_id = task['id']
-        is_madrugada = self.check_madrugada(now)
+        action = task.get('action')
 
-        # Lógica de Madrugada (Simplificada: Se for madrugada e não confirmado, segura?)
-        # Por enquanto, vamos apenas alterar o tom da mensagem na função get_reminder_message
-        # A lógica de "pausar automaticamente" exigiria analisar o histórico de interações (task_interactions)
+        # === 1. QUIET HOURS (08:00 - 19:00) para Hidratação ===
+        if action == 'hydration':
+            # Converte para local time (UTC-3)
+            local_now = now - timedelta(hours=3)
+            hour = local_now.hour
 
-        # Envia a mensagem
+            # Se for antes das 08h ou depois das 19h
+            if hour < 8 or hour >= 19:
+                logger.info(f"Tarefa {task_id} (Hidratação) pausada (Quiet Hours). Reagendando...")
+
+                # Se for recorrente, reagenda para o próximo dia às 08:00 ou mantém o intervalo se cair dentro
+                # Simples: Reagenda para amanhã às 08:00 se passou das 19h
+                # Se for madrugada (ex: 03h), reagenda para hoje às 08:00
+
+                target_date = local_now.replace(minute=0, second=0, microsecond=0)
+                if hour >= 19:
+                    target_date += timedelta(days=1)
+                    target_date = target_date.replace(hour=8)
+                elif hour < 8:
+                    target_date = target_date.replace(hour=8)
+
+                # Converte de volta para UTC para salvar
+                next_run_utc = target_date + timedelta(hours=3)
+
+                Persistence.update_task_next_run(task_id, next_run_utc)
+                return
+
+        # === 2. Envio da Mensagem ===
         message = get_reminder_message(task, now)
         try:
             await self.app.bot.send_message(chat_id=chat_id, text=message)
-
-            # Se for 'hydration', adicionar botões ou esperar resposta textual?
-            # O requisito diz: "Respostas aceitas: 'bebi', 'ok'..." via texto.
-            # Então apenas enviamos a mensagem.
-
         except Exception as e:
             logger.error(f"Falha ao enviar lembrete {task_id}: {e}")
-            return # Não reagenda se falhou o envio? Ou reagenda para tentar depois?
-                   # Melhor não reagendar recorrente se falhou transporte, mas aqui assumimos sucesso lógico.
+            return # Não reagenda em caso de falha de transporte? (Discutível, mas seguro evitar loop de erro)
 
-        # Reagendamento
+        # === 3. Reagendamento ===
         if task['type'] == 'recurring':
             interval = task['interval_minutes']
-            # next_run = agora + intervalo (para evitar acúmulo se o bot ficou desligado)
-            # ou next_run = next_run original + intervalo (para manter cadência rigorosa)
-            # O requisito diz: "proxima_execucao = agora + intervalo" (Scheduler e Execução)
             next_run = now + timedelta(minutes=interval)
+
+            # Se a próxima execução cair no período de silêncio (hidratação),
+            # já ajusta para o dia seguinte?
+            # Não, deixa o check acima (Quiet Hours) lidar com isso na próxima execução.
+            # Isso mantém a lógica simples.
+
             Persistence.update_task_next_run(task_id, next_run)
             logger.info(f"Tarefa {task_id} reagendada para {next_run}")
         else:
-            # Tarefa única concluída
             Persistence.update_task_status(task_id, 'completed')
             logger.info(f"Tarefa {task_id} concluída.")
 
