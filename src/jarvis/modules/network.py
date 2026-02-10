@@ -237,10 +237,24 @@ class NetworkModule:
             except Exception:
                 vendor = "Genérico"
 
-            display_name = custom_name if custom_name else vendor
-            extra_info = f" - {vendor}" if custom_name else ""
+            # Icon selection based on vendor (Simple Heuristics)
+            icon = "🖥️"
+            v_lower = vendor.lower()
+            if "apple" in v_lower: icon = "🍎"
+            elif "google" in v_lower: icon = "🤖"
+            elif "espressif" in v_lower or "tuya" in v_lower: icon = "🔌"
+            elif "intel" in v_lower or "dell" in v_lower or "hp" in v_lower: icon = "💻"
+            elif "samsung" in v_lower or "lg" in v_lower: icon = "📺"
 
-            output_list.append(f"🖥️ {ip} ({display_name}){extra_info}")
+            # Formatting
+            if custom_name:
+                # 🖥️ 192.168.1.5 - TV Sala (Samsung)
+                line = f"{icon} `{ip}` — *{custom_name}* ({vendor})"
+            else:
+                # 🖥️ 192.168.1.5 - Samsung Electronics
+                line = f"{icon} `{ip}` — _{vendor}_"
+
+            output_list.append(line)
 
         return output_list
 
@@ -307,10 +321,20 @@ class NetworkModule:
 
     @staticmethod
     def _speedtest_sync() -> str:
-        res = subprocess.run(
-            ["speedtest-cli", "--simple"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        return f"🚀 Speedtest:\n{res.stdout}"
+        try:
+            # --secure is often needed for SSL issues
+            res = subprocess.run(
+                ["speedtest-cli", "--simple", "--secure"],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=45 # Timeout to avoid hanging
+            )
+            return f"🚀 *Velocidade da Internet:*\n\n{res.stdout}"
+        except subprocess.TimeoutExpired:
+            return "❌ O teste demorou demais e foi cancelado."
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Speedtest failed: {e.stderr}")
+            return "❌ Falha ao rodar speedtest. Tente novamente mais tarde."
+        except Exception as e:
+            return f"❌ Erro inesperado no teste: {e}"

@@ -27,26 +27,27 @@ class Personality:
 
     # Respostas de Sucesso / Confirmação
     SUCCESS = [
-        "Beleza, feito.",
-        "Tá na mão.",
-        "Combinado.",
-        "Deixa comigo.",
-        "Fechou."
+        "Beleza, missão cumprida. ✅",
+        "Tá na mão, comandante. 🫡",
+        "Combinado. Execução confirmada.",
+        "Deixa comigo. Sistema atualizado.",
+        "Fechou. Operação realizada com sucesso."
     ]
 
     # Respostas de Erro / Falha
     ERROR = [
-        "Vixi, deu ruim aqui. Tenta de novo?",
-        "Não entendi direito não. Fala de outro jeito?",
-        "Deu um enrosco aqui. Repete por favor?",
-        "Essa eu não peguei. Como é?"
+        "Vixi, deu ruim no processamento. Tenta de novo?",
+        "Negativo, Houston. Não entendi o comando. 🛰️",
+        "Deu um enrosco nos circuitos. Repete por favor?",
+        "Falha na interpretação. Solicito reenvio do comando."
     ]
 
     # Respostas de Fallback (Quando não sabe o que fazer)
     FALLBACK = [
-        "Posso te ajudar com status do sistema, rede, lembretes e segurança. Se quiser, é só falar.",
-        "Ainda tô aprendendo sobre isso. Mas se quiser ver a rede ou criar um lembrete, eu resolvo.",
-        "Não peguei essa. Mas ó, posso ver a rede, marcar coisas e checar o sistema."
+        "Ainda não sei fazer isso, mas já registrei aqui nos meus logs pro meu criador me ensinar. 📝",
+        "Comando desconhecido, capitão. Anotei a solicitação para análise futura. 🚀",
+        "Uai, essa eu não conheço ainda. Mas tá anotado pra eu aprender logo, logo.",
+        "Sistema não reconheceu o comando. Solicitando update ao desenvolvedor... (brincadeira, mas anotei)."
     ]
 
     # Small Talk (Manter fluxo)

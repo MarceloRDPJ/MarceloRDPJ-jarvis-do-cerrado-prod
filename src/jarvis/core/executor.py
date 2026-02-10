@@ -421,30 +421,25 @@ class Executor:
             return "❌ Erro ao carregar interface gráfica."
 
         if menu_type == "Network":
-            text = "🌐 *Menu de Rede*\n\nGerencie dispositivos e conexões."
+            text = "🌐 *Centro de Comando de Rede*\n\n_Monitoramento e controle de tráfego._"
             keyboard = [
-                [InlineKeyboardButton("🔍 Escanear Rede", callback_data="quem ta na rede")],
-                [InlineKeyboardButton("✏️ Renomear Dispositivo", callback_data="ajuda renomear")],
-                [InlineKeyboardButton("🚀 Teste Velocidade", callback_data="status da internet")],
-                [InlineKeyboardButton("🔙 Voltar", callback_data="help")]
+                [InlineKeyboardButton("🔍 Scan Total", callback_data="quem ta na rede"), InlineKeyboardButton("🚀 Velocidade", callback_data="status da internet")],
+                [InlineKeyboardButton("✏️ Renomear Host", callback_data="ajuda renomear"), InlineKeyboardButton("🔙 Menu Principal", callback_data="help")]
             ]
 
         elif menu_type == "Reminders":
-            text = "⏰ *Menu de Lembretes*\n\nNunca mais esqueça nada (espero)."
+            text = "⏰ *Gestão Temporal & Tarefas*\n\n_Organização de agenda e hidratação._"
             keyboard = [
-                [InlineKeyboardButton("📋 Listar Todos", callback_data="listar lembretes")],
-                [InlineKeyboardButton("➕ Novo Lembrete", callback_data="criar lembrete")],
-                [InlineKeyboardButton("💧 Hidratação", callback_data="status hidratacao")],
-                [InlineKeyboardButton("🔙 Voltar", callback_data="help")]
+                [InlineKeyboardButton("📋 Listar Agenda", callback_data="listar lembretes"), InlineKeyboardButton("➕ Novo Aviso", callback_data="criar lembrete")],
+                [InlineKeyboardButton("💧 Status H2O", callback_data="status hidratacao"), InlineKeyboardButton("🔙 Menu Principal", callback_data="help")]
             ]
 
         elif menu_type == "System":
-            text = "🖥️ *Menu do Sistema*\n\nStatus e controle do Jarvis."
+            text = "🖥️ *Painel de Controle do Sistema*\n\n_Diagnóstico e operações críticas._"
             keyboard = [
-                [InlineKeyboardButton("📊 Status Completo", callback_data="status do sistema")],
-                [InlineKeyboardButton("🛡️ Reiniciar AdGuard", callback_data="reiniciar adguard")],
-                [InlineKeyboardButton("🔄 Reiniciar Raspberry", callback_data="reiniciar sistema")],
-                [InlineKeyboardButton("🔙 Voltar", callback_data="help")]
+                [InlineKeyboardButton("📊 Diagnóstico", callback_data="status do sistema")],
+                [InlineKeyboardButton("🛡️ Restart AdGuard", callback_data="reiniciar adguard"), InlineKeyboardButton("🔄 Reboot Host", callback_data="reiniciar sistema")],
+                [InlineKeyboardButton("🔙 Menu Principal", callback_data="help")]
             ]
 
         else:
