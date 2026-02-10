@@ -28,6 +28,15 @@ class HybridIntentEngine:
                 "dispositivos conectados", "quem ta usando internet",
                 "quem ta online", "verificar rede", "scan de rede"
             ],
+            "network_status": [
+                "status da internet", "internet ta on", "ping", "conexao",
+                "internet caiu", "internet ta ruim", "tem internet",
+                "monitorar internet", "verificar conexao"
+            ],
+            "network_speed": [
+                "velocidade da internet", "speedtest", "teste de velocidade",
+                "internet ta lenta", "medir velocidade", "taxa de download"
+            ],
             "network_rename": [
                 "mudar o nome do", "renomear", "renomear dispositivo", "chamar o dispositivo",
                 "apelidar o ip", "alterar nome na rede", "editar o nome da", "editar nome",
@@ -130,6 +139,12 @@ def detect_intent(text: str) -> Dict:
     if intent == "reminder_list":
         return {"intent": "reminder_list"}
 
+    if intent == "network_status":
+        return {"intent": "network_status", "action": "check", "entity": "network"}
+
+    if intent == "network_speed":
+        return {"intent": "network_speed", "action": "check", "entity": "network"}
+
     if intent == "reminder_delete":
         # Tenta extrair ID ou termo de busca
         import re
@@ -151,23 +166,26 @@ def _parse_rename(text: str) -> Dict:
     """
     Extrai IP/MAC e novo nome.
     Ex: "mudar o nome do 192.168.1.52 para PC marcelo"
+    Ex: "renomear 192.168.1.54 por celular Marcelo"
     """
     import re
     # Extract IP
     ip_match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', text)
     target = ip_match.group(1) if ip_match else None
 
-    # Extract Name (simple heuristic: everything after "para" or "de")
+    # Extract Name
     name = None
     if target:
-        # Tenta pegar tudo depois de "para" ou "de"
-        # Melhorar regex para pegar nome composto até o fim da string
-        match = re.search(r'(?:para|de)\s+(.+)$', text, re.IGNORECASE)
+        # Regex mais flexível para capturar o nome após preposições
+        # Captura tudo após 'para', 'por', 'de', ou logo após o IP se não houver preposição
+        # Ex: "renomear X para Y" -> Y
+        # Ex: "renomear X por Y" -> Y
+        # Ex: "renomear X de Y" -> Y (menos comum mas possível)
+        match = re.search(r'(?:para|por|de)\s+(.+)$', text, re.IGNORECASE)
         if match:
             name = match.group(1).strip()
-
-        # Fallback: Se não tem "para" e é formato "renomear 1.2.3.4 novo nome"
-        if not name and "para" not in text and "de" not in text:
+        else:
+            # Fallback: Se não tem preposição, pega o que vem depois do IP
             parts = text.split(target)
             if len(parts) > 1:
                 potential = parts[1].strip()
@@ -180,7 +198,7 @@ def _parse_rename(text: str) -> Dict:
         "target": target,
         "name": name,
         "text": text,
-        "params": { # Ensure params are populated for Executor
+        "params": {
             "target": target,
             "name": name,
             "text": text

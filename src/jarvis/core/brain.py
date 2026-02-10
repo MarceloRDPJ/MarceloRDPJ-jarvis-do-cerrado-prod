@@ -1,12 +1,12 @@
 import json
 import logging
 import asyncio
-from datetime import datetime
+from typing import Dict, Any
 
 from jarvis.config import Config
 from jarvis.database.persistence import Persistence
-from jarvis.core.llm_fallback import LLMFallbackEngine
 from jarvis.core.personality import Personality
+from jarvis.nlp.local_brain import LocalBrain as LocalBrainEngine
 
 logger = logging.getLogger("core.brain")
 
@@ -18,26 +18,38 @@ class Brain:
     Nunca decide fluxo crítico.
 
     ARQUITETURA:
-    1. Local LLM (Ollama/TinyLlama) - Prioridade
-    2. Fallback Determinístico (Hardcoded) - Segurança
-
-    🚫 Google AI REMOVIDO (Fase 3 compliancy)
+    1. Local Mini-Brain (Retrieval-Based) - Prioridade Máxima (Rápido, Local, Free)
+    2. Cloud LLM (Gemini) - Fallback Cognitivo (Se configurado)
+    3. Fallback Determinístico (Hardcoded) - Segurança Final
     """
 
     def __init__(self):
-        self.local_llm = LLMFallbackEngine()
-        logger.info("Brain (Local Only) inicializado.")
+        # Mini-Brain: Inteligência local baseada em similaridade (Rápida e leve)
+        self.local_brain = LocalBrainEngine()
 
-    async def process_intent(self, user_text: str) -> dict:
+        # Cloud LLM: Opcional, se a chave estiver configurada
+        self.cloud_llm = None
+        if Config.GEMINI_API_KEY:
+            try:
+                import google.generativeai as genai
+                genai.configure(api_key=Config.GEMINI_API_KEY)
+                self.cloud_llm = genai.GenerativeModel(Config.GEMINI_MODEL)
+                logger.info(f"🧠 Cloud Brain (Gemini) ativado: {Config.GEMINI_MODEL}")
+            except Exception as e:
+                logger.warning(f"⚠️ Erro ao inicializar Gemini: {e}")
+
+        logger.info("🧠 Brain inicializado.")
+
+    async def process_intent(self, user_text: str) -> Dict[str, Any]:
         """
-        Só é chamado se rules NÃO reconhecerem o comando.
+        Chamado quando Rules e IntentEngine falham.
+        Tenta LocalBrain primeiro, depois Cloud LLM.
         """
 
         # ==================================================
-        # 🚫 GATE CRÍTICO: NÃO USAR IA DURANTE SETUP
+        # 0. GATE DE SETUP (CRÍTICO)
         # ==================================================
         lock_state = Persistence.get_state("lock")
-
         if lock_state and lock_state.get("setup_step"):
             logger.info("Brain ignorado (setup de fechadura ativo).")
             return {
@@ -49,33 +61,53 @@ class Brain:
             }
 
         # ==================================================
-        # 1. LOCAL LLM (PHASE 3)
+        # 1. LOCAL MINI-BRAIN (RÁPIDO & FREE)
         # ==================================================
         try:
-            local_result = await asyncio.to_thread(self.local_llm.interpret, user_text)
+            local_result = await self.local_brain.process(user_text)
             if local_result:
-                local_result.setdefault("intent", "unknown")
-                local_result.setdefault("action", None)
-                local_result.setdefault("entity", None)
-                local_result.setdefault("confidence", 0.8) # Arbitrary low confidence for LLM
-                local_result["text"] = user_text
-                local_result["source"] = "local_llm"
-
-                logger.info(f"[LLM] Local fallback interpretou: {local_result.get('intent')}")
-                return local_result
+                # Normaliza para estrutura de intent
+                return {
+                    "intent": "chat",
+                    "response": local_result["text"], # O Executor espera 'response' para chat
+                    "text": user_text,
+                    "source": "local_brain",
+                    "confidence": local_result["confidence"]
+                }
         except Exception as e:
-            logger.warning(f"[LLM] Erro ao processar localmente: {e}")
+            logger.warning(f"⚠️ Erro no LocalBrain: {e}")
 
         # ==================================================
-        # 2. FALLBACK DETERMINÍSTICO (SEGURANÇA FINAL)
+        # 2. CLOUD LLM (INTELIGÊNCIA REAL)
+        # ==================================================
+        if self.cloud_llm:
+            try:
+                # Prompt simples para chat contextual
+                response = await asyncio.to_thread(
+                    self.cloud_llm.generate_content,
+                    f"Você é Jarvis do Cerrado, um assistente útil e engraçado com sotaque goiano leve. Responda curto: {user_text}"
+                )
+
+                if response and response.text:
+                    return {
+                        "intent": "chat",
+                        "response": response.text.strip(),
+                        "text": user_text,
+                        "source": "cloud_llm",
+                        "confidence": 0.9
+                    }
+            except Exception as e:
+                logger.error(f"❌ Erro no Cloud Brain: {e}")
+
+        # ==================================================
+        # 3. FALLBACK FINAL
         # ==================================================
         logger.info("[ROUTER] Fallback humano acionado (sem LLM).")
         return self._fallback(user_text)
 
-    def _fallback(self, user_text: str) -> dict:
+    def _fallback(self, user_text: str) -> Dict[str, Any]:
         """
         Resposta padrão quando TUDO falha.
-        Deve ser útil e guiar o usuário de volta aos trilhos.
         """
         return {
             "intent": "chat",
