@@ -19,6 +19,7 @@ from jarvis.core.events import Event
 
 from jarvis.services.collector import CollectorService
 from jarvis.services.scheduler import SchedulerService
+from jarvis.services.guardian import GuardianService
 
 # =====================================================
 # LOGGING
@@ -166,9 +167,17 @@ async def post_init(application):
 
     logger.info("📡 Collector e Scheduler iniciados")
 
-    # FUTURO:
-    # GuardianService entra aqui
-    # EnergyService entra aqui
+    # -------------------------
+    # GUARDIAN SERVICE (NOVO)
+    # -------------------------
+    if Config.ALLOWED_USER_ID:
+        guardian = GuardianService(application, chat_id=Config.ALLOWED_USER_ID)
+        application.bot_data["guardian"] = guardian
+        task_guardian = asyncio.create_task(guardian.start())
+        application.bot_data["tasks"].append(task_guardian)
+        logger.info("🛡️ GuardianService iniciado")
+    else:
+        logger.warning("⚠️ ALLOWED_USER_ID não definido. GuardianService não foi iniciado.")
 
 
 # =====================================================

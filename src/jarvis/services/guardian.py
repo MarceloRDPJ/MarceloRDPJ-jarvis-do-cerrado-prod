@@ -68,12 +68,6 @@ class GuardianService:
                     await self.check_internet_status()
                     self.last_ping_time = now
 
-                    # Processa notificações pendentes (ex: energia caiu e internet voltou agora)
-                    if self.pending_power_msg and self.internet_state == "online":
-                        sent = await self.send_message(self.pending_power_msg)
-                        if sent:
-                            self.pending_power_msg = None
-
                 # Tique dos Dispositivos (60s)
                 if now - self.last_device_scan_time >= self.DEVICE_SCAN_INTERVAL:
                     await self.check_device_changes()
@@ -145,6 +139,12 @@ class GuardianService:
             if latency:
                 self.latency_history.append(latency)
                 self.latency_history = self.latency_history[-10:]
+
+            # FLUSH QUEUE: Se a internet está OK, envia mensagens pendentes (ex: energia)
+            if self.pending_power_msg:
+                sent = await self.send_message(self.pending_power_msg)
+                if sent:
+                    self.pending_power_msg = None
 
         else:
             # -------------------------------------------------
