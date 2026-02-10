@@ -93,6 +93,13 @@ class ContextEngine:
         """
         return Persistence.get_snapshot_before(minutes)
 
+    @staticmethod
+    def get_last_snapshot() -> Optional[Dict[str, Any]]:
+        """
+        Retorna o último snapshot gravado (sem filtro de tempo).
+        """
+        return Persistence.get_last_snapshot()
+
     # ==================================================
     # BASELINE (NORMALIDADE)
     # ==================================================
