@@ -137,6 +137,41 @@ class Persistence:
         conn.close()
 
     @staticmethod
+    def register_device_seen(mac: str):
+        """
+        Registra que um dispositivo foi visto, mesmo sem nome.
+        Garante que ele exista na tabela 'devices'.
+        """
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        # Se já existe, não faz nada (preserva o nome se tiver).
+        # Se não existe, insere com nome NULL (ou string vazia).
+        c.execute(
+            "INSERT OR IGNORE INTO devices (mac, name, updated_at) VALUES (?, ?, ?)",
+            (mac, "", datetime.now(timezone.utc).isoformat()),
+        )
+        # Se quisermos atualizar o 'updated_at' sempre:
+        if c.rowcount == 0:
+             c.execute(
+                "UPDATE devices SET updated_at = ? WHERE mac = ?",
+                (datetime.now(timezone.utc).isoformat(), mac)
+             )
+        conn.commit()
+        conn.close()
+
+    @staticmethod
+    def device_exists(mac: str) -> bool:
+        """
+        Verifica se um MAC já foi registrado (com ou sem nome).
+        """
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT 1 FROM devices WHERE mac=?", (mac,))
+        row = c.fetchone()
+        conn.close()
+        return bool(row)
+
+    @staticmethod
     def update_task_meta(task_id: int, meta: Dict):
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
@@ -154,7 +189,8 @@ class Persistence:
         c.execute("SELECT name FROM devices WHERE mac=?", (mac,))
         row = c.fetchone()
         conn.close()
-        return row[0] if row else None
+        # Retorna o nome se existir E não for vazio
+        return row[0] if row and row[0] else None
 
     # ==================================================
     # EVENTS
@@ -197,10 +233,14 @@ class Persistence:
     def get_state(key: str, default=None):
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        c.execute("SELECT value FROM state WHERE key=?", (key,))
-        row = c.fetchone()
-        conn.close()
-        return json.loads(row[0]) if row else default
+        try:
+            c.execute("SELECT value FROM state WHERE key=?", (key,))
+            row = c.fetchone()
+            return json.loads(row[0]) if row else default
+        except sqlite3.OperationalError:
+            return default
+        finally:
+            conn.close()
 
     # ==================================================
     # TASKS (Enhanced)
