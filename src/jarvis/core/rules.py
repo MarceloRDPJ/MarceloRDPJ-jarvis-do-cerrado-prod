@@ -104,6 +104,25 @@ def apply_rules(text: str) -> Optional[Dict]:
         }
 
     # =====================================================
+    # NETWORK STATUS & SPEED
+    # =====================================================
+    if "velocidade da internet" in t or "teste de velocidade" in t or "speedtest" in t:
+        return {
+            "intent": "network_speed",
+            "action": "check",
+            "entity": "network",
+            "confidence": 1.0,
+        }
+
+    if "status da internet" in t or "internet ta on" in t or "ping" in t or "conexao" in t:
+        return {
+            "intent": "network_status",
+            "action": "check",
+            "entity": "network",
+            "confidence": 1.0,
+        }
+
+    # =====================================================
     # NETWORK SCAN (HUMANO)
     # =====================================================
     if (
@@ -116,6 +135,27 @@ def apply_rules(text: str) -> Optional[Dict]:
             "intent": "network_scan",
             "action": "scan",
             "entity": "network",
+            "confidence": 1.0,
+        }
+
+    # =====================================================
+    # NETWORK RENAME
+    # =====================================================
+    # Captura "renomear X por Y" ou "renomear X para Y" ou "renomear X Y"
+    # Ex: "Renomear 192.168.1.54 por celular Marcelo"
+    rename_match = re.search(r"renomear\s+(\d{1,3}(?:\.\d{1,3}){3})\s+(?:para|por|de)?\s*(.+)", t)
+    if rename_match:
+        ip = rename_match.group(1)
+        name = rename_match.group(2).strip()
+        return {
+            "intent": "network_rename",
+            "action": "rename",
+            "entity": "network",
+            "params": {
+                "target": ip,
+                "name": name,
+                "text": t
+            },
             "confidence": 1.0,
         }
 
