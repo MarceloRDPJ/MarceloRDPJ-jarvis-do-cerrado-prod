@@ -2,7 +2,7 @@ import logging
 import json
 import random
 from typing import Dict, Any, List
-from rapidfuzz import process, fuzz
+from rapidfuzz import process, fuzz, utils
 
 logger = logging.getLogger(__name__)
 
@@ -15,9 +15,9 @@ class LocalBrain:
 
     def __init__(self):
         # Base de Conhecimento Local (Knowledge Base)
-        # Pode ser expandida via JSON externo no futuro
         self.kb = {
             "quem é você": "Sou o Jarvis do Cerrado, seu assistente pessoal com sotaque e tecnologia de ponta. Cuido da sua casa e da sua rede.",
+            "quem e voce": "Sou o Jarvis do Cerrado, seu assistente pessoal com sotaque e tecnologia de ponta. Cuido da sua casa e da sua rede.",
             "qual seu nome": "Me chamo Jarvis. Mas pode me chamar de Guardião, se preferir.",
             "o que você faz": "Eu monitoro a rede, cuido dos seus lembretes, aviso se a internet cair e ainda bato um papo. Sou multitarefa, uai.",
             "piada": [
@@ -46,7 +46,7 @@ class LocalBrain:
 
         # Flatten keys for fuzzy matching
         self.kb_keys = list(self.kb.keys())
-        self.similarity_threshold = 85
+        self.similarity_threshold = 75 # Lowered for better matching of typos/accents
 
     async def process(self, text: str) -> Dict[str, Any]:
         """
@@ -55,11 +55,12 @@ class LocalBrain:
         if not text:
             return None
 
-        # Busca a melhor correspondência
+        # Busca a melhor correspondência usando processador padrão (lowercase + strip)
         match_result = process.extractOne(
-            text.lower(),
+            text,
             self.kb_keys,
             scorer=fuzz.WRatio,
+            processor=utils.default_process,
             score_cutoff=self.similarity_threshold
         )
 
