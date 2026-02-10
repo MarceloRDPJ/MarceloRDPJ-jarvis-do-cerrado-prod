@@ -7,6 +7,8 @@ from typing import Dict, Any, Optional
 
 from jarvis.database.persistence import Persistence
 from jarvis.core.context import ContextEngine
+from jarvis.config import Config
+from jarvis.core.utils import is_quiet_hours
 
 logger = logging.getLogger("modules.hydration")
 
@@ -85,7 +87,10 @@ class HydrationModule:
         Verifica se virou o dia e reseta o contador.
         Retorna True se houve reset.
         """
-        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        # Reset baseado no fuso horário local, não UTC
+        now_local = datetime.now(timezone.utc).astimezone(Config.TZ)
+        now_str = now_local.strftime("%Y-%m-%d")
+
         if state.get("last_reset_date") != now_str:
             state["consumed_today_ml"] = 0
             state["last_reset_date"] = now_str
@@ -153,18 +158,20 @@ class HydrationModule:
                 return "Diz aí os minutos, tipo '45'."
 
             val = int(match.group(1))
-            if val < 5: return "Menos de 5 minutos é exagero, né? Escolhe um tempo maior."
+            min_val = Config.HYDRATION_MIN_INTERVAL_MINUTES
+            if val < min_val: return f"Menos de {min_val} minutos é exagero, né? Escolhe um tempo maior."
 
             data["interval_minutes"] = val
 
             # Finaliza Setup
             state = HydrationModule._load_state(chat_id)
+            now_local = datetime.now(timezone.utc).astimezone(Config.TZ)
             state.update({
                 "active": True,
                 "daily_goal_ml": data["daily_goal_ml"],
                 "cup_size_ml": data["cup_size_ml"],
                 "interval_minutes": data["interval_minutes"],
-                "last_reset_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                "last_reset_date": now_local.strftime("%Y-%m-%d"),
                 "consumed_today_ml": 0
             })
             HydrationModule._save_state(chat_id, state)
@@ -325,8 +332,8 @@ class HydrationModule:
             interval = state["interval_minutes"]
             next_run = last + timedelta(minutes=interval)
 
-            # Ajuste fuso horário simples (utc-3 display)
-            next_local = next_run - timedelta(hours=3)
+            # Ajuste fuso horário local via Config
+            next_local = next_run.astimezone(Config.TZ)
             next_str = next_local.strftime("%H:%M")
             next_msg = f"\n⏰ Próximo gole: ~{next_str}"
 
@@ -368,7 +375,8 @@ class HydrationModule:
             msg = f"Copo atualizado para {val}ml."
             changed = True
         elif "intervalo" in text or "tempo" in text:
-            if val < 5: return "Intervalo muito curto."
+            min_val = Config.HYDRATION_MIN_INTERVAL_MINUTES
+            if val < min_val: return f"Intervalo muito curto. Mínimo {min_val} min."
             state["interval_minutes"] = val
             msg = f"Intervalo atualizado para {val} min."
             changed = True
@@ -437,28 +445,13 @@ class HydrationModule:
 
         # 3. Quiet Hours
         now = datetime.now(timezone.utc)
-        local_now = now - timedelta(hours=3)
-        hour = local_now.hour
+        local_now = now.astimezone(Config.TZ)
 
-        q_start = 19 # Default hardcoded fallback
-        q_end = 8
+        # Lógica centralizada de Quiet Hours
+        # Usa configuração do estado ou fallback
+        q_hours = state.get("quiet_hours", {"start": "22:00", "end": "08:00"})
 
-        # Tenta ler do state (formato "HH:MM")
-        try:
-            qs = int(state["quiet_hours"]["start"].split(":")[0])
-            qe = int(state["quiet_hours"]["end"].split(":")[0])
-            q_start, q_end = qs, qe
-        except: pass
-
-        # Lógica de intervalo noturno (ex: 22h as 08h)
-        # Se start > end (normal, cruza meia noite)
-        in_quiet = False
-        if q_start > q_end:
-            if hour >= q_start or hour < q_end: in_quiet = True
-        else:
-            if q_start <= hour < q_end: in_quiet = True
-
-        if in_quiet:
+        if is_quiet_hours(local_now, q_hours):
             # Não notifica.
             # Reagenda para o fim do quiet hours?
             # Ou apenas deixa o scheduler padrão (recorrência) rodar?

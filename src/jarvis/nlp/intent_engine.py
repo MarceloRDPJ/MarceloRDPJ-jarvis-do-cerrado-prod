@@ -2,6 +2,7 @@ from typing import Dict
 from rapidfuzz import process, fuzz
 import re
 from jarvis.nlp.time_parser import parse_time_command
+from jarvis.config import Config
 
 # =============================================================================
 # ENGINE HÍBRIDO (PHASE 1)
@@ -84,7 +85,7 @@ class HybridIntentEngine:
                 "apagar a luz da sala", "apagar a luz do quarto", "apagar a luz da cozinha"
             ],
         }
-        self.similarity_threshold = 88
+        self.similarity_threshold = int(Config.INTENT_CONFIDENCE_THRESHOLD * 100)
 
     def identify_intent(self, user_input: str) -> Dict:
         if not user_input or not isinstance(user_input, str):

@@ -1,6 +1,7 @@
 python-telegram-bot==20.8
 python-dotenv
 pyyaml
+pytz
 
 psutil
 speedtest-cli
@@ -9,4 +10,3 @@ mac-vendor-lookup
 scapy
 bleak
 google-generativeai
-tinytuya
