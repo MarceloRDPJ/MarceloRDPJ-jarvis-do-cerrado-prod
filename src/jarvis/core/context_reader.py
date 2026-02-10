@@ -196,7 +196,8 @@ class ContextReader:
     # ==================================================
     @staticmethod
     def detect_gap(max_gap_minutes: int = 5) -> Dict[str, Any]:
-        current = ContextReader.current()
+        # Busca o último snapshot disponível, independente do tempo
+        current = ContextEngine.get_last_snapshot()
         if not current:
             return {"status": "no_data"}
 

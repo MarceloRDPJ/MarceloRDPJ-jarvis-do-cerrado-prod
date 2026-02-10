@@ -311,6 +311,47 @@ class NetworkModule:
         )
         return "🟢 Conectividade OK (ping 8.8.8.8)"
 
+    @staticmethod
+    async def get_ping_metrics(host: str = "8.8.8.8") -> Dict[str, Any]:
+        """
+        Retorna métricas detalhadas do ping (sucesso, latência).
+        """
+        return await asyncio.to_thread(NetworkModule._ping_metrics_sync, host)
+
+    @staticmethod
+    def _ping_metrics_sync(host: str) -> Dict[str, Any]:
+        try:
+            # -c 1: count 1
+            # -W 2: timeout 2 seconds
+            output = subprocess.check_output(
+                ["ping", "-c", "1", "-W", "2", host],
+                stderr=subprocess.STDOUT,
+                text=True
+            )
+
+            # Parse latency (time=14.2 ms)
+            import re
+            match = re.search(r"time=([\d\.]+)", output)
+            latency = float(match.group(1)) if match else None
+
+            return {
+                "success": True,
+                "latency_ms": latency,
+                "error": None
+            }
+        except subprocess.CalledProcessError as e:
+            return {
+                "success": False,
+                "latency_ms": None,
+                "error": "Request timed out" if e.returncode == 1 else f"Error code {e.returncode}"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "latency_ms": None,
+                "error": str(e)
+            }
+
     # ==================================================
     # SPEEDTEST
     # ==================================================

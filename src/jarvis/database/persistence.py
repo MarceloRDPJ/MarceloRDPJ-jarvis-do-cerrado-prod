@@ -469,6 +469,23 @@ class Persistence:
 
         return {"timestamp": row[0], **json.loads(row[1])} if row else None
 
+    @staticmethod
+    def get_last_snapshot() -> Optional[Dict[str, Any]]:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute(
+            """
+            SELECT timestamp, data
+            FROM snapshots
+            ORDER BY timestamp DESC
+            LIMIT 1
+            """
+        )
+        row = c.fetchone()
+        conn.close()
+
+        return {"timestamp": row[0], **json.loads(row[1])} if row else None
+
     # ==================================================
     # BASELINE
     # ==================================================
