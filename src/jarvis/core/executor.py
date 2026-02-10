@@ -178,12 +178,16 @@ class Executor:
 
                 keyboard = [
                     [
-                        InlineKeyboardButton("📅 Meus Lembretes", callback_data="listar lembretes"),
-                        InlineKeyboardButton("💧 Status Água", callback_data="status hidratacao")
+                        InlineKeyboardButton("🛜 Scan Rede", callback_data="quem ta na rede"),
+                        InlineKeyboardButton("🚀 Velocidade", callback_data="velocidade da internet")
                     ],
                     [
-                        InlineKeyboardButton("🛜 Scan Rede", callback_data="quem ta na rede"),
-                        InlineKeyboardButton("🖥️ Sistema", callback_data="status do sistema")
+                        InlineKeyboardButton("💧 Ativar Hidratação", callback_data="ativar hidratacao"),
+                        InlineKeyboardButton("📊 Status Água", callback_data="status hidratacao")
+                    ],
+                    [
+                        InlineKeyboardButton("📅 Ver Agenda", callback_data="listar lembretes"),
+                        InlineKeyboardButton("🖥️ Status Sistema", callback_data="status do sistema")
                     ]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
@@ -191,24 +195,24 @@ class Executor:
                 reply_markup = None
 
             text = (
-                "🧠 *Menu de Ajuda do Jarvis do Cerrado*\n\n"
-                "_Uai, aqui tá o que eu dou conta de fazer:_\n\n"
-                "🌐 *Rede & Dispositivos*\n"
-                "• `Quem tá na rede?` - Mostra conexões.\n"
-                "• `Mudar o nome do 192.168.1.X para TV` - Renomeia.\n"
-                "• `Status da internet` - Teste de velocidade.\n\n"
-                "⏰ *Lembretes & Tarefas*\n"
-                "• `Me lembre de tomar remédio a cada 8 horas`\n"
-                "• `Me lembre no sábado as 14h`\n"
-                "• `Me lembre de beber água`\n"
-                "• `Listar lembretes` - Ver agenda.\n"
-                "• `Cancelar lembrete 1` - Apagar aviso.\n\n"
-                "💧 *Saúde & Hidratação*\n"
-                "• `Quantas águas eu bebi?` - Progresso.\n"
-                "• `Bebi água` - Marca +1.\n\n"
-                "🖥️ *Sistema & Segurança*\n"
-                "• `Status do sistema` - Diagnóstico.\n\n"
-                "_Pode falar do seu jeito que eu entendo. Se não entender, eu pergunto!_"
+                "🧠 *Menu de Comando — Jarvis do Cerrado*\n\n"
+                "_Opa! Tudo que eu posso fazer tá aqui, ó:_\n\n"
+                "🌐 *Rede & Conexão*\n"
+                "• `Quem tá na rede?` - Lista dispositivos.\n"
+                "• `Status da internet` - Checa se tá tudo on.\n"
+                "• `Velocidade da internet` - Teste rápido.\n"
+                "• `Renomear 192.168.1.X para TV` - Organiza a casa.\n\n"
+                "⏰ *Agenda & Lembretes*\n"
+                "• `Lembrar de tomar remédio a cada 8h`\n"
+                "• `Lembrar de reunião amanhã às 14h`\n"
+                "• `Listar lembretes` - Ver o que tá pendente.\n\n"
+                "💧 *Hidratação Inteligente*\n"
+                "• `Ativar Hidratação` - Começa o monitoramento.\n"
+                "• `Bebi água` - Registra um copo.\n"
+                "• `Status água` - Vê sua meta do dia.\n\n"
+                "🖥️ *Sistema*\n"
+                "• `Status do sistema` - CPU, RAM e Temperatura.\n\n"
+                "_Se precisar de algo mais específico, é só pedir com jeitinho._"
             )
 
             return {
@@ -233,6 +237,13 @@ class Executor:
         # ---------------- NETWORK ----------------
         if intent == "menu_network":
             return self._build_menu("Network")
+
+        if intent == "network_speed":
+            await self.app.bot.send_message(chat_id=chat_id, text="🚀 Iniciando teste de velocidade... segura a onda que demora uns segundos.")
+            return await NetworkModule.run_speedtest()
+
+        if intent == "network_status":
+            return await NetworkModule.check_ping()
 
         if intent == "network_scan":
             result = await NetworkModule.scan_network()
@@ -389,7 +400,7 @@ class Executor:
         if menu_type == "Network":
             text = "🌐 *Centro de Comando de Rede*\n\n_Monitoramento e controle de tráfego._"
             keyboard = [
-                [InlineKeyboardButton("🔍 Scan Total", callback_data="quem ta na rede"), InlineKeyboardButton("🚀 Velocidade", callback_data="status da internet")],
+                [InlineKeyboardButton("🔍 Scan Total", callback_data="quem ta na rede"), InlineKeyboardButton("🚀 Velocidade", callback_data="velocidade da internet")],
                 [InlineKeyboardButton("✏️ Renomear Host", callback_data="ajuda renomear"), InlineKeyboardButton("🔙 Menu Principal", callback_data="help")]
             ]
 

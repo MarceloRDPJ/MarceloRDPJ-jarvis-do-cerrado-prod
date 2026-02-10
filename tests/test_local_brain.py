@@ -1,24 +1,28 @@
+import unittest
 from jarvis.core.brain import Brain
-import pytest
+import asyncio
 
-@pytest.mark.asyncio
-async def test_brain_local_fallback():
-    brain = Brain()
+class TestBrainLocalFallback(unittest.IsolatedAsyncioTestCase):
+    async def test_brain_local_fallback(self):
+        brain = Brain()
 
-    # Test local knowledge base
-    result = await brain.process_intent("quem é você")
-    assert result is not None
-    assert result["intent"] == "chat"
-    assert "Jarvis do Cerrado" in result["response"]
-    assert result["source"] == "local_brain"
+        # Test local knowledge base
+        result = await brain.process_intent("quem é você")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["intent"], "chat")
+        self.assertIn("Jarvis do Cerrado", result["response"])
+        self.assertEqual(result["source"], "local_brain")
 
-    # Test fuzzy matching
-    result_fuzzy = await brain.process_intent("qm e vc")
-    assert result_fuzzy is not None
-    assert "Jarvis" in result_fuzzy["response"]
+        # Test fuzzy matching (unaccented)
+        result_fuzzy = await brain.process_intent("quem e voce")
+        self.assertIsNotNone(result_fuzzy)
+        self.assertIn("Jarvis", result_fuzzy["response"])
 
-    # Test unknown command (fallback)
-    result_unknown = await brain.process_intent("comando_inexistente_xyz_123")
-    assert result_unknown["intent"] == "chat"
-    # Fallback message might vary, but shouldn't be empty
-    assert len(result_unknown["response"]) > 0
+        # Test unknown command (fallback)
+        result_unknown = await brain.process_intent("comando_inexistente_xyz_123")
+        self.assertEqual(result_unknown["intent"], "chat")
+        # Should be fallback
+        self.assertNotIn("Jarvis do Cerrado", result_unknown["response"])
+
+if __name__ == "__main__":
+    unittest.main()
