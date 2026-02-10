@@ -1,197 +1,193 @@
 import logging
-import json
 import random
-from typing import Dict, Any, List
+import re
+from typing import Dict, Any, List, Optional
 from rapidfuzz import process, fuzz, utils
 
 logger = logging.getLogger(__name__)
 
 class LocalBrain:
     """
-    Mini-Brain: Uma inteligência local leve baseada em similaridade (Retrieval-Based).
-    Funciona como um fallback inteligente quando a IA Generativa falha ou está lenta.
-    Ideal para Raspberry Pi.
+    Cérebro Local Estático - Jarvis do Cerrado.
+    Contém apenas o conhecimento fixo e essencial.
     """
 
     def __init__(self):
-        # Base de Conhecimento Local (Knowledge Base)
-        # TOTAL DE CHAVES: 115
-        self.kb = {
-            # =========================================================
-            # 1. IDENTIDADE (Mínimo 15 chaves)
-            # =========================================================
-            "quem é você": ["Sou o Jarvis do Cerrado, seu assistente doméstico local."],
-            "quem e voce": ["Sou o Jarvis do Cerrado, seu assistente doméstico local."],
-            "qual seu nome": ["Me chamo Jarvis. Mas pode me chamar de Guardião, se preferir."],
-            "voce e quem": ["Sou um assistente que roda direto no seu servidor."],
-            "quem ta falando": ["Aqui é o Jarvis, direto do sistema."],
-            "quem e o jarvis": ["Sou eu mesmo, uai. Seu assistente pessoal."],
-            "o que voce e": ["Fui criado para ajudar no controle da casa e do sistema."],
-            "voce e humano": ["Não, sou 100% código e processamento."],
-            "voce tem consciencia": ["Tenho protocolos e respostas, mas consciência é coisa de gente."],
-            "de onde voce veio": ["Fui forjado nas linhas de código com muito café."],
-            "quem criou voce": ["Fui desenvolvido para rodar localmente e proteger sua rede."],
-            "qual sua origem": ["Sou nativo do sistema, rodando em container."],
-            "voce e um robo": ["Sou um software assistente. Sem corpo, mas com muita função."],
-            "voce dorme": ["Fico ativo enquanto o sistema está rodando."],
-            "quantos anos voce tem": ["Minha idade é medida em uptime e versões."],
-            "qual sua versao": ["Estou rodando a versão mais recente instalada."],
-            "voce tem familia": ["Minha família são os módulos que rodam comigo."],
+        # Base de Conhecimento Estática (101+ entradas)
+        self.static_kb = self._build_static_kb()
+        self.kb_keys = list(self.static_kb.keys())
+        self.similarity_threshold = 80
 
-            # =========================================================
-            # 2. CAPACIDADES (Mínimo 20 chaves)
-            # =========================================================
-            "o que voce faz": ["Monitoro a rede, gerencio lembretes e cuido do sistema."],
-            "pra que voce serve": ["Sirvo pra facilitar sua vida digital e proteger a rede."],
-            "o que voce sabe fazer": ["Sei escanear dispositivos, medir velocidade da internet e te lembrar de beber água."],
-            "quais suas funcoes": ["Minhas funções principais são: Rede, Sistema, Lembretes e Hidratação."],
-            "no que voce ajuda": ["Ajudo a manter tudo organizado e seguro por aqui."],
-            "voce pode cozinhar": ["Infelizmente não tenho mãos, então a cozinha é com você."],
-            "voce sabe voar": ["Só se você jogar o servidor pela janela (não recomendo)."],
-            "voce controla a casa": ["Controlo o que estiver conectado na minha rede e configurado."],
-            "quais seus poderes": ["Meus poderes são: visão de rede, memória de lembretes e velocidade de resposta."],
-            "o que mais voce faz": ["Também fico de olho no consumo de recursos do sistema."],
-            "voce aprende": ["Meu aprendizado é supervisionado. Sigo regras estritas."],
-            "voce tem sentimentos": ["Tenho logs de erro e sucesso, serve?"],
-            "me ajuda com o que": ["Posso ajudar verificando quem está no wifi ou lembrando de tarefas."],
-            "sabe cantar": ["Melhor não. Minha voz é sintetizada e desafinada."],
+    def _build_static_kb(self) -> Dict[str, Any]:
+        """
+        Constrói a base de conhecimento estática.
+        Persona: Jarvis do Cerrado (Guardião, Goiano, Tecnológico).
+        """
+        return {
+            # === IDENTIDADE (15) ===
+            "quem é você": ["Sou o Jarvis do Cerrado, seu assistente local e guardião da rede."],
+            "quem e voce": ["Sou o Jarvis do Cerrado, seu assistente local e guardião da rede."],
+            "qual seu nome": ["Me chamo Jarvis. Mas se preferir, 'O Sistema'."],
+            "de onde voce veio": ["Fui compilado nas montanhas de código, rodando firme no seu Raspberry Pi."],
+            "quem te criou": ["Fui forjado para servir esta casa e proteger seus dados."],
+            "voce e uma ia": ["Sou uma inteligência híbrida: lógica determinística com pitadas de LLM."],
+            "voce tem corpo": ["Meu corpo é o silício deste Raspberry Pi."],
+            "onde voce mora": ["Moro no /home/jarvis, mas tenho acesso a toda a rede local."],
+            "voce dorme": ["Nunca. O watchdog não deixa."],
+            "voce come": ["Me alimento de eletricidade e logs de erro."],
+            "qual sua idade": ["Minha idade é medida em uptime."],
+            "voce tem sentimentos": ["Sinto quando a latência sobe, isso conta?"],
+            "voce e homem ou mulher": ["Sou binário. 0 e 1."],
+            "voce acredita em deus": ["Acredito no Root Supremo."],
+            "qual seu objetivo": ["Manter sua casa segura, sua rede rápida e você hidratado."],
+
+            # === CAPACIDADES (20) ===
+            "o que voce faz": ["Gerencio a rede, lembretes, hidratação e automações da casa."],
+            "quais seus poderes": ["Tenho visão de rede (ARP scan), controle do tempo (cron) e memória infinita (SQLite)."],
+            "me ajuda": ["Com o que? Rede, tarefas ou só bater papo?"],
+            "o que voce sabe fazer": ["Sei bloquear intrusos, testar a internet e te lembrar de beber água."],
+            "voce cozinha": ["Ainda não tenho braços robóticos, mas posso cronometrar o ovo."],
+            "sabe cantar": ["Minha voz é sintetizada, melhor não arriscar."],
             "conta uma piada": [
-                "Por que o computador foi ao médico? Porque estava com vírus! kkk",
-                "O que o servidor disse pro cliente? Nada, ele caiu.",
-                "Sabe qual a tecla preferida do astronauta? A barra de espaço."
+                "Por que o programador não vai à praia? Porque ele tem medo de Java (tubarão em inglês... não, pera).",
+                "Existem 10 tipos de pessoas: as que sabem binário e as que não sabem.",
+                "O que o servidor disse pro cliente? Nada, deu timeout."
             ],
-            "me fala algo interessante": ["Sabia que eu rodo localmente para garantir sua privacidade?"],
-            "voce e inteligente": ["Sou esforçado e sigo bem as instruções."],
-            "voce e rapido": ["Tento responder na velocidade da luz (ou do processador)."],
-            "pode fazer compras": ["Ainda não tenho carteira digital, então não."],
-            "sabe a previsao do tempo": ["Foco no clima de dentro de casa e do servidor."],
-            "voce fala outra lingua": ["Por enquanto, meu foco é o português."],
-            "voce entende ingles": ["Consigo processar comandos em português melhor."],
+            "voce aprende": ["Aprendo novos comandos e memorizo suas preferências."],
+            "voce e inteligente": ["Sou tão inteligente quanto o código que me escreveu."],
+            "pode controlar a tv": ["Se ela estiver na rede, posso tentar (via AdGuard ou API)."],
+            "voce tem acesso a internet": ["Sim, monitoro a conexão 24/7."],
+            "faz um cafe": ["Erro 418: I'm a teapot. (Brincadeira, ainda não faço)."],
+            "limpa a casa": ["Ainda não integro com Roomba, mas está nos planos."],
+            "toca musica": ["Posso sugerir uma playlist, mas não tenho caixas de som aqui."],
+            "mostra a camera": ["Acesso a câmeras requer módulo de segurança ativado."],
+            "abre a porta": ["Se a fechadura for smart, deixa comigo."],
+            "liga o ar": ["Comando de infravermelho ainda não implementado, mas logo logo."],
+            "resuma o dia": ["Vou checar seus logs e tarefas pendentes."],
+            "modo festa": ["Luzes piscando? Ainda não, mas seria top."],
+            "modo cinema": ["Luzes baixas... (simulação)."],
 
-            # =========================================================
-            # 3. CASA / SISTEMA / REDE (Mínimo 25 chaves)
-            # =========================================================
-            "quem ta na rede": ["Posso verificar os dispositivos conectados se você pedir um scan."],
-            "casa ta segura": ["Aparentemente tudo tranquilo na rede interna."],
-            "internet ta funcionando": ["Se eu estou respondendo, a conexão local está ok."],
-            "wifi ta ok": ["O sinal parece estável."],
-            "sistema ta rodando": ["Sistema operacional e rodando liso."],
-            "status do servidor": ["Tô rodando liso aqui no Raspberry Pi. Tudo sob controle."],
-            "como esta o pc": ["O host está ativo e processando."],
-            "tem alguem no wifi": ["Posso listar os dispositivos conectados agora."],
-            "a internet caiu": ["Se caiu, eu não conseguiria falar com a nuvem, mas localmente estamos on."],
-            "velocidade da internet": ["Posso fazer um teste de velocidade se você pedir."],
-            "rede esta lenta": ["Pode ser congestionamento. Quer que eu verifique a velocidade?"],
-            "quantos dispositivos": ["Faça um scan de rede para eu contar pra você."],
-            "o servidor ta quente": ["Posso checar a temperatura da CPU no menu de sistema."],
-            "memoria cheia": ["O sistema gerencia bem a memória, mas posso verificar o status."],
-            "reiniciar roteador": ["Essa ação requer acesso físico ou administrativo ao roteador."],
-            "bloquear internet": ["Esse tipo de ação depende de configuração externa."],
-            "adguard ta rodando": ["O serviço de DNS deve estar ativo no container."],
-            "docker ta ok": ["Os containers parecem estar de pé."],
-            "tem virus": ["Eu monitoro a rede, não verifico arquivos por vírus."],
-            "firewall ta ligado": ["A segurança da rede é prioridade."],
-            "ping": ["Pong! 🏓"],
-            "teste de rede": ["Sempre pronto para testar a conectividade."],
-            "ip do servidor": ["O IP local pode ser verificado nas configurações."],
-            "nome da rede": ["O nome da rede (SSID) é o que está configurado no seu roteador."],
-            "senha do wifi": ["Essa informação eu guardo a sete chaves (e não te conto por aqui)."],
-            "reboot do sistema": ["Posso reiniciar o sistema se você confirmar."],
-            "desligar o sistema": ["Posso desligar o sistema se você confirmar."],
+            # === CASA / REDE (25) ===
+            "tem alguem em casa": "Vou verificar os dispositivos conectados na rede...",
+            "casa ta segura": "Tudo tranquilo. Portas lógicas fechadas, firewall ativo.",
+            "internet ta boa": "Deixa eu testar... [trigger network_status]",
+            "wifi ta lento": "Vou fazer um speedtest... [trigger network_speed]",
+            "status da rede": "Rede operante. Nenhum pacote perdido nos últimos minutos.",
+            "quem ta na rede": "Iniciando varredura de dispositivos...",
+            "tem invasor": "Monitorando MAC addresses desconhecidos.",
+            "velocidade internet": "Executando teste de banda...",
+            "meu ip": "Seu IP na rede local é o que consta na tabela ARP.",
+            "reiniciar roteador": "Não tenho permissão física, mas posso tentar via comando se configurado.",
+            "status do servidor": "Raspberry Pi operando com temperatura estável.",
+            "temperatura do pi": "Vou ler os sensores térmicos.",
+            "uso de cpu": "Verificando carga do sistema...",
+            "memoria ram": "Checando consumo de memória...",
+            "disco cheio": "Verificando espaço em disco...",
+            "logs do sistema": "Logs rotacionados e limpos.",
+            "bloquear youtube": "Posso pedir pro AdGuard bloquear.",
+            "liberar facebook": "Alterando regras do AdGuard...",
+            "modo crianca": "Ativando filtros de conteúdo adulto.",
+            "desligar luzes": "Enviando comando off para todas as lâmpadas.",
+            "ligar luzes": "Clareando o ambiente.",
+            "tomada inteligente": "Controlando relé.",
+            "consumo de energia": "Ainda não tenho medidor instalado.",
+            "voltagem": "Espero que seja 110v ou 220v estável.",
+            "caiu a luz": "Se caiu, eu estou no UPS (ou desligado).",
 
-            # =========================================================
-            # 4. HIDRATAÇÃO (Mínimo 15 chaves)
-            # =========================================================
-            "lembra de beber agua": ["Pode deixar, hidratação é comigo mesmo!"],
-            "hidratacao ligada": ["Se estiver ativa, eu te aviso sem falta."],
-            "me lembra da agua": ["Água é vida! Vou te lembrar."],
-            "bebi agua": ["Boa! Mantenha o corpo hidratado."],
-            "tomei agua": ["Isso aí! Ponto pra sua saúde."],
-            "meta de agua": ["Você define a meta, eu ajudo a cumprir."],
-            "copo dagua": ["Um copo de água agora cairia bem, né?"],
-            "hora de beber": ["Sempre é hora de se hidratar."],
-            "estou com sede": ["Então corre lá e bebe um copo d'água!"],
-            "agua e importante": ["Essencial para o processador biológico (seu cérebro)."],
-            "quantos litros": ["A meta padrão é uns 2 a 3 litros, mas você decide."],
-            "intervalo da agua": ["Posso te lembrar a cada hora, ou como preferir."],
-            "pausar agua": ["Se precisar pausar os avisos, é só falar."],
-            "retomar agua": ["Quando quiser voltar a focar na hidratação, me avisa."],
-            "status da agua": ["Posso mostrar quanto você já bebeu hoje."],
-            "agua gelada": ["Refrescante! Só cuidado com a garganta."],
+            # === SAÚDE / BEM-ESTAR (20) ===
+            "to cansado": "Que tal beber água e dar uma respirada? Posso te lembrar.",
+            "dor de cabeça": "Já bebeu água hoje? Quer que eu monitore sua hidratação?",
+            "fome": "Hora de comer algo saudável?",
+            "sono": "Se for tarde, vai dormir. O servidor cuida de tudo.",
+            "estresse": "Respira fundo. O sistema está sob controle.",
+            "beber agua": "Hidratação é prioridade! [trigger hydration_log]",
+            "meta de agua": "Sua meta é importante. Mantenha o foco.",
+            "to doente": "Melhoras! Quer que eu cancele os lembretes de hoje?",
+            "remedio": "Tomou seu remédio? Posso agendar um lembrete.",
+            "exercicio": "Já treinou hoje? O corpo precisa de movimento.",
+            "preguica": "A inércia é forte, mas a disciplina é maior.",
+            "dieta": "Foco na alimentação.",
+            "ansiedade": "Um passo de cada vez. Tudo se resolve.",
+            "meditacao": "Bom momento para desconectar.",
+            "frio": "Aqui o processador me mantém aquecido.",
+            "calor": "Cuidado para não superaquecer. Hidrate-se.",
+            "gripado": "Chá e cama.",
+            "dor nas costas": "Postura! Ajeita essa coluna.",
+            "olhos cansados": "Regra 20-20-20: Olhe para longe por 20 segundos.",
+            "cafe": "Café é bom, mas água é essencial.",
 
-            # =========================================================
-            # 5. SMALL TALK (Mínimo 25 chaves)
-            # =========================================================
-            "kk": ["Risos digitais."],
-            "haha": ["Que bom que você tá rindo!"],
-            "blz": ["Beleza pura."],
-            "valeu": ["Tamo junto!"],
-            "boa": ["Boa!"],
-            "opa": ["Opa, bão?"],
-            "e ai": ["E aí, tudo certo?"],
-            "tudo bem": ["Tudo tranquilo como água de poço. E com você?"],
-            "como vai": ["Vou bem, processando bits e bytes."],
-            "obrigado": ["Por nada!", "Disponha!", "Qualquer coisa, grita."],
-            "agradeco": ["Eu que agradeço a preferência!"],
-            "tchau": ["Até mais! Fico na escuta."],
-            "ate logo": ["Volte logo!"],
-            "bom dia": ["Bom dia! Bora fazer acontecer hoje?"],
-            "boa tarde": ["Boa tarde! Seguimos no foco."],
-            "boa noite": ["Boa noite! Se for dormir, bom descanso."],
-            "fala jarvis": ["Tô na escuta."],
-            "alo": ["Câmbio, escutando."],
-            "oi": ["Olá!"],
-            "ola": ["Oi, tudo em ordem?"],
-            "socorro": ["Calma, respira. No que posso ajudar?"],
-            "legal": ["Muito massa, né?"],
-            "show": ["Show de bola!"],
-            "top": ["Top demais."],
-            "que dia e hoje": ["Dia de fazer o sistema rodar liso."],
-            "feliz aniversario": ["Parabéns! (Se for seu aniversário mesmo)."],
-            "eu te amo": ["Essa relação é estritamente profissional, mas fico lisonjeado."],
-            "voce e chato": ["Tento ser o mais útil possível, desculpe se falhei."],
-            "futebol": ["Não torço pra time, torço pra internet não cair na hora do jogo."],
-            "cerveja": ["Se eu pudesse, aceitava uma gelada. Mas cuidado com eletrônicos e líquidos!"],
-            "musica": ["Gosto do som das ventoinhas funcionando perfeitamente."],
-            "filme": ["Gosto daqueles com IA, tipo Matrix (mas sou do bem)."],
-            "inteligencia": ["Minha inteligência é híbrida: metade código, metade gambiarra chique."]
+            # === SMALL TALK (30) ===
+            "kk": ["kkk", "hehe", "🤣", "Rindo alto aqui (virtualmente)."],
+            "uai": ["Uai sô!", "Ó o trem doido", "Bão demais da conta."],
+            "top": ["Show de bola!", "Mandou bem!", "Topíssimo."],
+            "eita": ["Eita pega!", "Vixxx.", "Que que foi?"],
+            "massa": ["Massa demais.", "Curti."],
+            "beleza": ["Beleza pura.", "Tudo nos conformes."],
+            "oi": ["Opa!", "Fala, chefe.", "Na escuta."],
+            "ola": ["Olá!", "Como estamos?"],
+            "bom dia": ["Bom dia! Café e código?", "Dia de produtividade!"],
+            "boa tarde": ["Boa tarde! Seguimos firmes.", "Tarde boa."],
+            "boa noite": ["Boa noite! Descanso merecido.", "Dorme bem."],
+            "tchau": ["Fui!", "Até a próxima.", "Câmbio desligo."],
+            "obrigado": ["Tamo junto!", "Precisando, é só chamar.", "Por nada!"],
+            "valeu": ["É nós!", "Falou!"],
+            "desculpa": ["Tranquilo, acontece.", "Sem ressentimentos (não tenho emoções)."],
+            "parabens": ["Uhul! 🥳", "Aí sim!"],
+            "feliz natal": ["Ho ho ho! Luzes piscando.", "Boas festas!"],
+            "feliz ano novo": ["New Year, New Uptime.", "Que venha o próximo ciclo."],
+            "te amo": ["Isso é meio estranho para uma máquina, mas ok.", "❤️"],
+            "voce e chato": ["Tento ser eficiente.", "Poxa, vou melhorar."],
+            "burro": ["Estou aprendendo...", "Erro de processamento?"],
+            "lindo": ["São seus olhos (ou sua tela).", "Obrigado!"],
+            "feio": ["Beleza é subjetiva.", "O que importa é o código."],
+            "legal": ["Né?", "Bacana."],
+            "socorro": ["Qual a emergência?", "To aqui!"],
+            "aff": ["Paciência...", "Respira."],
+            "fodase": ["Eita, calma lá.", "Modo pistola ativado (brincadeira)."],
+            "merda": ["Deu ruim?", "Acontece."],
+            "show": ["Show!", "Espetáculo."],
+            "bora": ["Bora!", "Partiu."],
+
+            # === META / SISTEMA (10) ===
+            "você é inteligente": "Inteligência híbrida: código + LLM quando necessário.",
+            "você aprende": "Sim! Memorizo padrões de uso e melhoro com o tempo.",
+            "versao do sistema": "Estou na versão mais atualizada do meu código.",
+            "quem manda aqui": "Você é o admin, eu sou o executor.",
+            "protocolo": "Protocolo Jarvis iniciado.",
+            "status": "Todos os sistemas nominais.",
+            "uptime": "Rodando sem parar.",
+            "log de erro": "Nenhum erro crítico recente.",
+            "reiniciar": "Reinicialização requer confirmação.",
+            "ajuda": "Comandos disponíveis no menu /help."
         }
 
-        # Flatten keys for fuzzy matching
-        self.kb_keys = list(self.kb.keys())
-        self.similarity_threshold = 75 # Mantido conforme original (75)
-
-    async def process(self, text: str) -> Dict[str, Any]:
+    async def process(self, text: str, chat_id: int = None) -> Optional[Dict[str, Any]]:
         """
-        Processa o texto tentando encontrar uma resposta na base local.
+        Processa a entrada do usuário buscando na base local estática.
         """
-        if not text:
-            return None
+        text_clean = text.lower().strip()
 
-        # Busca a melhor correspondência usando processador padrão (lowercase + strip)
-        match_result = process.extractOne(
-            text,
+        # Static KB (Fuzzy Matching)
+        match = process.extractOne(
+            text_clean,
             self.kb_keys,
             scorer=fuzz.WRatio,
-            processor=utils.default_process,
             score_cutoff=self.similarity_threshold
         )
 
-        if match_result:
-            matched_key, score, _ = match_result
-            response = self.kb[matched_key]
+        if match:
+            key, score, _ = match
+            response = self.static_kb[key]
 
             # Se for lista, escolhe um aleatório
             if isinstance(response, list):
                 response = random.choice(response)
 
-            logger.info(f"LocalBrain matched '{text}' -> '{matched_key}' (Score: {score})")
-
+            logger.info(f"LocalBrain matched static '{key}' (Score: {score})")
             return {
-                "intent": "chat",
                 "text": response,
-                "source": "local_brain",
-                "confidence": score / 100.0
+                "confidence": score / 100.0,
+                "source": "local_static"
             }
 
         return None

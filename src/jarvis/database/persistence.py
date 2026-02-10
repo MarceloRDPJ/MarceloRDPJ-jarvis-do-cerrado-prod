@@ -26,6 +26,13 @@ class Persistence:
     @staticmethod
     def init_db():
         conn = sqlite3.connect(DB_PATH)
+
+        # Otimizações para Raspberry Pi
+        conn.execute("PRAGMA journal_mode=WAL")  # Menos I/O
+        conn.execute("PRAGMA synchronous=NORMAL")  # Performance vs segurança
+        conn.execute("PRAGMA cache_size=10000")  # Mais cache
+        conn.execute("PRAGMA temp_store=MEMORY")  # Temp em RAM
+
         c = conn.cursor()
 
         c.execute("""
@@ -118,6 +125,10 @@ class Persistence:
             updated_at TEXT
         )
         """)
+
+        # Índices estratégicos
+        c.execute("CREATE INDEX IF NOT EXISTS idx_tasks_next_run ON tasks(next_run, status)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)")
 
         conn.commit()
         conn.close()
