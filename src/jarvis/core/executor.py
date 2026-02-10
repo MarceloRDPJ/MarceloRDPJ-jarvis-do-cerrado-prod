@@ -260,11 +260,14 @@ class Executor:
 
         if intent == "energy_status": return "⚡ Monitoramento de energia em fase de coleta."
 
-        if intent == "hydration_log":
+        if intent in ["hydration_log", "hydration_log_explicit"]:
             amount = params.get("amount")
-            if amount is None: amount = 250
-            return HydrationModule.log_intake(chat_id, amount, manual=True)
+            return HydrationModule.log_intake(chat_id, amount, manual=True, explicit=True)
 
+        if intent == "hydration_log_implicit":
+            return HydrationModule.log_intake(chat_id, None, manual=True, explicit=False)
+
+        if intent == "hydration_activate": return HydrationModule.activate_flow(chat_id)
         if intent == "hydration_status": return HydrationModule.get_status_message(chat_id)
         if intent == "hydration_control": return HydrationModule.control_hydration(chat_id, params.get("command", ""))
         if intent == "hydration_update": return HydrationModule.update_config(chat_id, params)

@@ -13,15 +13,9 @@ logger = logging.getLogger("modules.hydration")
 class HydrationModule:
     """
     Módulo de Hidratação — Jarvis do Cerrado
-
-    Responsável por:
-    - Envio de lembretes motivacionais
-    - Gerenciamento de fluxo interativo (sim/não/bebi)
-    - Controle de estado (pausar/parar/retomar)
-    - Logging de consumo
+    (Sistema Consolidado - Modo Diário)
     """
 
-    # Frases motivacionais variadas
     MOTIVATION_DRINK = [
         "Boa! Água entrando, foco voltando 💧",
         "Aí sim. Rim agradece, cérebro também 😄",
@@ -63,351 +57,242 @@ class HydrationModule:
     ]
 
     @staticmethod
-    async def send_reminder(app, task: Dict[str, Any]):
-        """
-        Envia o lembrete de hidratação e ativa o fluxo de confirmação.
-        """
-        chat_id = task['chat_id']
-        task_id = task['id']
-        now = datetime.now(timezone.utc)
+    def _get_key(chat_id: int) -> str:
+        return f"hydration_state_{chat_id}"
 
-        # Recupera meta
-        meta = json.loads(task.get('meta', '{}'))
-        cup_ml = meta.get('cup_ml', 250)
-
-        # Gera mensagem
-        text = HydrationModule._generate_reminder_message(chat_id, cup_ml, now)
-
-        # Salva contexto de fluxo
-        # Isso permite que o usuário responda "sim", "ok", "bebi" para confirmar este lembrete
-        flow_state = {
-            "type": "hydration_confirm",
-            "task_id": task_id,
-            "cup_ml": cup_ml,
-            "timestamp": now.isoformat()
+    @staticmethod
+    def _load_state(chat_id: int) -> Dict[str, Any]:
+        default = {
+            "active": False,
+            "daily_goal_ml": 2500,
+            "cup_size_ml": 250,
+            "interval_minutes": 60,
+            "consumed_today_ml": 0,
+            "last_drink_at": None,
+            "last_reminder_at": None,
+            "quiet_hours": {"start": "22:00", "end": "08:00"},
+            "last_reset_date": datetime.now(timezone.utc).strftime("%Y-%m-%d")
         }
-        ContextEngine.save_context(chat_id, {"flow": flow_state})
+        return Persistence.get_state(HydrationModule._get_key(chat_id), default)
 
-        # Envia mensagem
-        reply_markup = None
-        try:
-            # Se possível, adicionar botões (InlineKeyboard) para facilitar
-            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-            keyboard = [
-                [
-                    InlineKeyboardButton(f"✅ Bebi ({cup_ml}ml)", callback_data="bebi agua"),
-                    InlineKeyboardButton("❌ Agora não", callback_data="agora nao")
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-        except Exception:
-            # Se falhar import ou algo assim, segue sem botões
-            pass
+    @staticmethod
+    def _save_state(chat_id: int, state: Dict[str, Any]):
+        Persistence.set_state(HydrationModule._get_key(chat_id), state)
 
-        try:
-            await app.bot.send_message(
-                chat_id=chat_id,
-                text=text,
-                reply_markup=reply_markup
-            )
-        except Exception as e:
-            logger.error(f"Erro ao enviar lembrete de hidratação: {e}")
+    @staticmethod
+    def _check_daily_reset(state: Dict[str, Any]) -> bool:
+        """
+        Verifica se virou o dia e reseta o contador.
+        Retorna True se houve reset.
+        """
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if state.get("last_reset_date") != now_str:
+            state["consumed_today_ml"] = 0
+            state["last_reset_date"] = now_str
+            # Opcional: Enviar mensagem de bom dia se ativo?
+            # Deixar para o primeiro trigger do dia.
+            return True
+        return False
+
+    @staticmethod
+    def activate_flow(chat_id: int) -> str:
+        """
+        Inicia o fluxo de ativação/configuração.
+        """
+        ContextEngine.save_context(chat_id, {
+            "flow": {
+                "type": "hydration_setup",
+                "step": "ask_goal",
+                "data": {}
+            }
+        })
+        return "Bora configurar sua hidratação! 💧\n\nQual sua meta diária de água? (Ex: 3000ml ou 3 litros)"
 
     @staticmethod
     def handle_flow(chat_id: int, text: str, context: Dict) -> str:
         """
-        Processa a resposta do usuário quando o fluxo de hidratação está ativo.
+        Gerencia o fluxo de configuração (Setup).
         """
         flow = context.get("flow")
-        if not flow or flow["type"] != "hydration_confirm":
-            return None
-
+        step = flow.get("step")
+        data = flow.get("data", {})
         t = text.lower().strip()
-        task_id = flow.get("task_id")
-        cup_ml = flow.get("cup_ml", 250)
 
-        # Lista expandida de confirmações positivas
-        positive_responses = [
-            "sim", "ok", "beleza", "certo", "pode ser", "👍", "👌", "✔️", "bora",
-            "bebi", "ta pago", "foi", "feito", "manda", "tomado", "já foi", "ja foi"
-        ]
+        if step == "ask_goal":
+            # Tenta extrair número
+            match = re.search(r'(\d+)', t)
+            if not match:
+                return "Não entendi o número. Digita só a quantidade, tipo '2500'."
 
-        # Lista expandida de cancelamentos/adiamentos
-        negative_responses = [
-            "não", "nao", "cancela", "deixa pra lá", "deixa pra la",
-            "depois", "❌", "agora não", "agora nao", "espera"
-        ]
+            val = int(match.group(1))
+            if "l" in t and val < 100: val *= 1000 # Correção simples para litros
 
-        # Verifica resposta
-        if any(x in t for x in positive_responses):
+            data["daily_goal_ml"] = val
+
+            flow["step"] = "ask_cup"
+            flow["data"] = data
+            ContextEngine.save_context(chat_id, {"flow": flow})
+            return f"Beleza, meta de {val}ml.\n\nE qual o tamanho do seu copo/garrafa? (Ex: 250ml)"
+
+        elif step == "ask_cup":
+            match = re.search(r'(\d+)', t)
+            if not match:
+                return "Qual o tamanho do copo? (Ex: 300)"
+
+            val = int(match.group(1))
+            data["cup_size_ml"] = val
+
+            flow["step"] = "ask_interval"
+            flow["data"] = data
+            ContextEngine.save_context(chat_id, {"flow": flow})
+            return f"Copo de {val}ml anotado.\n\nDe quanto em quanto tempo quer ser lembrado? (Em minutos, ex: 60)"
+
+        elif step == "ask_interval":
+            match = re.search(r'(\d+)', t)
+            if not match:
+                return "Diz aí os minutos, tipo '45'."
+
+            val = int(match.group(1))
+            if val < 5: return "Menos de 5 minutos é exagero, né? Escolhe um tempo maior."
+
+            data["interval_minutes"] = val
+
+            # Finaliza Setup
+            state = HydrationModule._load_state(chat_id)
+            state.update({
+                "active": True,
+                "daily_goal_ml": data["daily_goal_ml"],
+                "cup_size_ml": data["cup_size_ml"],
+                "interval_minutes": data["interval_minutes"],
+                "last_reset_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                "consumed_today_ml": 0
+            })
+            HydrationModule._save_state(chat_id, state)
+
             # Limpa fluxo
             ContextEngine.save_context(chat_id, {"flow": None})
-            return HydrationModule.log_intake(chat_id, cup_ml, task_id=task_id)
 
-        elif any(x in t for x in negative_responses):
-            # Limpa fluxo apenas, sem logar
-            ContextEngine.save_context(chat_id, {"flow": None})
-            return "Tranquilo. Quando der, cê bebe. Sem pressão."
+            # Cria task de "Heartbeat" (Gatilho para o Scheduler)
+            HydrationModule._ensure_trigger_task(chat_id, val)
 
-        # Se não entendeu, mas está no fluxo, talvez seja melhor ignorar ou perguntar?
-        # Regra de Ouro: "Nunca ser robótico".
-        # Se o usuário falou algo nada a ver, assumimos que mudou de assunto e o Router vai tratar.
-        # Mas o Router manda para cá primeiro se for "flow_input".
-        # Vamos retornar None para indicar que não processamos, assim o Executor pode tentar outro handler ou fallback?
-        # O Executor atual chama handle_response e devolve o resultado.
-        # Vamos assumir que se não é sim nem não, não é confirmação.
+            return (
+                "Show! Hidratação ativada. 🚀\n\n"
+                f"🎯 Meta: {state['daily_goal_ml']}ml\n"
+                f"🥤 Copo: {state['cup_size_ml']}ml\n"
+                f"⏰ Intervalo: {val} min\n\n"
+                "Se beber antes eu lembrar, é só falar 'bebi' ou 'ok'."
+            )
+
         return None
 
     @staticmethod
-    def log_intake(chat_id: int, amount_ml: int, task_id: int = None, manual: bool = False) -> str:
+    def _ensure_trigger_task(chat_id: int, interval_minutes: int):
         """
-        Registra consumo de água.
+        Garante que existe uma tarefa no Persistence para acordar o Scheduler.
         """
-        # Se não temos task_id, buscamos a ativa
-        if not task_id:
-            tasks = Persistence.get_tasks_by_action(chat_id, "hydration")
-            if tasks:
-                task_id = tasks[0]['id']
+        # Verifica se já existe task de hydration_check
+        tasks = Persistence.get_tasks_by_action(chat_id, "hydration_check")
+        next_run = datetime.now(timezone.utc) + timedelta(minutes=interval_minutes)
+
+        if tasks:
+            # Atualiza existente
+            t = tasks[0]
+            if t['status'] != 'active':
+                Persistence.update_task_status(t['id'], 'active')
+            Persistence.update_task_next_run(t['id'], next_run)
+            # Atualiza intervalo na task também (meta field)
+            meta = json.loads(t.get('meta', '{}'))
+            meta['trigger_interval'] = interval_minutes
+            Persistence.update_task_meta(t['id'], meta)
+        else:
+            # Cria nova
+            Persistence.add_task(
+                chat_id=chat_id,
+                text="Hydration Check",
+                next_run=next_run,
+                action="hydration_check",
+                task_type="recurring",
+                interval_minutes=interval_minutes, # Isso fará o scheduler reagendar automaticamente também
+                status="active",
+                meta={"trigger_interval": interval_minutes}
+            )
+
+    @staticmethod
+    def log_intake(chat_id: int, amount: Optional[int] = None, manual: bool = True, explicit: bool = True) -> str:
+        """
+        Registra consumo.
+        manual=True: Acionado por comando.
+        explicit=True: Comando claro ("bebi"). False: Implícito ("ok").
+        """
+        state = HydrationModule._load_state(chat_id)
+        HydrationModule._check_daily_reset(state)
+
+        if not state["active"]:
+             return "Hidratação não está ativa. Diz 'ativar hidratação' pra começar."
+
+        # Segurança para comandos implícitos ("ok")
+        if not explicit:
+            # Só aceita "ok" se houve lembrete recente (ex: 60 min)
+            last_remind = state.get("last_reminder_at")
+            if not last_remind:
+                return "Ok o que? Se bebeu água, diz 'bebi'."
+
+            lr_dt = datetime.fromisoformat(last_remind)
+            diff = (datetime.now(timezone.utc) - lr_dt).total_seconds() / 60
+
+            # Tolerância de 60 minutos após o último lembrete
+            if diff > 60:
+                 return "Ok o que? Se bebeu água, diz 'bebi'."
+
+        cup = state["cup_size_ml"]
+        add = amount if amount else cup
+
+        state["consumed_today_ml"] += add
+        state["last_drink_at"] = datetime.now(timezone.utc).isoformat()
+        HydrationModule._save_state(chat_id, state)
+
+        # Loga interação no DB para estatísticas futuras (opcional, mas bom pra histórico)
+        # Podemos usar um task_id fictício ou 0, ou buscar o trigger task
+        tasks = Persistence.get_tasks_by_action(chat_id, "hydration_check")
+        if tasks:
+            Persistence.log_interaction(tasks[0]['id'], "confirm", str(add))
+
+        # Feedback
+        return HydrationModule._generate_feedback(state, add)
+
+    @staticmethod
+    def _generate_feedback(state: Dict, added: int) -> str:
+        current = state["consumed_today_ml"]
+        goal = state["daily_goal_ml"]
+
+        if current >= goal:
+            # Se acabou de bater
+            if current - added < goal:
+                 return random.choice(HydrationModule.MOTIVATION_GOAL_HIT) + f" ({current}ml)"
             else:
-                # Cria task "tracker" oculta se não existir nenhuma ativa
-                # (Isso garante que o log funcione mesmo sem lembretes ativos)
-                now = datetime.now(timezone.utc)
-                # Verifica se já existe um tracker hoje? Não, tasks são persistentes.
-                # Vamos criar um tracker permanente se não houver.
-                # Ou apenas logar numa task fantasma (id 0)? O FK constraints podem falhar.
-                # Vamos criar uma task 'stopped' ou 'completed' apenas para referência?
-                # Melhor: Recomendar ativar hidratação.
-                # Mas o requisito diz: "Beber água sempre contabiliza, se hidratação ativa".
-                # Se não está ativa (stopped), talvez devêssemos perguntar se quer reativar?
-                # Vamos assumir que se o usuário chamou "log_intake" explicitamente, ele quer registrar.
-                # Vamos buscar a última task mesmo que cancelada para usar de referência?
-                last_task = Persistence.get_last_cancelled_task_by_action(chat_id, "hydration")
-                if last_task:
-                     task_id = last_task['id']
-                else:
-                     return "Hidratação não está configurada. Diga 'me lembre de beber água' para começar."
+                 return f"Mais {added}ml! Total: {current}ml (Meta já batida! 🏆)"
 
-        # Loga interação
-        Persistence.log_interaction(task_id, "confirm", str(amount_ml))
-
-        # Dados para feedback
-        total_today = Persistence.get_hydration_volume_today(chat_id)
-
-        # Recupera meta da task
-        # Precisamos ler a task do DB para saber a meta
-        # (Idealmente cachearíamos isso, mas leitura de DB é rápida sqlite)
-        # Se task_id é válido...
-        # Como não temos um get_task_by_id exposto simples no Persistence (temos get_active...),
-        # vamos usar o contexto da task atual se disponível ou padrão.
-        # Simplificação: Meta padrão 2000 se não achar.
-        meta_ml = 2000
-
-        # Tenta pegar meta dos active tasks
-        active_tasks = Persistence.get_tasks_by_action(chat_id, "hydration")
-        if active_tasks:
-             meta = json.loads(active_tasks[0].get('meta', '{}'))
-             meta_ml = meta.get('meta_ml', 2000)
-
-        # Feedback message
-        if total_today >= meta_ml:
-            # Verifica se ACABOU de bater a meta (interação atual fez passar)
-            # Se antes estava < meta...
-            prev_total = total_today - amount_ml
-            if prev_total < meta_ml:
-                return random.choice(HydrationModule.MOTIVATION_GOAL_HIT) + f" ({total_today}ml)"
-            else:
-                return f"Mais {amount_ml}ml pra conta! Total: {total_today}ml (Meta batida! 🏆)"
-
-        elif total_today >= (meta_ml * 0.8):
+        elif current >= (goal * 0.8):
              base = random.choice(HydrationModule.MOTIVATION_GOAL_NEAR)
-             return f"{base} Total: {total_today}/{meta_ml}ml."
+             return f"{base} {current}/{goal}ml."
 
         else:
              base = random.choice(HydrationModule.MOTIVATION_DRINK)
-
-             # Chance de dica de bem estar (10%)
-             if random.random() < 0.1:
-                 tip = random.choice(HydrationModule.WELLNESS_TIPS)
-                 return f"{base} ({total_today}/{meta_ml}ml)\n\n💡 {tip}"
-
-             return f"{base} ({total_today}/{meta_ml}ml)"
-
-    @staticmethod
-    def control_hydration(chat_id: int, command: str) -> str:
-        """
-        Gerencia comandos de controle: pausar, parar, retomar.
-        """
-        command = command.lower()
-        tasks = Persistence.get_tasks_by_action(chat_id, "hydration")
-
-        if "pausar" in command or "parar lembrete" in command or "silencio" in command:
-            if not tasks:
-                return "Não achei hidratação ativa pra pausar."
-
-            for task in tasks:
-                Persistence.update_task_status(task['id'], 'paused')
-
-            return "Beleza, pausei os avisos. Mas continua bebendo, hein! 🥤"
-
-        elif "parar hidratação" in command or "não quero mais" in command or "cancelar hidratação" in command:
-            if not tasks:
-                return "Hidratação já está parada."
-
-            for task in tasks:
-                Persistence.update_task_status(task['id'], 'cancelled')
-
-            return "Certo, parei tudo. Quando quiser voltar, é só falar 'retomar hidratação'."
-
-        elif "retomar" in command or "voltar" in command:
-            # Verifica se já tem ativa
-            if tasks:
-                return "Uai, a hidratação já está ativa."
-
-            # 1. Tenta encontrar PAUSADAS
-            paused_tasks = Persistence.get_tasks_by_status(chat_id, "paused", "hydration")
-            if paused_tasks:
-                for task in paused_tasks:
-                    # Reativa
-                    Persistence.update_task_status(task['id'], 'active')
-                    # Opcional: Ajustar next_run para agora se estiver muito atrasada?
-                    # O Scheduler vai pegar se estiver atrasada.
-                return "Hidratação retomada! Foco na meta. 💧"
-
-            # 2. Tenta encontrar CANCELADAS (Paradas)
-            last_task = Persistence.get_last_cancelled_task_by_action(chat_id, "hydration")
-
-            if not last_task:
-                 return "Não achei histórico recente. Que tal criar um novo? 'Me lembre de beber água'."
-
-            # Recria a task baseada na última cancelada
-            meta = json.loads(last_task.get('meta', '{}'))
-            interval = last_task.get('interval_minutes', 60)
-            text = last_task.get('text', 'Beber água')
-
-            # Next run: Agora + intervalo
-            next_run = datetime.now(timezone.utc) + timedelta(minutes=interval)
-
-            Persistence.add_task(
-                chat_id=chat_id,
-                text=text,
-                next_run=next_run,
-                action="hydration",
-                task_type="recurring",
-                interval_minutes=interval,
-                meta=meta,
-                status="active"
-            )
-
-            return "Hidratação retomada! Foco na meta. 💧"
-
-        return "Comando de hidratação não entendi."
-
-    @staticmethod
-    def update_config(chat_id: int, params: Dict[str, Any]) -> str:
-        """
-        Atualiza configurações da tarefa ativa de hidratação (Meta, Copo).
-        """
-        text = params.get("text", "").lower()
-        val = params.get("value") # Capturado pelo regex se simples
-
-        # 1. Encontrar tarefa ativa
-        tasks = Persistence.get_tasks_by_action(chat_id, "hydration")
-        if not tasks:
-            return "Não achei nenhuma hidratação ativa pra corrigir. Que tal 'ativar hidratação'?"
-
-        task = tasks[0]
-        meta = json.loads(task.get('meta', '{}'))
-
-        # 2. Interpretar o que mudar
-        new_meta = meta.get("meta_ml", 2000)
-        new_cup = meta.get("cup_ml", 250)
-        changed = False
-
-        # Parse value if not provided directly
-        if not val:
-            match = re.search(r'(\d+)\s*(l|ml|litros?)?', text)
-            if match:
-                num = int(match.group(1))
-                unit = match.group(2)
-                if unit and unit.lower().startswith('l'):
-                    num *= 1000
-                val = num
-
-        if val:
-            val = int(val)
-            if "meta" in text or "total" in text:
-                new_meta = val
-                changed = True
-                msg = f"Beleza, meta corrigida para {new_meta}ml."
-            elif "copo" in text or "tamanho" in text:
-                new_cup = val
-                changed = True
-                msg = f"Beleza, copo ajustado para {new_cup}ml."
-            else:
-                # Se não especificou, assume meta se for grande, copo se for pequeno?
-                if val > 1000:
-                    new_meta = val
-                    changed = True
-                    msg = f"Assumi que é a meta: {new_meta}ml."
-                else:
-                    new_cup = val
-                    changed = True
-                    msg = f"Assumi que é o copo: {new_cup}ml."
-        else:
-            return "Entendi que quer mudar, mas pra quanto? Fala tipo 'mudar meta pra 3000'."
-
-        if changed:
-            meta["meta_ml"] = new_meta
-            meta["cup_ml"] = new_cup
-            Persistence.update_task_meta(task['id'], meta)
-            return msg
-
-        return "Não entendi o que mudar."
-
-    @staticmethod
-    def get_status_message(chat_id: int) -> str:
-        """
-        Retorna status formatado.
-        """
-        total = Persistence.get_hydration_volume_today(chat_id)
-
-        # Meta
-        tasks = Persistence.get_tasks_by_action(chat_id, "hydration")
-        meta_ml = 2000
-        if tasks:
-             meta = json.loads(tasks[0].get('meta', '{}'))
-             meta_ml = meta.get('meta_ml', 2000)
-
-        percentage = int((total / meta_ml) * 100)
-        bars = "🟦" * (percentage // 10) + "⬜" * (10 - (percentage // 10))
-
-        return (
-            f"💧 Status Hidratação\n\n"
-            f"{bars} {percentage}%\n"
-            f"Total: {total}ml / {meta_ml}ml\n\n"
-            f"Falta {max(0, meta_ml - total)}ml pra meta."
-        )
+             return f"{base} ({current}/{goal}ml)"
 
     @staticmethod
     def _generate_reminder_message(chat_id: int, cup_ml: int, now: datetime) -> str:
         """
         Gera a mensagem do lembrete baseada no contexto (inércia, horário).
         """
-        # Verifica inércia: Quantos lembretes sem confirmação hoje?
-        # Podemos checar task_interactions 'confirm' vs 'last_run'?
-        # Complexo. Vamos simplificar com aleatoriedade ponderada.
-
         message_type = "normal"
-        if random.random() < 0.2: # 20% de chance de ser um 'nudge' se for tarde?
+        if random.random() < 0.2:
              message_type = "nudge"
 
         if message_type == "nudge":
              base = random.choice(HydrationModule.MOTIVATION_NUDGE)
              return f"{base}"
         else:
-             # Normal reminder
-             # Verifica se é dia ou noite
-             # (Scheduler já cuida do horário de envio, mas texto pode adaptar)
              hour = (now.hour - 3) % 24
              if hour < 12:
                  greeting = "Bom dia!"
@@ -417,3 +302,211 @@ class HydrationModule:
                  greeting = "Noite boa."
 
              return f"💧 Hora de beber água ({cup_ml}ml). {greeting}"
+
+    @staticmethod
+    def get_status_message(chat_id: int) -> str:
+        state = HydrationModule._load_state(chat_id)
+        HydrationModule._check_daily_reset(state)
+
+        if not state["active"]:
+            return "Hidratação desativada. Use 'ativar hidratação'."
+
+        total = state["consumed_today_ml"]
+        goal = state["daily_goal_ml"]
+
+        percentage = int((total / goal) * 100)
+        percentage = min(100, percentage)
+        bars = "🟦" * (percentage // 10) + "⬜" * (10 - (percentage // 10))
+
+        next_msg = ""
+        # Calcula próximo lembrete estimado
+        if state["last_drink_at"]:
+            last = datetime.fromisoformat(state["last_drink_at"])
+            interval = state["interval_minutes"]
+            next_run = last + timedelta(minutes=interval)
+
+            # Ajuste fuso horário simples (utc-3 display)
+            next_local = next_run - timedelta(hours=3)
+            next_str = next_local.strftime("%H:%M")
+            next_msg = f"\n⏰ Próximo gole: ~{next_str}"
+
+        return (
+            f"💧 *Status Hidratação*\n\n"
+            f"{bars} {percentage}%\n"
+            f"Total: {total}ml / {goal}ml\n"
+            f"Falta: {max(0, goal - total)}ml{next_msg}"
+        )
+
+    @staticmethod
+    def update_config(chat_id: int, params: Dict[str, Any]) -> str:
+        state = HydrationModule._load_state(chat_id)
+        if not state["active"]:
+            return "Hidratação não está ativa."
+
+        text = params.get("text", "").lower()
+        val = params.get("value")
+
+        # Tenta extrair se não veio
+        if not val:
+             match = re.search(r'(\d+)', text)
+             if match: val = int(match.group(1))
+
+        if not val:
+            return "Preciso do valor. Ex: 'mudar meta para 3000'."
+
+        val = int(val)
+        changed = False
+        msg = ""
+
+        if "meta" in text or "total" in text:
+            if val < 100 and "l" in text: val *= 1000
+            state["daily_goal_ml"] = val
+            msg = f"Meta atualizada para {val}ml."
+            changed = True
+        elif "copo" in text or "tamanho" in text:
+            state["cup_size_ml"] = val
+            msg = f"Copo atualizado para {val}ml."
+            changed = True
+        elif "intervalo" in text or "tempo" in text:
+            if val < 5: return "Intervalo muito curto."
+            state["interval_minutes"] = val
+            msg = f"Intervalo atualizado para {val} min."
+            changed = True
+            # Atualiza trigger task
+            HydrationModule._ensure_trigger_task(chat_id, val)
+        else:
+            # Heurística
+            if val > 1000:
+                state["daily_goal_ml"] = val
+                msg = f"Assumi que é a Meta: {val}ml."
+                changed = True
+            elif val < 1000:
+                state["cup_size_ml"] = val
+                msg = f"Assumi que é o Copo: {val}ml."
+                changed = True
+
+        if changed:
+            HydrationModule._save_state(chat_id, state)
+            return msg
+
+        return "Não entendi o que atualizar."
+
+    @staticmethod
+    def control_hydration(chat_id: int, command: str) -> str:
+        state = HydrationModule._load_state(chat_id)
+        command = command.lower()
+
+        if "pausar" in command or "silencio" in command or "parar" in command:
+            if not state["active"]: return "Já está parada."
+            # Pausar = Active False mas manter dados?
+            # Requirement: "Pausar: mantém estado, suspende notificações"
+            state["active"] = False
+            HydrationModule._save_state(chat_id, state)
+            return "Hidratação pausada. Pra voltar: 'retomar hidratação'."
+
+        elif "retomar" in command or "voltar" in command:
+            if state["active"]: return "Já está ativa."
+            state["active"] = True
+            HydrationModule._save_state(chat_id, state)
+            return "Hidratação retomada! Foco na meta. 💧"
+
+        elif "cancelar" in command:
+             state["active"] = False
+             HydrationModule._save_state(chat_id, state)
+             # Opcional: deletar trigger task
+             return "Hidratação cancelada."
+
+        return "Comando desconhecido."
+
+    @staticmethod
+    async def check_schedule(app, task: Dict[str, Any]):
+        """
+        Método chamado pelo SchedulerService quando a task 'hydration_check' vence.
+        """
+        chat_id = task['chat_id']
+        state = HydrationModule._load_state(chat_id)
+
+        # 1. Reset Diário (Crucial)
+        HydrationModule._check_daily_reset(state)
+
+        # 2. Se não ativa, ignora (mas mantém task rodando? Ou pausa task?)
+        if not state["active"]:
+            # Se a hidratação foi pausada no estado, pausamos a task também para economizar recursos
+            Persistence.update_task_status(task['id'], 'paused')
+            return
+
+        # 3. Quiet Hours
+        now = datetime.now(timezone.utc)
+        local_now = now - timedelta(hours=3)
+        hour = local_now.hour
+
+        q_start = 19 # Default hardcoded fallback
+        q_end = 8
+
+        # Tenta ler do state (formato "HH:MM")
+        try:
+            qs = int(state["quiet_hours"]["start"].split(":")[0])
+            qe = int(state["quiet_hours"]["end"].split(":")[0])
+            q_start, q_end = qs, qe
+        except: pass
+
+        # Lógica de intervalo noturno (ex: 22h as 08h)
+        # Se start > end (normal, cruza meia noite)
+        in_quiet = False
+        if q_start > q_end:
+            if hour >= q_start or hour < q_end: in_quiet = True
+        else:
+            if q_start <= hour < q_end: in_quiet = True
+
+        if in_quiet:
+            # Não notifica.
+            # Reagenda para o fim do quiet hours?
+            # Ou apenas deixa o scheduler padrão (recorrência) rodar?
+            # Se deixarmos padrão, ele checa a cada X min.
+            # Melhor: Deixar rodar. Se o usuário acordar e beber, ele loga.
+            # O scheduler só não manda msg.
+            HydrationModule._save_state(chat_id, state) # Salva reset se houve
+            return
+
+        # 4. Verifica Intervalo desde último gole
+        interval = state["interval_minutes"]
+        last_drink = state.get("last_drink_at")
+
+        should_remind = False
+
+        if not last_drink:
+            should_remind = True # Nunca bebeu (ou resetou e null?)
+            # Se resetou dia, last_drink mantém do dia anterior?
+            # No reset diário, não limpamos last_drink, apenas consumed.
+            # Mas se last_drink for de ontem, o diff será grande -> Trigger.
+            # Correto.
+        else:
+            last_dt = datetime.fromisoformat(last_drink)
+            diff = (now - last_dt).total_seconds() / 60
+            if diff >= interval:
+                should_remind = True
+
+        # Anti-Spam: Verifica último lembrete
+        last_remind = state.get("last_reminder_at")
+        if last_remind:
+            lr_dt = datetime.fromisoformat(last_remind)
+            diff_remind = (now - lr_dt).total_seconds() / 60
+            # Se já lembrou recentemente (menos que o intervalo), não lembra de novo
+            if diff_remind < interval:
+                should_remind = False
+
+        if should_remind:
+            # Envia Lembrete
+            msg = HydrationModule._generate_reminder_message(chat_id, state["cup_size_ml"], now)
+
+            try:
+                # Botões
+                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                kb = [[InlineKeyboardButton("✅ Bebi", callback_data="bebi agua"), InlineKeyboardButton("💤 +15min", callback_data="agora nao")]]
+                await app.bot.send_message(chat_id=chat_id, text=msg, reply_markup=InlineKeyboardMarkup(kb))
+
+                state["last_reminder_at"] = now.isoformat()
+                HydrationModule._save_state(chat_id, state)
+
+            except Exception as e:
+                logger.error(f"Erro envio hidratação: {e}")
