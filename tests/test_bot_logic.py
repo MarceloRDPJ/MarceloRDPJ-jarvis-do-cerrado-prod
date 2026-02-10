@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
 import sys
 import os
 import sqlite3
@@ -22,22 +22,22 @@ class TestHomeAssistantBot(unittest.IsolatedAsyncioTestCase):
         # Initialize DB
         Persistence.init_db()
 
-    @patch('jarvis.core.brain.LLMFallbackEngine')
-    async def test_brain_process_intent_local(self, mock_llm_cls):
-        # Configurar mock do LLM local
-        mock_llm_instance = mock_llm_cls.return_value
-        mock_llm_instance.interpret.return_value = {
-            "intent": "smarthome",
-            "action": "turn_on",
-            "entity": "luz_sala"
-        }
+    @patch('jarvis.core.brain.LocalBrainEngine')
+    async def test_brain_process_intent_local(self, mock_local_brain_cls):
+        # Configurar mock do LocalBrain
+        mock_instance = mock_local_brain_cls.return_value
+        mock_instance.process = AsyncMock(return_value={
+            "text": "Luz ligada (simulação)",
+            "confidence": 0.9,
+            "source": "local_static"
+        })
 
         brain = Brain()
         result = await brain.process_intent("Liga a luz da sala")
 
         self.assertIsInstance(result, dict)
-        self.assertEqual(result['intent'], 'smarthome')
-        self.assertEqual(result['source'], 'local_llm')
+        self.assertEqual(result['intent'], 'chat')
+        self.assertEqual(result['source'], 'local_brain')
 
     @patch('jarvis.modules.network.send_magic_packet')
     @patch('jarvis.core.utils.asyncio.sleep')

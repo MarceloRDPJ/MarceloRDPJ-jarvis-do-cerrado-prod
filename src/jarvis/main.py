@@ -99,6 +99,27 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info(f"[CALLBACK] {text}")
 
+    # Detecta callbacks de lembretes
+    if text.startswith("rem_"):
+        from jarvis.core.reminder_callbacks import ReminderCallbacks
+
+        parts = text.split("_")
+        action = parts[1]  # done, snooze, cancel
+        task_id = int(parts[2])
+
+        if action == "done":
+            await ReminderCallbacks.handle_done(task_id, chat_id, context.bot)
+            return
+
+        elif action == "snooze":
+            minutes = int(parts[3])
+            await ReminderCallbacks.handle_snooze(task_id, chat_id, minutes, context.bot)
+            return
+
+        elif action == "cancel":
+            await ReminderCallbacks.handle_cancel(task_id, chat_id, context.bot)
+            return
+
     try:
         # Processa como se fosse texto (simula comando)
         intent = await router.route(text, chat_id)
@@ -166,6 +187,17 @@ async def post_init(application):
     application.bot_data["tasks"].append(task_scheduler)
 
     logger.info("📡 Collector e Scheduler iniciados")
+
+    # -------------------------
+    # AUTOMATION ENGINE (NOVO)
+    # -------------------------
+    from jarvis.services.automations import AutomationEngine
+
+    automation = AutomationEngine(application)
+    application.bot_data["automation"] = automation
+    task_automation = asyncio.create_task(automation.start())
+    application.bot_data["tasks"].append(task_automation)
+    logger.info("🤖 AutomationEngine iniciado")
 
     # -------------------------
     # GUARDIAN SERVICE (NOVO)

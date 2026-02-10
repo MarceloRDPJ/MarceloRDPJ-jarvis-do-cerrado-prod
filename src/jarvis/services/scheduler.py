@@ -73,7 +73,25 @@ class SchedulerService:
             # === 2. Envio da Mensagem (Genérico) ===
             message = get_reminder_message(task, now)
             try:
-                await self.app.bot.send_message(chat_id=chat_id, text=message)
+                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+
+                # Criar botões de ação
+                keyboard = [
+                    [
+                        InlineKeyboardButton("✅ Feito", callback_data=f"rem_done_{task_id}"),
+                        InlineKeyboardButton("⏰ +15min", callback_data=f"rem_snooze_{task_id}_15"),
+                    ],
+                    [
+                        InlineKeyboardButton("⏰ +1h", callback_data=f"rem_snooze_{task_id}_60"),
+                        InlineKeyboardButton("❌ Cancelar", callback_data=f"rem_cancel_{task_id}"),
+                    ]
+                ]
+
+                await self.app.bot.send_message(
+                    chat_id=chat_id,
+                    text=message,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             except Exception as e:
                 logger.error(f"Falha ao enviar lembrete {task_id}: {e}")
                 return # Não reagenda em caso de falha de transporte

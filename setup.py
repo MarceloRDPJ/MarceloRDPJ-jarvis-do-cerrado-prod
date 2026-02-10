@@ -16,6 +16,7 @@ setup(
         "scapy",
         "bleak",
         "tinytuya",
-        "rapidfuzz"
+        "rapidfuzz",
+        "aiohttp"
     ],
 )

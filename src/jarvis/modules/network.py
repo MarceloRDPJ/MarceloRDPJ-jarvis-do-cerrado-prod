@@ -183,10 +183,11 @@ class NetworkModule:
     # SCAN PRINCIPAL (ATUALIZADO)
     # ==================================================
     @staticmethod
-    async def scan_network_deep(status_callback=None) -> List[Dict[str, Any]]:
+    async def scan_network_deep(status_callback=None, app=None) -> List[Dict[str, Any]]:
         """
         Scan profundo com feedback.
         status_callback(msg): Função assíncrona para atualizar o usuário.
+        app: Application instance (opcional) para eventos.
         """
         if status_callback:
             await status_callback("⏳ Iniciando varredura ARP...")
@@ -255,6 +256,18 @@ class NetworkModule:
             ports = await NetworkModule._check_common_ports(ip)
 
             guessed_type = NetworkModule._guess_device_type(vendor, ports, hostname)
+
+            # Evento: Dispositivo Desconhecido
+            if app and guessed_type == "Dispositivo Desconhecido" and not custom_name:
+                automation = app.bot_data.get("automation")
+                if automation:
+                    from jarvis.core.events import Event
+                    event = Event(
+                        type="network.unknown_device",
+                        source="network_module",
+                        payload={"ip": ip, "mac": mac, "vendor": vendor}
+                    )
+                    await automation.on_event(event)
 
             # Feedback update occasionally
             if status_callback and idx % 3 == 0:

@@ -126,6 +126,18 @@ class Persistence:
         )
         """)
 
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS hydration_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER,
+            amount_ml INTEGER,
+            timestamp TEXT,
+            manual BOOLEAN,
+            goal_ml INTEGER,
+            consumed_so_far_ml INTEGER
+        )
+        """)
+
         # Índices estratégicos
         c.execute("CREATE INDEX IF NOT EXISTS idx_tasks_next_run ON tasks(next_run, status)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)")
@@ -563,3 +575,37 @@ class Persistence:
         conn.close()
 
         return json.loads(row[0]) if row else None
+
+    # ==================================================
+    # HYDRATION LOG
+    # ==================================================
+    @staticmethod
+    def log_hydration_intake(chat_id: int, amount_ml: int, goal_ml: int, consumed_so_far_ml: int, manual: bool = True):
+        """Registra consumo de água no histórico"""
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO hydration_log (chat_id, amount_ml, timestamp, manual, goal_ml, consumed_so_far_ml) VALUES (?, ?, ?, ?, ?, ?)",
+            (chat_id, amount_ml, datetime.now(timezone.utc).isoformat(), manual, goal_ml, consumed_so_far_ml)
+        )
+        conn.commit()
+        conn.close()
+
+    @staticmethod
+    def get_hydration_history(chat_id: int, days: int = 30) -> List[Dict[str, Any]]:
+        """Retorna histórico de hidratação dos últimos X dias"""
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+        c.execute(
+            "SELECT * FROM hydration_log WHERE chat_id = ? AND timestamp > ? ORDER BY timestamp DESC",
+            (chat_id, cutoff)
+        )
+
+        rows = c.fetchall()
+        conn.close()
+
+        return [dict(row) for row in rows]

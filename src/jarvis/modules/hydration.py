@@ -264,8 +264,41 @@ class HydrationModule:
         if tasks:
             Persistence.log_interaction(tasks[0]['id'], "confirm", str(add))
 
+        # Adicionar log ao histórico
+        Persistence.log_hydration_intake(
+            chat_id=chat_id,
+            amount_ml=add,
+            goal_ml=state["daily_goal_ml"],
+            consumed_so_far_ml=state["consumed_today_ml"],
+            manual=manual
+        )
+
         # Feedback
         return HydrationModule._generate_feedback(state, add)
+
+    @staticmethod
+    def get_analytics(chat_id: int) -> str:
+        """Retorna análise de padrões de hidratação"""
+        from jarvis.modules.hydration_analytics import HydrationAnalytics
+
+        analysis = HydrationAnalytics.analyze_patterns(chat_id)
+
+        msg = "📊 **Análise de Hidratação (30 dias)**\n\n"
+        msg += f"📈 Média diária: {analysis['average_daily_ml']}ml\n"
+        msg += f"🎯 Taxa de sucesso: {analysis['goal_completion_rate']}%\n"
+
+        if analysis['streak_days'] > 0:
+            msg += f"🔥 Sequência atual: {analysis['streak_days']} dias\n"
+
+        if analysis['peak_hours']:
+            hours_str = ", ".join([f"{h}h" for h in analysis['peak_hours']])
+            msg += f"⏰ Horários de pico: {hours_str}\n"
+
+        msg += "\n💡 **Insights:**\n"
+        for suggestion in analysis['suggestions']:
+            msg += f"• {suggestion}\n"
+
+        return msg
 
     @staticmethod
     def _generate_feedback(state: Dict, added: int) -> str:

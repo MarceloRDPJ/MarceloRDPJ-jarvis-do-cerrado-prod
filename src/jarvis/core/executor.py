@@ -11,6 +11,7 @@ from jarvis.core.personality import Personality
 from jarvis.modules.system import SystemModule
 from jarvis.modules.network import NetworkModule
 from jarvis.modules.hydration import HydrationModule
+from jarvis.modules.adguard import AdGuardClient
 from datetime import datetime
 
 logger = logging.getLogger("core.executor")
@@ -97,7 +98,7 @@ class Executor:
 
             # 3. Run Deep Scan
             try:
-                devices = await NetworkModule.scan_network_deep(status_callback=update_status)
+                devices = await NetworkModule.scan_network_deep(status_callback=update_status, app=self.app)
 
                 # 4. Format Final Report
                 if not devices:
@@ -241,8 +242,41 @@ class Executor:
             elif not mac: return f"❌ Não encontrei o IP {target} na rede agora."
             else: return "❌ Preciso do IP e do novo nome. Ex: mudar nome do 192.168.1.5 para TV Sala"
 
-        if intent == "network_block_device": return "🚫 Bloqueio de dispositivo ainda não conectado ao AdGuard."
-        if intent == "network_block_site": return "🚫 Bloqueio de site ainda não conectado ao AdGuard."
+        if intent == "network_block_device":
+            ip = params.get("ip") or params.get("target")
+            if not ip:
+                return "❌ Preciso do IP. Ex: bloquear 192.168.0.15"
+
+            result = await AdGuardClient.block_client(ip)
+            if result["success"]:
+                return f"🚫 Dispositivo {ip} bloqueado no AdGuard."
+            else:
+                return f"❌ Erro ao bloquear: {result['message']}"
+
+        if intent == "network_block_site":
+            site = params.get("site") or params.get("domain")
+            if not site:
+                return "❌ Qual site? Ex: bloquear youtube.com"
+
+            result = await AdGuardClient.block_client(site, name=f"Bloqueio {site}")
+            if result["success"]:
+                return f"🚫 Site {site} bloqueado."
+            else:
+                return f"❌ Erro: {result['message']}"
+
+        if intent == "network_stats":
+            stats = await AdGuardClient.get_stats()
+            top = await AdGuardClient.get_top_clients(limit=5)
+
+            msg = f"📊 **Estatísticas de Rede**\n\n"
+            msg += f"DNS Queries: {stats.get('num_dns_queries', 0)}\n"
+            msg += f"Bloqueados: {stats.get('num_blocked_filtering', 0)}\n\n"
+            msg += f"**Top 5 Consumidores:**\n"
+
+            for client in top:
+                msg += f"• {client['name'] or client['ip']}: {client['queries']} queries\n"
+
+            return msg
 
         if intent == "context_query":
             try: return f"📊 Resultado técnico:\n```{ContextReader.handle(params)}```"
@@ -281,6 +315,9 @@ class Executor:
 
         if intent == "hydration_log_implicit":
             return HydrationModule.log_intake(chat_id, None, manual=True, explicit=False)
+
+        if intent == "hydration_analytics":
+            return HydrationModule.get_analytics(chat_id)
 
         if intent == "hydration_activate": return HydrationModule.activate_flow(chat_id)
         if intent == "hydration_status": return HydrationModule.get_status_message(chat_id)

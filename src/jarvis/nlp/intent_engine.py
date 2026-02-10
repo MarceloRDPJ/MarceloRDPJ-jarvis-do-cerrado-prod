@@ -38,6 +38,19 @@ class HybridIntentEngine:
                 "velocidade da internet", "speedtest", "teste de velocidade",
                 "internet ta lenta", "medir velocidade", "taxa de download"
             ],
+            "network_stats": [
+                "estatisticas de rede", "stats adguard", "consumo de rede",
+                "quem ta gastando internet", "top consumidores", "bloqueios adguard",
+                "uso do adguard"
+            ],
+            "network_block_device": [
+                "bloquear dispositivo", "bloquear ip", "cortar internet do",
+                "bloqueia o ip", "travar internet"
+            ],
+            "network_block_site": [
+                "bloquear site", "bloquear dominio", "bloqueia o site",
+                "proibir site", "nao deixar acessar"
+            ],
             "network_rename": [
                 "mudar o nome do", "renomear", "renomear dispositivo", "chamar o dispositivo",
                 "apelidar o ip", "alterar nome na rede", "editar o nome da", "editar nome",
@@ -50,6 +63,10 @@ class HybridIntentEngine:
             "hydration_log": [
                 "bebi", "tomei agua", "mais um copo", "bebi agua", "tomei mais uma",
                 "registra agua", "anota ai bebi"
+            ],
+            "hydration_analytics": [
+                "analise de hidratacao", "padroes de agua", "insights agua",
+                "estatisticas agua", "como tenho bebido agua", "historico de agua"
             ],
             "system_status": [
                 "status da cpu", "uso da cpu", "memoria",
@@ -137,6 +154,9 @@ def detect_intent(text: str) -> Dict:
     if intent == "hydration_log":
         return {"intent": "hydration_log"}
 
+    if intent == "hydration_analytics":
+        return {"intent": "hydration_analytics"}
+
     if intent == "reminder_list":
         return {"intent": "reminder_list"}
 
@@ -145,6 +165,24 @@ def detect_intent(text: str) -> Dict:
 
     if intent == "network_speed":
         return {"intent": "network_speed", "action": "check", "entity": "network"}
+
+    if intent == "network_stats":
+        return {"intent": "network_stats"}
+
+    if intent == "network_block_device":
+        # Extract IP
+        ip_match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', text)
+        ip = ip_match.group(1) if ip_match else None
+        return {"intent": "network_block_device", "params": {"ip": ip, "target": ip}}
+
+    if intent == "network_block_site":
+        # Extract Domain (simplistic)
+        # remove "bloquear", "site", etc.
+        clean = text.lower()
+        for w in ["bloquear", "site", "acesso", "ao", "o", "a", "bloqueia"]:
+            clean = clean.replace(w, "")
+        domain = clean.strip()
+        return {"intent": "network_block_site", "params": {"site": domain, "domain": domain}}
 
     if intent == "reminder_delete":
         # Tenta extrair ID ou termo de busca
