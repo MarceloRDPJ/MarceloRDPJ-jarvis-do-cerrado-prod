@@ -243,50 +243,27 @@ def apply_rules(text: str) -> Optional[Dict]:
             "confidence": 0.7,
         }
 
-    # Ativação direta de Hidratação
-    if "ativar hidratação" in t or "ativar hidratacao" in t or "começar agua" in t or "iniciar agua" in t:
+    # =====================================================
+    # HIDRATAÇÃO (SISTEMA CONSOLIDADO)
+    # =====================================================
+
+    # 1. Ativação
+    if "ativar hidratação" in t or "ativar hidratacao" in t or "me lembre de beber agua" in t or "me lembre de beber água" in t:
          return {
-            "intent": "reminder_set",
-            "action": "create_request", # Força fluxo
-            "entity": "reminder",
-            "params": {
-                "action_type": "hydration",
-                "text": "Beber água",
-                "repeat": True,
-                "minutes": 60 # Default
-            },
+            "intent": "hydration_activate",
+            "action": "activate",
+            "entity": "hydration",
             "confidence": 1.0,
         }
 
-    # =====================================================
-    # HIDRATAÇÃO (CONTROLE E LOG)
-    # =====================================================
-    # Log de consumo
-    log_match = re.search(r"(?:bebi|tomei|mais)\s*(\d+)\s*(?:ml|l)?", t)
-    if log_match:
-        # Se especificou número, é log com valor
-        return {
-            "intent": "hydration_log",
-            "action": "log",
-            "entity": "hydration",
-            "params": {"amount": int(log_match.group(1))},
-            "confidence": 1.0,
-        }
-
-    if any(x in t for x in ["bebi agua", "bebi água", "tomei agua", "tomei água", "mais um copo", "mais uma garrafa", "bebi", "ta pago"]):
-        # Log simples (copo padrão) - Apenas se frase curta/específica
-        # Cuidado com "bebi agua ontem" -> Brain deve tratar?
-        # Por enquanto, assumimos log imediato.
-        return {
-            "intent": "hydration_log",
-            "action": "log",
-            "entity": "hydration",
-            "params": {"amount": None}, # Usa padrão
-            "confidence": 0.95,
-        }
-
-    # Status
-    if any(x in t for x in ["status hidratacao", "status da agua", "quanto bebi", "como ta a agua", "meta de agua"]):
+    # 2. Status (Acentuação tratada)
+    # Prioridade para evitar que caia em system_status
+    if any(x in t for x in [
+        "status hidratacao", "status hidratação",
+        "status da agua", "status da água",
+        "quanto bebi", "como ta a agua", "como tá a água", "como está a água",
+        "meta de agua", "meta de água"
+    ]):
         return {
             "intent": "hydration_status",
             "action": "check",
@@ -294,10 +271,45 @@ def apply_rules(text: str) -> Optional[Dict]:
             "confidence": 1.0,
         }
 
-    # Controle
-    if re.search(r"(?:pausar|parar|cancelar|silenciar)\s+(?:lembrete|hidratação|agua|água)", t):
-        # Detectar se é pausa ou parada total?
-        # O módulo hydration vai decidir baseado na string do comando.
+    # 3. Log de Consumo com Valor Específico
+    log_match = re.search(r"(?:bebi|tomei|mais)\s*(\d+)\s*(?:ml|l)?", t)
+    if log_match:
+        return {
+            "intent": "hydration_log_explicit",
+            "action": "log",
+            "entity": "hydration",
+            "params": {"amount": int(log_match.group(1))},
+            "confidence": 1.0,
+        }
+
+    # 4. Log de Consumo Explícito (Sem valor -> Usa copo padrão)
+    if any(x in t for x in [
+        "bebi agua", "bebi água",
+        "tomei agua", "tomei água",
+        "mais um copo", "mais uma garrafa",
+        "bebi", "ja foi", "já foi", "tomei", "feito", "manda"
+    ]):
+        return {
+            "intent": "hydration_log_explicit",
+            "action": "log",
+            "entity": "hydration",
+            "params": {"amount": None},
+            "confidence": 1.0,
+        }
+
+    # 5. Log de Consumo Implícito (Depende de contexto/modo)
+    # Apenas frases muito curtas e afirmativas
+    if t in ["ok", "👍", "beleza", "blz", "joia"]:
+        return {
+            "intent": "hydration_log_implicit",
+            "action": "log",
+            "entity": "hydration",
+            "params": {"amount": None},
+            "confidence": 0.8, # Menor confiança para permitir override de fluxo
+        }
+
+    # 6. Controle (Pausa/Cancelamento)
+    if re.search(r"(?:pausar|parar|cancelar|silenciar|interromper)\s+(?:hidratação|hidratacao|agua|água)", t):
         return {
             "intent": "hydration_control",
             "action": "control",
@@ -306,7 +318,7 @@ def apply_rules(text: str) -> Optional[Dict]:
             "confidence": 1.0,
         }
 
-    if re.search(r"(?:retomar|voltar)\s+(?:com\s+)?(?:a\s+)?(?:hidratação|agua|água)", t):
+    if re.search(r"(?:retomar|voltar)\s+(?:com\s+)?(?:a\s+)?(?:hidratação|hidratacao|agua|água)", t):
         return {
             "intent": "hydration_control",
             "action": "control",
@@ -315,11 +327,11 @@ def apply_rules(text: str) -> Optional[Dict]:
             "confidence": 1.0,
         }
 
-    # Edição de Hidratação
-    update_match = re.search(r"(?:editar|corrigir|mudar|alterar)\s+(?:meta|copo|total|tamanho)(?:.*de\s+)?(?:agua|água)?\s*(?:pra|para)?\s*(\d+)?", t)
-    if update_match or ("corrigir meta" in t or "editar meta" in t):
-        # Se encontrou número, extrai. Se não, o módulo pergunta ou tenta parsear o resto.
-        val = update_match.group(1) if update_match else None
+    # 7. Edição de Parâmetros
+    # Ex: "corrigir meta para 5000", "meu copo agora é 300ml"
+    update_match = re.search(r"(?:editar|corrigir|mudar|alterar|definir)\s+(?:meta|copo|total|tamanho|intervalo)(?:.*de\s+)?(?:agua|água|hidratação)?\s*(?:pra|para|é)?\s*(\d+)?", t)
+    if update_match:
+        val = update_match.group(1)
         return {
             "intent": "hydration_update",
             "action": "update",

@@ -58,39 +58,15 @@ class SchedulerService:
         task_id = task['id']
         action = task.get('action')
 
-        # === 1. QUIET HOURS (08:00 - 19:00) para Hidratação ===
-        if action == 'hydration':
-            # Converte para local time (UTC-3)
-            local_now = now - timedelta(hours=3)
-            hour = local_now.hour
+        # === 1. HIDRATAÇÃO (Novo Sistema) ===
+        if action in ['hydration', 'hydration_check']:
+            # Delega TUDO para o módulo (Estado, Quiet Hours, Intervalo Dinâmico)
+            await HydrationModule.check_schedule(self.app, task)
 
-            # Se for antes das 08h ou depois das 19h
-            if hour < 8 or hour >= 19:
-                logger.info(f"Tarefa {task_id} (Hidratação) pausada (Quiet Hours). Reagendando...")
-
-                # Se for recorrente, reagenda para o próximo dia às 08:00 ou mantém o intervalo se cair dentro
-                # Simples: Reagenda para amanhã às 08:00 se passou das 19h
-                # Se for madrugada (ex: 03h), reagenda para hoje às 08:00
-
-                target_date = local_now.replace(minute=0, second=0, microsecond=0)
-                if hour >= 19:
-                    target_date += timedelta(days=1)
-                    target_date = target_date.replace(hour=8)
-                elif hour < 8:
-                    target_date = target_date.replace(hour=8)
-
-                # Converte de volta para UTC para salvar
-                next_run_utc = target_date + timedelta(hours=3)
-
-                Persistence.update_task_next_run(task_id, next_run_utc)
-                return
-
-            # Delega envio para o Módulo de Hidratação
-            await HydrationModule.send_reminder(self.app, task)
-
-            # Pula passo 2 e vai para reagendamento
-            # (Poderíamos retornar aqui se HydrationModule lidasse com reagendamento,
-            # mas o Scheduler é quem gerencia o tempo. Então continuamos para o passo 3)
+            # O Scheduler prossegue para o Reagendamento Padrão abaixo.
+            # Se o módulo decidiu não enviar nada (Quiet Hours ou bebeu recente),
+            # o Scheduler simplesmente agendará a próxima verificação para daqui a X minutos.
+            # Isso mantém o "Heartbeat" vivo.
 
         else:
             # === 2. Envio da Mensagem (Genérico) ===
