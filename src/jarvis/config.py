@@ -1,10 +1,24 @@
 import os
 import yaml
+import pytz
 from dotenv import load_dotenv
 
 load_dotenv()
 
 class Config:
+    # ==================================================
+    # TIMEZONE
+    # ==================================================
+    TIMEZONE = os.getenv("TIMEZONE", "America/Sao_Paulo")
+    TZ = pytz.timezone(TIMEZONE)
+
+    # ==================================================
+    # TUNING / MAGIC NUMBERS
+    # ==================================================
+    INTENT_CONFIDENCE_THRESHOLD = float(os.getenv("INTENT_CONFIDENCE_THRESHOLD", 0.88))
+    SCHEDULER_INTERVAL_SECONDS = int(os.getenv("SCHEDULER_INTERVAL_SECONDS", 30))
+    HYDRATION_MIN_INTERVAL_MINUTES = int(os.getenv("HYDRATION_MIN_INTERVAL_MINUTES", 30))
+
     # ==================================================
     # TELEGRAM
     # ==================================================
@@ -21,33 +35,6 @@ class Config:
     # NETWORK / SYSTEM
     # ==================================================
     PC_MAC = os.getenv("PC_MAC", "00:00:00:00:00:00")
-
-    # ==================================================
-    # TUYA CLOUD (OFICIAL – PRINCIPAL)
-    # ==================================================
-    TUYA_ACCESS_ID = os.getenv("TUYA_ACCESS_ID")
-    TUYA_ACCESS_SECRET = os.getenv("TUYA_ACCESS_SECRET")
-    TUYA_REGION = os.getenv("TUYA_REGION", "us")  # us = Americas
-
-    # ==================================================
-    # TUYA DEVICES (MAPEAMENTO LÓGICO)
-    # NÃO É LOCAL, É IDENTIDADE DO BOT
-    # ==================================================
-    TUYA_DEVICES = {
-        "fechadura": {
-            "name": "Fechadura Principal",
-            "type": "lock",
-            "cloud": True,
-            "device_id": os.getenv("TUYA_LOCK_ID"),  # vem da Tuya Cloud
-            "brand": "COIBEU",
-        },
-        "luz_sala": {
-            "name": "Luz da Sala",
-            "type": "light",
-            "cloud": True,
-            "device_id": os.getenv("TUYA_LIGHT_ID"),
-        },
-    }
 
     # ==================================================
     # CONFIG.YAML (COMPORTAMENTO)
@@ -90,11 +77,6 @@ class Config:
         if not Config.GEMINI_API_KEY:
             missing.append("GEMINI_API_KEY")
 
-        if not Config.TUYA_ACCESS_ID:
-            missing.append("TUYA_ACCESS_ID")
-
-        if not Config.TUYA_ACCESS_SECRET:
-            missing.append("TUYA_ACCESS_SECRET")
 
         if missing:
             raise RuntimeError(

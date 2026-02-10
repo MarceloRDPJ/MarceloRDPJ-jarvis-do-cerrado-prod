@@ -5,6 +5,7 @@ from typing import List, Dict
 from jarvis.database.persistence import Persistence
 from jarvis.modules.reminders import get_reminder_message
 from jarvis.modules.hydration import HydrationModule
+from jarvis.config import Config
 
 logger = logging.getLogger("services.scheduler")
 
@@ -19,9 +20,9 @@ class SchedulerService:
     - Lógica de "Madrugada" (Silêncio)
     """
 
-    def __init__(self, application, interval_seconds: int = 30):
+    def __init__(self, application, interval_seconds: int = None):
         self.app = application
-        self.interval = interval_seconds
+        self.interval = interval_seconds or Config.SCHEDULER_INTERVAL_SECONDS
         self.running = False
 
     async def start(self):
@@ -94,6 +95,7 @@ class SchedulerService:
             logger.info(f"Tarefa {task_id} concluída.")
 
     def check_madrugada(self, now: datetime) -> bool:
-        # Horário local aproximado (UTC-3 para Brasil/Cerrado)
-        local_hour = (now.hour - 3) % 24
+        # Horário local baseado na configuração
+        local_now = now.astimezone(Config.TZ)
+        local_hour = local_now.hour
         return 23 <= local_hour or local_hour < 6

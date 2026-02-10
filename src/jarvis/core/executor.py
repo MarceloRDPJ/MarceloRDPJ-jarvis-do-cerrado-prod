@@ -21,6 +21,16 @@ class Executor:
     Executor do Jarvis do Cerrado — EXECUÇÃO CONTROLADA
     """
 
+    SENSITIVE_ACTIONS = {
+        "system_reboot",
+        "system_shutdown",
+        "system_restart_adguard",
+        "network_block",
+        "network_unblock",
+        "network_block_device",
+        "network_block_site"
+    }
+
     def __init__(self, application):
         self.app = application
         Persistence.init_db()
@@ -48,6 +58,11 @@ class Executor:
         # Confirmation
         if intent == "action_confirm": return await self._confirm_action(chat_id)
         if intent == "action_cancel": return self._cancel_action(chat_id)
+
+        # Enforce Confirmation for Sensitive Actions
+        if intent in self.SENSITIVE_ACTIONS:
+            requires_confirmation = True
+
         if requires_confirmation:
             self.pending_actions[chat_id] = intent_data
             return "⚠️ *Ação sensível detectada.* Digite **confirmar** ou **cancelar**."

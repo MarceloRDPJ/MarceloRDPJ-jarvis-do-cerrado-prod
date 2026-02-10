@@ -2,6 +2,7 @@ import logging
 import json
 from datetime import datetime
 from typing import Dict, Any
+from jarvis.config import Config
 
 logger = logging.getLogger("modules.reminders")
 
@@ -15,8 +16,9 @@ def get_reminder_message(task: Dict[str, Any], now: datetime) -> str:
     text = task['text']
     meta = json.loads(task['meta'] or '{}')
 
-    # Horário local aproximado (UTC-3)
-    hour = (now.hour - 3) % 24
+    # Horário local via Config
+    local_now = now.astimezone(Config.TZ)
+    hour = local_now.hour
 
     is_madrugada = 23 <= hour or hour < 6
     is_dia = 6 <= hour < 18
