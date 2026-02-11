@@ -178,59 +178,254 @@ class Executor:
         # ---------------- STANDARD INTENTS ----------------
         if intent == "chat": return params.get("response", Personality.get_response("FALLBACK"))
         if intent == "small_talk": return Personality.get_small_talk(params.get("text", ""))
-        if intent == "identity_who": return Personality.get_response("IDENTITY_WHO")
-        if intent == "identity_capabilities": return Personality.get_response("IDENTITY_CAPABILITIES")
+
+        # IDENTITY
+        if intent == "identity_who":
+            return Personality.get_response("IDENTITY_WHO")
+
+        if intent == "identity_creator":
+            return Personality.get_response("IDENTITY_CREATOR")
+
+        if intent == "identity_purpose":
+            return Personality.get_response("IDENTITY_PURPOSE")
+
+        if intent == "identity_capabilities":
+            return Personality.get_response("IDENTITY_CAPABILITIES")
+
+        if intent == "identity_tech":
+            return Personality.get_response("IDENTITY_TECH_STACK")
+
         if intent == "greet": return Personality.get_response("GREET")
 
         if intent == "help":
             try:
                 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+
+                # MENU PRINCIPAL (3 submenus)
                 keyboard = [
                     [
-                        InlineKeyboardButton("🛜 Scan Rede", callback_data="quem ta na rede"),
-                        InlineKeyboardButton("🚀 Velocidade", callback_data="velocidade da internet")
+                        InlineKeyboardButton("🌐 Rede & Segurança", callback_data="menu_rede"),
+                        InlineKeyboardButton("⏰ Agenda & Vida", callback_data="menu_agenda")
                     ],
                     [
-                        InlineKeyboardButton("💧 Ativar Hidratação", callback_data="ativar hidratacao"),
-                        InlineKeyboardButton("📊 Status Água", callback_data="status hidratacao")
+                        InlineKeyboardButton("🤖 Automações & IA", callback_data="menu_automacoes"),
+                        InlineKeyboardButton("🖥️ Sistema & Controle", callback_data="menu_sistema")
                     ],
                     [
-                        InlineKeyboardButton("📅 Ver Agenda", callback_data="listar lembretes"),
-                        InlineKeyboardButton("🖥️ Status Sistema", callback_data="status do sistema")
+                        InlineKeyboardButton("ℹ️ Sobre Mim", callback_data="quem é você")
                     ]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
-            except ImportError: reply_markup = None
+            except ImportError:
+                reply_markup = None
 
             return {
                 "text": (
-                    "🧠 *Menu de Comando — Jarvis do Cerrado*\n\n"
-                    "_Opa! Tudo que eu posso fazer tá aqui, ó:_\n\n"
-                    "🌐 *Rede & Conexão*\n"
-                    "• `Quem tá na rede?` - Lista dispositivos.\n"
-                    "• `Status da internet` - Checa se tá tudo on.\n"
-                    "• `Velocidade da internet` - Teste rápido.\n"
-                    "• `Renomear 192.168.1.X para TV` - Organiza a casa.\n\n"
-                    "⏰ *Agenda & Lembretes*\n"
-                    "• `Lembrar de tomar remédio a cada 8h`\n"
-                    "• `Lembrar de reunião amanhã às 14h`\n"
-                    "• `Listar lembretes` - Ver o que tá pendente.\n\n"
-                    "💧 *Hidratação Inteligente*\n"
-                    "• `Ativar Hidratação` - Começa o monitoramento.\n"
-                    "• `Bebi água` - Registra um copo.\n"
-                    "• `Status água` - Vê sua meta do dia.\n\n"
-                    "🖥️ *Sistema*\n"
-                    "• `Status do sistema` - CPU, RAM e Temperatura.\n\n"
-                    "_Se precisar de algo mais específico, é só pedir com jeitinho._"
+                    "🧠 **JARVIS DO CERRADO - CENTRAL DE COMANDO**\n\n"
+                    "_Guardião da sua casa digital, operacional 24/7._\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "👋 **O que eu posso fazer por você?**\n\n"
+                    "Clique em uma categoria abaixo ou digite sua dúvida naturalmente:\n\n"
+                    "🌐 **Rede & Segurança** → Scan, bloqueio, stats\n"
+                    "⏰ **Agenda & Vida** → Lembretes, hidratação\n"
+                    "🤖 **Automações & IA** → Regras inteligentes\n"
+                    "🖥️ **Sistema** → Monitoramento, controle\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "_Dica: Você pode falar comigo naturalmente._\n"
+                    "_Ex: 'me lembra de ligar pro dentista amanhã'_"
                 ),
                 "reply_markup": reply_markup
             }
 
+        # --- SUBMENUS ---
+        if intent == "menu_rede":
+            try:
+                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                keyboard = [
+                    [
+                        InlineKeyboardButton("🔍 Scan Completo", callback_data="quem ta na rede"),
+                        InlineKeyboardButton("🚀 Teste Velocidade", callback_data="velocidade da internet")
+                    ],
+                    [
+                        InlineKeyboardButton("📊 Estatísticas", callback_data="estatisticas de rede"),
+                        InlineKeyboardButton("🚫 Bloquear IP", callback_data="ajuda bloquear")
+                    ],
+                    [
+                        InlineKeyboardButton("✏️ Renomear Device", callback_data="ajuda renomear"),
+                        InlineKeyboardButton("📡 Status Internet", callback_data="status da internet")
+                    ],
+                    [InlineKeyboardButton("🔙 Menu Principal", callback_data="help")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+            except ImportError:
+                reply_markup = None
+
+            return {
+                "text": (
+                    "🌐 **REDE & SEGURANÇA**\n\n"
+                    "_Controle total sobre sua rede doméstica._\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "**🔍 Varredura & Monitoramento**\n"
+                    "• `Quem tá na rede?` → Lista TODOS os dispositivos conectados\n"
+                    "• `Estatísticas de rede` → Top consumidores de banda\n"
+                    "• `Status da internet` → Ping check em tempo real\n"
+                    "• `Velocidade da internet` → Speedtest completo\n\n"
+                    "**🚫 Bloqueio & Segurança (AdGuard)**\n"
+                    "• `Bloquear 192.168.0.X` → Bloqueia dispositivo específico\n"
+                    "• `Bloquear youtube.com` → Bloqueia site/domínio\n"
+                    "• `Desbloquear tudo` → Remove todos os bloqueios\n"
+                    "• `Modo criança` → Ativa filtros de conteúdo\n\n"
+                    "**✏️ Organização**\n"
+                    "• `Renomear 192.168.0.15 para TV Sala` → Dá nome aos devices\n"
+                    "• `Listar dispositivos salvos` → Ver nomes customizados\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "_Tudo integrado com AdGuard Home pra máxima proteção._"
+                ),
+                "reply_markup": reply_markup
+            }
+
+        if intent == "menu_agenda":
+            try:
+                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                keyboard = [
+                    [
+                        InlineKeyboardButton("📋 Ver Lembretes", callback_data="listar lembretes"),
+                        InlineKeyboardButton("➕ Criar Lembrete", callback_data="criar lembrete")
+                    ],
+                    [
+                        InlineKeyboardButton("💧 Ativar Hidratação", callback_data="ativar hidratacao"),
+                        InlineKeyboardButton("📊 Análise 30 Dias", callback_data="analise de hidratacao")
+                    ],
+                    [
+                        InlineKeyboardButton("✅ Bebi Água", callback_data="bebi agua"),
+                        InlineKeyboardButton("📈 Status Água", callback_data="status hidratacao")
+                    ],
+                    [InlineKeyboardButton("🔙 Menu Principal", callback_data="help")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+            except ImportError:
+                reply_markup = None
+
+            return {
+                "text": (
+                    "⏰ **AGENDA & BEM-ESTAR**\n\n"
+                    "_Gestão de tempo e saúde inteligente._\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "**📅 Lembretes Inteligentes**\n"
+                    "• `Lembrar de X amanhã às 14h` → Lembrete único\n"
+                    "• `Lembrar de Y a cada 8 horas` → Recorrente\n"
+                    "• `Listar lembretes` → Ver agenda completa\n"
+                    "• `Cancelar lembrete 3` → Deleta por ID\n"
+                    "• Botões de Snooze (+15min, +1h) em cada lembrete\n\n"
+                    "**💧 Hidratação Gamificada**\n"
+                    "• `Ativar hidratação` → Setup interativo\n"
+                    "• `Bebi` ou `Bebi 500ml` → Registra consumo\n"
+                    "• `Status água` → Progresso do dia\n"
+                    "• `Análise de hidratação` → Padrões de 30 dias\n\n"
+                    "**📊 Insights Personalizados**\n"
+                    "• Detecção de horários de pico\n"
+                    "• Identificação de dias fracos\n"
+                    "• Streak contador (dias consecutivos)\n"
+                    "• Sugestões adaptativas\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "_Sistema completo de bem-estar integrado._"
+                ),
+                "reply_markup": reply_markup
+            }
+
+        if intent == "menu_automacoes":
+            try:
+                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                keyboard = [
+                    [
+                        InlineKeyboardButton("📋 Ver Automações", callback_data="listar automacoes"),
+                        InlineKeyboardButton("⚙️ Config Automações", callback_data="config automacoes")
+                    ],
+                    [InlineKeyboardButton("🔙 Menu Principal", callback_data="help")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+            except ImportError:
+                reply_markup = None
+
+            return {
+                "text": (
+                    "🤖 **AUTOMAÇÕES & INTELIGÊNCIA**\n\n"
+                    "_Jarvis proativo. Executa ações sem você pedir._\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "**🔥 Automações Ativas:**\n\n"
+                    "🌙 **Modo Noturno (22h)**\n"
+                    "→ Silencia lembretes automaticamente\n"
+                    "→ Notifica ativação\n\n"
+                    "☀️ **Bom Dia Automático (7h)**\n"
+                    "→ Mensagem motivacional\n"
+                    "→ Dica de hidratação\n\n"
+                    "🚨 **Alerta Internet Down**\n"
+                    "→ Detecta queda de conexão\n"
+                    "→ Notifica imediatamente\n\n"
+                    "🛡️ **Detecção de Invasores**\n"
+                    "→ Monitora devices desconhecidos\n"
+                    "→ Oferece bloqueio automático\n\n"
+                    "💧 **Alerta Meta Perdida**\n"
+                    "→ Se não bateu meta de água\n"
+                    "→ Mensagem de incentivo\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "**🎯 Como funciona:**\n"
+                    "Sistema If-This-Then-That (IFTTT) rodando 24/7.\n"
+                    "Eventos disparam ações automaticamente.\n\n"
+                    "_Em breve: criação de automações customizadas._"
+                ),
+                "reply_markup": reply_markup
+            }
+
+        if intent == "menu_sistema":
+            try:
+                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                keyboard = [
+                    [
+                        InlineKeyboardButton("📊 Diagnóstico", callback_data="status do sistema"),
+                        InlineKeyboardButton("🔄 Reiniciar", callback_data="ajuda reiniciar")
+                    ],
+                    [
+                        InlineKeyboardButton("🛡️ Restart AdGuard", callback_data="reiniciar adguard"),
+                        InlineKeyboardButton("📜 Ver Logs", callback_data="logs do sistema")
+                    ],
+                    [InlineKeyboardButton("🔙 Menu Principal", callback_data="help")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+            except ImportError:
+                reply_markup = None
+
+            return {
+                "text": (
+                    "🖥️ **SISTEMA & CONTROLE**\n\n"
+                    "_Monitoramento e manutenção do Raspberry Pi._\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "**📊 Monitoramento**\n"
+                    "• `Status do sistema` → CPU, RAM, Temperatura\n"
+                    "• `Uptime` → Tempo sem reiniciar\n"
+                    "• `Uso de disco` → Espaço disponível\n\n"
+                    "**🔧 Controle**\n"
+                    "• `Reiniciar sistema` → Reboot do Pi (confirmação)\n"
+                    "• `Reiniciar AdGuard` → Restart container\n"
+                    "• `Logs do sistema` → Últimos eventos\n\n"
+                    "**🤖 Sobre o Hardware**\n"
+                    "• Raspberry Pi 3B\n"
+                    "• Python 3.12\n"
+                    "• Docker + Tailscale VPN\n"
+                    "• SQLite local\n"
+                    "• 100% autonomia\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "_Tudo rodando local, sem cloud._"
+                ),
+                "reply_markup": reply_markup
+            }
+
+        # --- END SUBMENUS ---
+
         if intent == "system_status": return await SystemModule.get_status()
         if intent == "system_reboot": return SystemModule.reboot_device()
         if intent == "system_restart_adguard": return SystemModule.restart_container("adguardhome")
-        if intent == "menu_system": return self._build_menu("System")
-        if intent == "menu_network": return self._build_menu("Network")
+        # Removed old menu handlers that delegated to _build_menu
 
         if intent == "network_speed":
             await self.app.bot.send_message(chat_id=chat_id, text="🚀 Iniciando teste de velocidade... segura a onda que demora uns segundos.")
@@ -291,8 +486,6 @@ class Executor:
         if intent == "reminder_set":
             if action == "create_request": return RemindersFlow.start_flow(chat_id, params)
             return "Modo de criação direta descontinuado. Use fluxo interativo."
-
-        if intent == "menu_reminders": return self._build_menu("Reminders", chat_id)
 
         if intent == "reminder_list":
             text = RemindersFlow.list_reminders(chat_id)
@@ -417,19 +610,3 @@ class Executor:
 
         return f"✅ Dispositivo `{ip}` cadastrado como *{name}*."
 
-    def _build_menu(self, menu_type: str, chat_id: int = None) -> Dict[str, Any]:
-        try: from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-        except ImportError: return "❌ Erro ao carregar interface gráfica."
-
-        if menu_type == "Network":
-            text = "🌐 *Centro de Comando de Rede*\n\n_Monitoramento e controle de tráfego._"
-            keyboard = [[InlineKeyboardButton("🔍 Scan Total", callback_data="quem ta na rede"), InlineKeyboardButton("🚀 Velocidade", callback_data="velocidade da internet")], [InlineKeyboardButton("✏️ Renomear Host", callback_data="ajuda renomear"), InlineKeyboardButton("🔙 Menu Principal", callback_data="help")]]
-        elif menu_type == "Reminders":
-            text = "⏰ *Gestão Temporal & Tarefas*\n\n_Organização de agenda e hidratação._"
-            keyboard = [[InlineKeyboardButton("📋 Listar Agenda", callback_data="listar lembretes"), InlineKeyboardButton("➕ Novo Aviso", callback_data="criar lembrete")], [InlineKeyboardButton("💧 Status H2O", callback_data="status hidratacao"), InlineKeyboardButton("🔙 Menu Principal", callback_data="help")]]
-        elif menu_type == "System":
-            text = "🖥️ *Painel de Controle do Sistema*\n\n_Diagnóstico e operações críticas._"
-            keyboard = [[InlineKeyboardButton("📊 Diagnóstico", callback_data="status do sistema")], [InlineKeyboardButton("🛡️ Restart AdGuard", callback_data="reiniciar adguard"), InlineKeyboardButton("🔄 Reboot Host", callback_data="reiniciar sistema")], [InlineKeyboardButton("🔙 Menu Principal", callback_data="help")]]
-        else: return "Menu desconhecido."
-
-        return {"text": text, "reply_markup": InlineKeyboardMarkup(keyboard)}
