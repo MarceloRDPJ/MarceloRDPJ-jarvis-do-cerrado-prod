@@ -41,14 +41,6 @@ class LocalBrain:
             "voce acredita em deus": ["Acredito no Root Supremo."],
             "qual seu objetivo": ["Manter sua casa segura, sua rede rápida e você hidratado."],
 
-            # === MARCELO & IDENTIDADE (NOVO) ===
-            "quem e marcelo": ["Marcelo é meu criador e mestre. Ele escreveu meu código e eu obedeço aos comandos dele."],
-            "quem é marcelo": ["Marcelo é meu criador e mestre. Ele escreveu meu código e eu obedeço aos comandos dele."],
-            "conhece o marcelo": ["Sim, Marcelo RDP é o engenheiro por trás de toda a minha lógica."],
-            "quem te programou": ["Fui programado por Marcelo. Cada linha de código tem a assinatura dele."],
-            "quem sou eu": ["Se você for o Marcelo, você é meu criador. Se não, você é um convidado na rede."],
-            "marcelo e legal": ["O melhor dev que conheço. (Disclaimer: fui programado para dizer isso)."],
-
             # === CAPACIDADES (20) ===
             "o que voce faz": ["Gerencio a rede, lembretes, hidratação e automações da casa."],
             "quais seus poderes": ["Tenho visão de rede (ARP scan), controle do tempo (cron) e memória infinita (SQLite)."],
