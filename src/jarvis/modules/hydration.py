@@ -18,44 +18,52 @@ class HydrationModule:
     (Sistema Consolidado - Modo Diário)
     """
 
+    # ==================================================
+    # GAMIFICATION & FUN MESSAGES
+    # ==================================================
+
+    GAMIFICATION_LEVELS = [
+        (0, "🌵 Cacto do Cerrado"),
+        (20, "🦎 Lagartixo Hidratado"),
+        (40, "🐸 Sapo Cururu"),
+        (60, "🐆 Onça Pintada"),
+        (80, "🌊 Guardião das Águas"),
+        (100, "👑 Rei do Araguaia")
+    ]
+
     MOTIVATION_DRINK = [
-        "Boa! Água entrando, foco voltando 💧",
-        "Aí sim. Rim agradece, cérebro também 😄",
-        "Perfeito. Postura ereta e mais um gole 👊",
-        "Isso aí! Hidrata que o dia rende mais.",
-        "Show! Menos uma pedra no rim, mais energia no corpo.",
-        "Mandou bem. Água é vida!",
-        "Excelente. O corpo agradece esse gole.",
+        "Mana restaurada! 💧 (+{ml}ml)",
+        "Potion de HP consumida! 🥤",
+        "Aí sim! Subindo o XP da hidratação. 🆙",
+        "Boa! O rim tá fazendo a festa. 🎉",
+        "Isso! Água é o cheat code da vida real. 🎮",
+        "Mandou bem! O radiador tá cheio. 🚗",
+        "Gole tático executado com sucesso. 🫡"
     ]
 
     MOTIVATION_NUDGE = [
-        "Uai… não esqueceu da água não, né?",
-        "Ó o copo aí do lado te encarando 👀",
-        "Levanta um tiquinho, estica e bebe água. Confia.",
-        "Bora beber essa água aí, sô!",
-        "Não deixa pra depois não, bebe um gole agora.",
-        "Psiu... hora da água. 💧",
+        "Psiu... Sua barra de mana tá baixa. Bebe água! 📉",
+        "Ei player 1, hora de recarregar. 🔋",
+        "Não deixa o personagem desidratar não, sô! 🕹️",
+        "Ó o delay mental chegando... Bebe água pra evitar o lag! 📶",
+        "Levanta, estica e hidrata. Combo triplo! 👊",
+        "Bora! Missão secundária: Beber um copo d'água. 📜",
+        "Uai, esqueceu de salvar o jogo? Não, esqueceu da água! 💾"
     ]
 
     MOTIVATION_GOAL_NEAR = [
-        "Falta pouco agora! Última puxada 💪",
-        "Tá quase lá. Hoje vai fechar bonito.",
-        "Reta final! Só mais uns goles.",
-        "Quase batendo a meta. Bora!",
+        "Boss Battle à vista! Falta pouco pra meta! ⚔️",
+        "Reta final! Só mais uns goles pra platinar o dia. 🏆",
+        "Tá quase lá! O troféu de hidratação tá brilhando. ✨",
+        "Falta tiquinho! Bora fechar essa quest. 📜"
     ]
 
     MOTIVATION_GOAL_HIT = [
-        "Meta batida! Hoje você venceu a si mesmo 🏆",
-        "Pode comemorar. Amanhã a gente repete o show.",
-        "Sensacional! Hidratação nível máximo hoje.",
-        "Fechou por hoje! Parabéns pela disciplina.",
-    ]
-
-    WELLNESS_TIPS = [
-        "Já que levantou pra beber água, ajeita a postura aí 😄",
-        "Bebeu água? Dá uma respirada funda também.",
-        "Aproveita e estica as pernas um pouco.",
-        "Dá uma piscada longa pra descansar os olhos também.",
+        "🏆 ACHIEVEMENT UNLOCKED: Hidratação Máxima!",
+        "Meta batida! Você zerou o game da água hoje. 🎮",
+        "Aí sim! Nível 'Rei do Araguaia' atingido com sucesso. 👑",
+        "Sensacional! Pode comemorar (com mais água se quiser). 🥳",
+        "GG WP! Good Game, Well Played. Hidratação 10/10. 👌"
     ]
 
     @staticmethod
@@ -301,47 +309,66 @@ class HydrationModule:
         return msg
 
     @staticmethod
+    def _get_level_title(percent: int) -> str:
+        """Retorna o título baseado na porcentagem"""
+        title = "Iniciante"
+        for threshold, t in HydrationModule.GAMIFICATION_LEVELS:
+            if percent >= threshold:
+                title = t
+        return title
+
+    @staticmethod
     def _generate_feedback(state: Dict, added: int) -> str:
         current = state["consumed_today_ml"]
         goal = state["daily_goal_ml"]
+        percent = int((current / goal) * 100) if goal > 0 else 0
+        level = HydrationModule._get_level_title(percent)
 
         if current >= goal:
             # Se acabou de bater
             if current - added < goal:
-                 return random.choice(HydrationModule.MOTIVATION_GOAL_HIT) + f" ({current}ml)"
+                 return random.choice(HydrationModule.MOTIVATION_GOAL_HIT) + f"\n\nNível atual: {level}"
             else:
-                 return f"Mais {added}ml! Total: {current}ml (Meta já batida! 🏆)"
+                 return f"Mais {added}ml! Total: {current}ml (Meta já batida! 🏆)\nNível: {level}"
 
         elif current >= (goal * 0.8):
              base = random.choice(HydrationModule.MOTIVATION_GOAL_NEAR)
-             return f"{base} {current}/{goal}ml."
+             return f"{base}\nXP: {current}/{goal}ml ({percent}%)"
 
         else:
-             base = random.choice(HydrationModule.MOTIVATION_DRINK)
-             return f"{base} ({current}/{goal}ml)"
+             base = random.choice(HydrationModule.MOTIVATION_DRINK).format(ml=added)
+             return f"{base}\nXP: {current}/{goal}ml ({percent}%) | Rank: {level}"
 
     @staticmethod
     def _generate_reminder_message(chat_id: int, cup_ml: int, now: datetime) -> str:
         """
         Gera a mensagem do lembrete baseada no contexto (inércia, horário).
         """
+        # Load state purely to get percent if needed, but here we just need a prompt
+        state = HydrationModule._load_state(chat_id)
+        current = state["consumed_today_ml"]
+        goal = state["daily_goal_ml"]
+        percent = int((current / goal) * 100) if goal > 0 else 0
+        level = HydrationModule._get_level_title(percent)
+
         message_type = "normal"
-        if random.random() < 0.2:
+        # Increase nudge chance if behind schedule? For now random.
+        if random.random() < 0.3:
              message_type = "nudge"
 
         if message_type == "nudge":
              base = random.choice(HydrationModule.MOTIVATION_NUDGE)
-             return f"{base}"
+             return f"{base}\n(Rank atual: {level})"
         else:
              hour = (now.hour - 3) % 24
              if hour < 12:
-                 greeting = "Bom dia!"
+                 greeting = "Bom dia, jogador!"
              elif hour < 18:
-                 greeting = "Seguimos!"
+                 greeting = "Segue o jogo!"
              else:
-                 greeting = "Noite boa."
+                 greeting = "Noite de grind."
 
-             return f"💧 Hora de beber água ({cup_ml}ml). {greeting}"
+             return f"💧 Quest Ativa: Beber {cup_ml}ml.\n{greeting}\n\nStatus: {percent}% ({level})"
 
     @staticmethod
     def get_status_message(chat_id: int) -> str:
