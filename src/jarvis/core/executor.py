@@ -395,8 +395,21 @@ class Executor:
         mac = data.get("mac")
         ip = data.get("ip")
 
-        # Save Name
+        # Smart Extraction: Handle "renomear X para Y" inside flow
         name = text.strip()
+
+        # Try to clean common prefixes if user repeats the command
+        import re
+        # Removes "renomear ip: 192.168.1.56 para" or similar
+        match = re.search(r'(?:para|por|chamar de)\s+(.+)$', name, re.IGNORECASE)
+        if match:
+            name = match.group(1).strip()
+        else:
+            # Clean "renomear X" if present but no preposition
+            if "renomear" in name.lower():
+                 # fallback, take last part? Dangerous. Just take as is if no preposition.
+                 pass
+
         Persistence.set_device_name(mac, name)
 
         # Clear Flow

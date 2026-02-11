@@ -247,7 +247,7 @@ class Persistence:
         c = conn.cursor()
         c.execute(
             "INSERT OR REPLACE INTO state VALUES (?, ?, ?)",
-            (key, json.dumps(value), datetime.now(timezone.utc).isoformat()),
+            (key, json.dumps(value, default=str), datetime.now(timezone.utc).isoformat()),
         )
         conn.commit()
         conn.close()

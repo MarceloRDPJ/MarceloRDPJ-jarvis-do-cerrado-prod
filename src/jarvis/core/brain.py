@@ -102,6 +102,10 @@ class Brain:
                     }
             except Exception as e:
                 logger.error(f"❌ Erro no Cloud Brain: {e}")
+                # Se for erro de permissão (403), desativa permanentemente
+                if "403" in str(e) or "API key" in str(e):
+                    logger.warning("🚫 Cloud LLM desativado devido a erro de API Key.")
+                    self.cloud_llm = None
 
         # ==================================================
         # 2.5 LOCAL LLM (OLLAMA FALLBACK)
