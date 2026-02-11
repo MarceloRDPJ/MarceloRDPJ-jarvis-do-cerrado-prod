@@ -27,7 +27,8 @@ class HybridIntentEngine:
             "network_scan": [
                 "quem ta na rede", "quem esta conectado",
                 "dispositivos conectados", "quem ta usando internet",
-                "quem ta online", "verificar rede", "scan de rede"
+                "quem ta online", "verificar rede", "scan de rede",
+                "scanear", "escanear", "escaniar", "scan", "ver rede"
             ],
             "network_status": [
                 "status da internet", "internet ta on", "ping", "conexao",
