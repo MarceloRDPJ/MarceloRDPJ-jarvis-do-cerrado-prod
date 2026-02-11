@@ -67,6 +67,28 @@ class LocalBrain:
             "modo festa": ["Luzes piscando? Ainda não, mas seria top."],
             "modo cinema": ["Luzes baixas... (simulação)."],
 
+            # === CAPACIDADES ESPECÍFICAS (20) ===
+            "voce bloqueia sites": "Sim! Integrado com AdGuard Home. Posso bloquear IPs, domínios e até categorias inteiras.",
+            "bloquear dispositivo": "Claro. Mando o AdGuard bloquear qualquer dispositivo da rede. É só falar o IP.",
+            "tem automacao": "Tenho sim! 5 automações rodando 24/7: Modo Noturno, Bom Dia, Alerta Internet, Detecção de Invasores e Meta de Água.",
+            "automacoes ativas": "Rodo 5 automações: Modo Noturno (22h), Bom Dia (7h), Alerta Internet Down, Invasor na Rede e Meta de Água Perdida.",
+            "analise de hidratacao": "Tenho sistema completo! Analiso 30 dias de histórico, identifico padrões, calculo streak e dou sugestões personalizadas.",
+            "estatisticas de rede": "Consigo mostrar top consumidores de banda, total de queries DNS bloqueadas e dispositivos mais ativos.",
+            "como voce aprende": "Tenho 3 camadas: Local Brain (rápido), Gemini Flash (fallback inteligente) e respostas hardcoded. Aprendo com padrões de uso.",
+            "voce tem memoria": "Tenho SQLite local. Lembro de TUDO: lembretes, dispositivos renomeados, histórico de hidratação, eventos do sistema.",
+            "voce trabalha offline": "Trabalho 100% offline. Só preciso de internet pra LLM fallback (Gemini) e notificações Telegram. O resto é local.",
+            "raspberry pi": "Meu corpo é um Raspberry Pi 3B. ARM64, 1GB RAM, rodando 24/7 sem reclamar.",
+            "docker": "Rodo dentro de um container Docker. Isso me isola do sistema e facilita updates.",
+            "banco de dados": "SQLite puro. Leve, rápido, confiável. Perfeito pra Raspberry Pi.",
+            "linguagem": "Python 3.12. Assíncrono, moderno, produtivo.",
+            "telegram": "Minha interface é o Telegram Bot API. Seguro, rápido e funciona em qualquer lugar.",
+            "adguard": "AdGuard Home é meu parceiro de segurança. Ele filtra DNS e eu mando bloquear/desbloquear devices.",
+            "tailscale": "Tailscale VPN permite acesso remoto seguro sem expor portas. Criptografia ponta-a-ponta.",
+            "gemini": "Uso Gemini 2.5 Flash como fallback quando não entendo algo. Mas prefiro responder localmente (mais rápido).",
+            "api paga": "Evito APIs pagas ao máximo. Gemini Flash tem quota grátis de 15 req/min. Local Brain resolve 80% dos casos.",
+            "voce consome muita luz": "Raspberry Pi 3B consome ~5W em média. Menos que uma lâmpada LED. Eficiente demais.",
+            "seguranca": "Múltiplas camadas: Firewall no modem, AdGuard bloqueando malware, Tailscale VPN, Docker isolado e zero exposição de portas.",
+
             # === CASA / REDE (25) ===
             "tem alguem em casa": "Vou verificar os dispositivos conectados na rede...",
             "casa ta segura": "Tudo tranquilo. Portas lógicas fechadas, firewall ativo.",

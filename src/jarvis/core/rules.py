@@ -186,6 +186,21 @@ def apply_rules(text: str) -> Optional[Dict]:
         }
 
     # =====================================================
+    # MENUS (ATALHOS) - PRIORIDADE SOBRE LEMBRETES
+    # =====================================================
+    if "menu rede" in t or "opcoes de rede" in t:
+        return {"intent": "menu_rede", "action": "show", "entity": "network", "confidence": 1.0}
+
+    if "menu agenda" in t or "menu lembrete" in t or "menu tarefas" in t:
+        return {"intent": "menu_agenda", "action": "show", "entity": "reminder", "confidence": 1.0}
+
+    if "menu automacoes" in t or "menu automações" in t or "ver automacoes" in t:
+        return {"intent": "menu_automacoes", "action": "show", "entity": "automation", "confidence": 1.0}
+
+    if "menu sistema" in t or "opcoes do sistema" in t:
+        return {"intent": "menu_sistema", "action": "show", "entity": "system", "confidence": 1.0}
+
+    # =====================================================
     # LEMBRETES - GERENCIAMENTO (PRIORITÁRIO)
     # =====================================================
     if any(x in t for x in ["listar lembretes", "meus lembretes", "quais lembretes", "agenda", "o que tenho marcado", "lembretes ativos"]):
@@ -363,18 +378,6 @@ def apply_rules(text: str) -> Optional[Dict]:
             "requires_confirmation": True,
             "confidence": 0.95,
         }
-
-    # =====================================================
-    # MENUS (ATALHOS)
-    # =====================================================
-    if "menu rede" in t or "opcoes de rede" in t:
-        return {"intent": "menu_network", "action": "show", "entity": "network", "confidence": 1.0}
-
-    if "menu lembrete" in t or "menu tarefas" in t:
-        return {"intent": "menu_reminders", "action": "show", "entity": "reminder", "confidence": 1.0}
-
-    if "menu sistema" in t or "opcoes do sistema" in t:
-        return {"intent": "menu_system", "action": "show", "entity": "system", "confidence": 1.0}
 
     # =====================================================
     # NENHUMA REGRA CASOU

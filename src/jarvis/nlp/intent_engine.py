@@ -103,6 +103,25 @@ class HybridIntentEngine:
                 "apagar luz", "desligar a luz", "apague a luz do quarto", "apagar", "desligar",
                 "apagar a luz da sala", "apagar a luz do quarto", "apagar a luz da cozinha"
             ],
+            # NOVOS INTENTS DE IDENTIDADE
+            "identity_creator": [
+                "quem te criou", "quem fez voce", "quem é seu criador",
+                "quem programou voce", "quem desenvolveu voce",
+                "quem é seu pai", "quem te fez"
+            ],
+            "identity_purpose": [
+                "qual seu proposito", "pra que voce serve", "qual sua missao",
+                "por que voce existe", "qual seu objetivo"
+            ],
+            "identity_tech": [
+                "como voce funciona", "qual sua tecnologia", "como foi feito",
+                "qual sua stack", "que linguagem voce usa"
+            ],
+            # NOVOS INTENTS DE MENU
+            "menu_rede": ["menu rede", "comandos rede", "ajuda rede"],
+            "menu_agenda": ["menu agenda", "comandos lembretes", "ajuda lembretes"],
+            "menu_automacoes": ["menu automacoes", "ver automacoes", "automacoes ativas"],
+            "menu_sistema": ["menu sistema", "comandos sistema", "ajuda sistema"],
         }
         self.similarity_threshold = int(Config.INTENT_CONFIDENCE_THRESHOLD * 100)
 
