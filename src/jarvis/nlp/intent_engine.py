@@ -98,6 +98,11 @@ class HybridIntentEngine:
             "help": [
                 "ajuda", "comandos", "menu", "opcoes", "socorro"
             ],
+            # COMMAND LIST INTENT
+            "command_list": [
+                "lista de comandos", "todos os comandos", "lista comandos", "manual",
+                "quais seus comandos", "o que posso falar", "comandos disponiveis"
+            ],
             "light_on": [
                 "ligar a luz", "acender luz", "acenda a luz da sala", "ligar", "acender",
                 "ligar a luz da sala", "ligar a luz do quarto", "ligar a luz da cozinha"
@@ -222,6 +227,9 @@ def detect_intent(text: str) -> Dict:
             "text": text,
             "params": {"target_id": target_id} # Fixed: put in params for executor
         }
+
+    if intent == "command_list":
+        return {"intent": "command_list"}
 
     return result
 

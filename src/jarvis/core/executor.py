@@ -72,6 +72,50 @@ class Executor:
         return await self._execute_intent(intent, action, params, chat_id)
 
     async def _execute_intent(self, intent: str, action: str, params: Dict[str, Any], chat_id: int) -> str:
+        # ---------------- COMMAND LIST (NEW) ----------------
+        if intent == "command_list":
+            return (
+                "📜 **MANUAL DE COMANDOS — JARVIS DO CERRADO**\n"
+                "_Lista completa de tudo que eu entendo e executo._\n\n"
+
+                "🌐 **REDE & SEGURANÇA**\n"
+                "• `quem ta na rede` → Varredura de dispositivos conectados.\n"
+                "• `velocidade da internet` → Teste de velocidade (Speedtest).\n"
+                "• `status da internet` → Teste de latência (Ping).\n"
+                "• `estatisticas de rede` → Dados do AdGuard (queries, blocks).\n"
+                "• `renomear [IP] para [NOME]` → Dar apelido a um dispositivo.\n"
+                "• `bloquear [IP]` → Bloquear acesso à internet do dispositivo.\n"
+                "• `bloquear [SITE]` → Bloquear domínio (ex: youtube.com).\n\n"
+
+                "⏰ **AGENDA & LEMBRETES**\n"
+                "• `lembrar de [TEXTO] [TEMPO]` → Criar lembrete.\n"
+                "   _Ex: 'lembrar de tirar o lixo as 18h'_\n"
+                "   _Ex: 'lembrar de tomar remedio a cada 8h'_\n"
+                "• `listar lembretes` → Ver agenda ativa.\n"
+                "• `cancelar lembrete [ID]` → Apagar pelo número.\n"
+                "• `editar lembrete [ID] [NOVO TEXTO/HORA]` → Alterar.\n\n"
+
+                "💧 **HIDRATAÇÃO**\n"
+                "• `ativar hidratação` → Configuração inicial guiada.\n"
+                "• `bebi` ou `tomei agua` → Registrar consumo.\n"
+                "• `status hidratação` → Meta vs Consumido.\n"
+                "• `analise de hidratação` → Relatório de 30 dias.\n"
+                "• `pausar/retomar hidratação` → Controle do fluxo.\n"
+                "• `mudar meta para [X]` → Ajustar meta diária.\n\n"
+
+                "🖥️ **SISTEMA**\n"
+                "• `status do sistema` → CPU, RAM, Temp, Uptime.\n"
+                "• `logs do sistema` → Últimos eventos registrados.\n"
+                "• `reiniciar sistema` → Reboot do Raspberry Pi.\n"
+                "• `reiniciar adguard` → Restart do container DNS.\n\n"
+
+                "🤖 **AUTOMAÇÕES & OUTROS**\n"
+                "• `listar automacoes` → Ver regras ativas.\n"
+                "• `config automacoes` → Informações sobre config.\n"
+                "• `quem é você` → Identidade.\n"
+                "• `ajuda` → Menu interativo principal.\n"
+            )
+
         # ---------------- NETWORK SCAN (UX Aprimorada) ----------------
         if intent == "network_scan":
             # 1. Send Initial Status Message

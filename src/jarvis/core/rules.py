@@ -54,6 +54,17 @@ def apply_rules(text: str) -> Optional[Dict]:
         }
 
     # =====================================================
+    # LISTA DE COMANDOS (NOVO)
+    # =====================================================
+    if t in ["lista de comandos", "lista comandos", "todos os comandos", "quais seus comandos", "manual de comandos"]:
+        return {
+            "intent": "command_list",
+            "action": "list",
+            "entity": "system",
+            "confidence": 1.0
+        }
+
+    # =====================================================
     # MENUS (ATALHOS & CALLBACKS) - PRIORIDADE SOBRE HELP/LEMBRETES
     # =====================================================
     # Callbacks usam underscores, comandos de voz usam espaços. Tratamos ambos.
