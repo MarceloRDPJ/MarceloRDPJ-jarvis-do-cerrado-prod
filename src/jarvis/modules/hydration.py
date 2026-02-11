@@ -180,7 +180,9 @@ class HydrationModule:
                 "cup_size_ml": data["cup_size_ml"],
                 "interval_minutes": data["interval_minutes"],
                 "last_reset_date": now_local.strftime("%Y-%m-%d"),
-                "consumed_today_ml": 0
+                "consumed_today_ml": 0,
+                # Resetar last_reminder para garantir que o primeiro check (imediato) não seja bloqueado
+                "last_reminder_at": None
             })
             HydrationModule._save_state(chat_id, state)
 
@@ -188,7 +190,8 @@ class HydrationModule:
             ContextEngine.save_context(chat_id, {"flow": None})
 
             # Cria task de "Heartbeat" (Gatilho para o Scheduler)
-            HydrationModule._ensure_trigger_task(chat_id, val)
+            # Agenda para 10 segundos no futuro para dar tempo de feedback visual
+            HydrationModule._ensure_trigger_task(chat_id, val, immediate=True)
 
             return (
                 "Show! Hidratação ativada. 🚀\n\n"
@@ -201,24 +204,51 @@ class HydrationModule:
         return None
 
     @staticmethod
-    def _ensure_trigger_task(chat_id: int, interval_minutes: int):
+    def _ensure_trigger_task(chat_id: int, interval_minutes: int, immediate: bool = False):
         """
         Garante que existe uma tarefa no Persistence para acordar o Scheduler.
         """
         # Verifica se já existe task de hydration_check
         tasks = Persistence.get_tasks_by_action(chat_id, "hydration_check")
-        next_run = datetime.now(timezone.utc) + timedelta(minutes=interval_minutes)
+
+        if immediate:
+            # Agenda para agora (pequeno delay para UX)
+            next_run = datetime.now(timezone.utc) + timedelta(seconds=10)
+        else:
+            next_run = datetime.now(timezone.utc) + timedelta(minutes=interval_minutes)
 
         if tasks:
             # Atualiza existente
             t = tasks[0]
             if t['status'] != 'active':
                 Persistence.update_task_status(t['id'], 'active')
+
+            # Só atualiza next_run se for immediate ou se a atual estiver muito longe?
+            # Melhor forçar atualização para garantir sync
             Persistence.update_task_next_run(t['id'], next_run)
+
             # Atualiza intervalo na task também (meta field)
             meta = json.loads(t.get('meta', '{}'))
             meta['trigger_interval'] = interval_minutes
             Persistence.update_task_meta(t['id'], meta)
+
+            # CRÍTICO: Atualiza também a coluna interval_minutes da tabela tasks
+            # O Scheduler usa ESSA coluna para reagendar
+            # Precisamos de um método no Persistence para isso ou recriar a task
+            # Como add_task/update_task não expõe update de interval, vamos fazer via SQL direto
+            # (Adicionando método ad-hoc no Persistence ou recriando)
+            # Recriar é mais seguro.
+            Persistence.update_task_status(t['id'], 'cancelled')
+            Persistence.add_task(
+                chat_id=chat_id,
+                text="Hydration Check",
+                next_run=next_run,
+                action="hydration_check",
+                task_type="recurring",
+                interval_minutes=interval_minutes,
+                status="active",
+                meta={"trigger_interval": interval_minutes}
+            )
         else:
             # Cria nova
             Persistence.add_task(
