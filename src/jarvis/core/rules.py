@@ -54,8 +54,41 @@ def apply_rules(text: str) -> Optional[Dict]:
         }
 
     # =====================================================
-    # HELP
+    # MENUS (ATALHOS & CALLBACKS) - PRIORIDADE SOBRE HELP/LEMBRETES
     # =====================================================
+    # Callbacks usam underscores, comandos de voz usam espaços. Tratamos ambos.
+
+    if "menu_rede" in t or "menu rede" in t or "opcoes de rede" in t:
+        return {"intent": "menu_rede", "action": "show", "entity": "network", "confidence": 1.0}
+
+    if "menu_agenda" in t or "menu agenda" in t or "menu lembrete" in t or "menu tarefas" in t:
+        return {"intent": "menu_agenda", "action": "show", "entity": "reminder", "confidence": 1.0}
+
+    if "menu_automacoes" in t or "menu automacoes" in t or "menu automações" in t or "ver automacoes" in t:
+        return {"intent": "menu_automacoes", "action": "show", "entity": "automation", "confidence": 1.0}
+
+    if "menu_sistema" in t or "menu sistema" in t or "opcoes do sistema" in t:
+        return {"intent": "menu_sistema", "action": "show", "entity": "system", "confidence": 1.0}
+
+    # =====================================================
+    # AUTOMATION SPECIFICS
+    # =====================================================
+    if "listar automacoes" in t or "listar automações" in t or "ver automações" in t:
+        return {"intent": "automation_list", "action": "list", "entity": "automation", "confidence": 1.0}
+
+    if "config automacoes" in t or "configurar automacoes" in t:
+        return {"intent": "automation_config", "action": "config", "entity": "automation", "confidence": 1.0}
+
+    # =====================================================
+    # SYSTEM LOGS
+    # =====================================================
+    if "logs do sistema" in t or "ver logs" in t or "log de erro" in t:
+        return {"intent": "system_logs", "action": "read", "entity": "system", "confidence": 1.0}
+
+    # =====================================================
+    # HELP (GENERIC)
+    # =====================================================
+    # Só cai aqui se não for um menu específico acima
     if "ajuda" in t or "help" in t or "o que voce faz" in t:
         return {
             "intent": "help",
@@ -184,21 +217,6 @@ def apply_rules(text: str) -> Optional[Dict]:
             },
             "confidence": 0.9,
         }
-
-    # =====================================================
-    # MENUS (ATALHOS) - PRIORIDADE SOBRE LEMBRETES
-    # =====================================================
-    if "menu rede" in t or "opcoes de rede" in t:
-        return {"intent": "menu_rede", "action": "show", "entity": "network", "confidence": 1.0}
-
-    if "menu agenda" in t or "menu lembrete" in t or "menu tarefas" in t:
-        return {"intent": "menu_agenda", "action": "show", "entity": "reminder", "confidence": 1.0}
-
-    if "menu automacoes" in t or "menu automações" in t or "ver automacoes" in t:
-        return {"intent": "menu_automacoes", "action": "show", "entity": "automation", "confidence": 1.0}
-
-    if "menu sistema" in t or "opcoes do sistema" in t:
-        return {"intent": "menu_sistema", "action": "show", "entity": "system", "confidence": 1.0}
 
     # =====================================================
     # LEMBRETES - GERENCIAMENTO (PRIORITÁRIO)
