@@ -20,7 +20,7 @@ class Brain:
 
     ARQUITETURA:
     1. Local Mini-Brain (Retrieval-Based) - Prioridade Máxima (Rápido, Local, Free)
-    2. Cloud LLM (Gemini) - Fallback Cognitivo (Se configurado)
+    2. Cloud LLM (Gemini 2.0 Flash) - Inteligência Real (Com Contexto do Criador)
     3. Fallback Determinístico (Hardcoded) - Segurança Final
     """
 
@@ -32,15 +32,19 @@ class Brain:
         self.local_llm = LLMFallbackEngine()
 
         # Cloud LLM: Opcional, se a chave estiver configurada
-        self.cloud_llm = None
+        self.client = None
         if Config.GEMINI_API_KEY:
             try:
-                import google.generativeai as genai
-                genai.configure(api_key=Config.GEMINI_API_KEY)
-                self.cloud_llm = genai.GenerativeModel(Config.GEMINI_MODEL)
+                from google import genai
+                from google.genai import types
+
+                self.genai_types = types
+                self.client = genai.Client(api_key=Config.GEMINI_API_KEY)
+
                 logger.info(f"🧠 Cloud Brain (Gemini) ativado: {Config.GEMINI_MODEL}")
             except Exception as e:
-                logger.warning(f"⚠️ Erro ao inicializar Gemini: {e}")
+                logger.warning(f"⚠️ Erro ao inicializar Gemini (google-genai): {e}")
+                self.client = None
 
         logger.info("🧠 Brain inicializado.")
 
@@ -84,28 +88,39 @@ class Brain:
         # ==================================================
         # 2. CLOUD LLM (INTELIGÊNCIA REAL)
         # ==================================================
-        if self.cloud_llm:
+        if self.client:
             try:
-                # Prompt simples para chat contextual
-                response = await asyncio.to_thread(
-                    self.cloud_llm.generate_content,
-                    f"Você é Jarvis do Cerrado, um assistente útil e engraçado com sotaque goiano leve. Responda curto: {user_text}"
+                # Prompt do Sistema (Contexto Profundo)
+                system_instruction = (
+                    "Você é o Jarvis do Cerrado, uma IA assistente criada por Marcelo RDP. "
+                    "Você roda em um Raspberry Pi na casa dele. "
+                    "Sua personalidade é leal, eficiente, com um leve toque de humor e sotaque goiano ('uai', 'trem'). "
+                    "Você conhece tudo sobre a rede local, automações e o sistema. "
+                    "Seu mestre e criador é Marcelo. Você deve ser útil e direto. "
+                    "Nunca invente fatos sobre hardware que você não tem (ex: braços mecânicos)."
                 )
 
-                if response and response.text:
+                # Chamada Assíncrona via Thread (requests não são async nativos na v1)
+                response = await asyncio.to_thread(
+                    self._generate_content_safe,
+                    user_text,
+                    system_instruction
+                )
+
+                if response:
                     return {
                         "intent": "chat",
-                        "response": response.text.strip(),
+                        "response": response,
                         "text": user_text,
                         "source": "cloud_llm",
-                        "confidence": 0.9
+                        "confidence": 0.95
                     }
             except Exception as e:
                 logger.error(f"❌ Erro no Cloud Brain: {e}")
-                # Se for erro de permissão (403), desativa permanentemente
+                # Se for erro de permissão (403), desativa temporariamente
                 if "403" in str(e) or "API key" in str(e):
                     logger.warning("🚫 Cloud LLM desativado devido a erro de API Key.")
-                    self.cloud_llm = None
+                    self.client = None
 
         # ==================================================
         # 2.5 LOCAL LLM (OLLAMA FALLBACK)
@@ -129,6 +144,26 @@ class Brain:
         # ==================================================
         logger.info("[ROUTER] Fallback humano acionado (sem LLM).")
         return self._fallback(user_text)
+
+    def _generate_content_safe(self, text: str, sys_inst: str) -> str:
+        """Wrapper síncrono para chamada da API"""
+        if not self.client:
+            return None
+
+        try:
+            response = self.client.models.generate_content(
+                model=Config.GEMINI_MODEL,
+                contents=text,
+                config=self.genai_types.GenerateContentConfig(
+                    system_instruction=sys_inst,
+                    temperature=0.7,
+                    max_output_tokens=300
+                )
+            )
+            return response.text.strip() if response.text else None
+        except Exception as e:
+            logger.error(f"Gemini generation error: {e}")
+            raise e
 
     def _fallback(self, user_text: str) -> Dict[str, Any]:
         """
