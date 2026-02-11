@@ -7,6 +7,7 @@ from jarvis.config import Config
 from jarvis.database.persistence import Persistence
 from jarvis.core.personality import Personality
 from jarvis.nlp.local_brain import LocalBrain as LocalBrainEngine
+from jarvis.core.llm_fallback import LLMFallbackEngine
 
 logger = logging.getLogger("core.brain")
 
@@ -26,6 +27,9 @@ class Brain:
     def __init__(self):
         # Mini-Brain: Inteligência local baseada em similaridade (Rápida e leve)
         self.local_brain = LocalBrainEngine()
+
+        # Local LLM (Ollama) - Fallback quando nuvem indisponível
+        self.local_llm = LLMFallbackEngine()
 
         # Cloud LLM: Opcional, se a chave estiver configurada
         self.cloud_llm = None
@@ -98,6 +102,23 @@ class Brain:
                     }
             except Exception as e:
                 logger.error(f"❌ Erro no Cloud Brain: {e}")
+
+        # ==================================================
+        # 2.5 LOCAL LLM (OLLAMA FALLBACK)
+        # ==================================================
+        # Se chegou aqui, Cloud falhou ou não existe.
+        try:
+            local_response = self.local_llm.generate_chat_response(user_text)
+            if local_response:
+                return {
+                    "intent": "chat",
+                    "response": local_response,
+                    "text": user_text,
+                    "source": "local_llm",
+                    "confidence": 0.8
+                }
+        except Exception as e:
+            logger.warning(f"⚠️ Erro no Local LLM: {e}")
 
         # ==================================================
         # 3. FALLBACK FINAL
