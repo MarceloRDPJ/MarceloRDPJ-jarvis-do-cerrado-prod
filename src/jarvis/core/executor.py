@@ -161,7 +161,8 @@ class Executor:
             flow = ctx.get("flow")
             text_input = params.get("text", "")
             if flow:
-                if flow.get("type") == "hydration_confirm":
+                # Trata fluxos de hidratação (Setup ou Confirm)
+                if flow.get("type") in ["hydration_confirm", "hydration_setup"]:
                     result = HydrationModule.handle_flow(chat_id, text_input, ctx)
                     if result: return result
                     st_response = Personality.get_small_talk(text_input)

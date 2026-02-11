@@ -12,7 +12,44 @@ class LLMFallbackEngine:
         self.url = "http://localhost:11434/api/generate"
         self.model = "tinyllama"
 
+    def is_available(self) -> bool:
+        """Checa se o Ollama está respondendo"""
+        try:
+            # Tenta endpoint raiz ou tags para verificar vida
+            requests.get("http://localhost:11434/", timeout=1)
+            return True
+        except:
+            return False
+
+    def generate_chat_response(self, text: str) -> str:
+        """Gera resposta de chat livre (não-JSON)"""
+        prompt = f"""
+        System: Você é Jarvis do Cerrado, um assistente útil e engraçado com sotaque goiano leve. Responda de forma curta.
+        User: {text}
+        Assistant:
+        """
+
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"num_predict": 150, "temperature": 0.7}
+        }
+
+        try:
+            response = requests.post(self.url, json=payload, timeout=10)
+            response.raise_for_status()
+            result = response.json()
+            return result.get("response", "").strip()
+        except requests.exceptions.ConnectionError:
+            logger.debug("Ollama offline.")
+            return None
+        except Exception as e:
+            logger.error(f"Erro no LLMFallbackEngine (Chat): {e}")
+            return None
+
     def interpret(self, text: str, context: dict = None) -> dict:
+        """Tenta extrair intenção em JSON (mantido para compatibilidade futura)"""
         prompt = f"""
         Responda APENAS com JSON válido.
         Texto: "{text}"
@@ -24,7 +61,7 @@ class LLMFallbackEngine:
             "model": self.model,
             "prompt": prompt,
             "stream": False,
-            "options": {"num_predict": 120}
+            "options": {"num_predict": 120, "temperature": 0.1}
         }
 
         try:
@@ -48,5 +85,5 @@ class LLMFallbackEngine:
             logger.warning(f"Falha ao decodificar JSON do LLM: {generated_text}")
             return None
         except Exception as e:
-            logger.error(f"Erro no LLMFallbackEngine: {e}")
+            logger.error(f"Erro no LLMFallbackEngine (Interpret): {e}")
             return None
