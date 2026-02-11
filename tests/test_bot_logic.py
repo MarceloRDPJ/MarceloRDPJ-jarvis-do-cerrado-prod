@@ -125,5 +125,40 @@ class TestHomeAssistantBot(unittest.IsolatedAsyncioTestCase):
         ctx = ContextEngine.get_context(chat_id)
         self.assertIsNone(ctx.get("flow"))
 
+    async def test_executor_hydration_setup_routing(self):
+        """
+        Test that Executor correctly routes 'hydration_setup' flow to HydrationModule.
+        This reproduces the user's issue where '5000' resulted in fallback.
+        """
+        chat_id = 555
+        app = MagicMock()
+        executor = Executor(app)
+
+        # 1. Simulate active hydration_setup flow
+        ContextEngine.save_context(chat_id, {
+            "flow": {
+                "type": "hydration_setup",
+                "step": "ask_goal",
+                "data": {}
+            }
+        })
+
+        # 2. Simulate user input "5000"
+        # The Router would return intent="flow_input"
+        intent_data = {
+            "intent": "flow_input",
+            "params": {"text": "5000"}
+        }
+
+        # 3. Execute
+        with patch('jarvis.modules.hydration.HydrationModule.handle_flow') as mock_handle:
+            mock_handle.return_value = "Beleza, meta de 5000ml."
+
+            response = await executor.execute(intent_data, chat_id)
+
+            # 4. Verify HydrationModule was called
+            mock_handle.assert_called_once()
+            self.assertEqual(response, "Beleza, meta de 5000ml.")
+
 if __name__ == '__main__':
     unittest.main()

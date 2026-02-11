@@ -161,9 +161,11 @@ class Executor:
             flow = ctx.get("flow")
             text_input = params.get("text", "")
             if flow:
-                if flow.get("type") == "hydration_confirm":
+                # Handle all hydration-related flows
+                if flow.get("type") in ["hydration_confirm", "hydration_setup"]:
                     result = HydrationModule.handle_flow(chat_id, text_input, ctx)
                     if result: return result
+
                     st_response = Personality.get_small_talk(text_input)
                     if st_response: return st_response
                     return Personality.get_response("FALLBACK")

@@ -14,7 +14,8 @@ class HybridIntentEngine:
             "reminder_set": [
                 "lembra", "lembrete", "me lembra", "me avisa", "avisa",
                 "nao deixa eu esquecer", "me recorda", "lembre", "me lembre",
-                "lembrar de beber agua", "avisa a cada minuto", "criar lembrete"
+                "lembrar de beber agua", "avisa a cada minuto", "criar lembrete",
+                "lembrar de", "me lembre de"
             ],
             "reminder_list": [
                 "listar lembretes", "ver meus lembretes", "quais sao meus lembretes",
@@ -62,7 +63,7 @@ class HybridIntentEngine:
             ],
             "hydration_log": [
                 "bebi", "tomei agua", "mais um copo", "bebi agua", "tomei mais uma",
-                "registra agua", "anota ai bebi"
+                "registra agua", "anota ai bebi", "acabei de beber"
             ],
             "hydration_analytics": [
                 "analise de hidratacao", "padroes de agua", "insights agua",
