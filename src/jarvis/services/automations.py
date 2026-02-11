@@ -23,6 +23,11 @@ class AutomationEngine:
         Carrega regras de automação.
         Futuramente podem vir do banco de dados.
         """
+        try:
+            from jarvis.services.automation_helpers import _build_unknown_device_markup
+        except ImportError:
+            _build_unknown_device_markup = None
+
         return [
             {
                 "id": "auto_1",
@@ -76,12 +81,13 @@ class AutomationEngine:
                 "action": {
                     "type": "notify",
                     "message": lambda e: (
-                        f"🚨 **Invasor Detectado!**\n\n"
-                        f"IP: {e.payload.get('ip')}\n"
-                        f"MAC: {e.payload.get('mac')}\n"
-                        f"Vendor: {e.payload.get('vendor', 'Desconhecido')}\n\n"
-                        f"Devo bloquear?"
-                    )
+                        f"🕵️‍♂️ **Novo Dispositivo na Rede**\n\n"
+                        f"IP: `{e.payload.get('ip')}`\n"
+                        f"MAC: `{e.payload.get('mac')}`\n"
+                        f"Vendor: `{e.payload.get('vendor', 'Desconhecido')}`\n\n"
+                        f"O que deseja fazer?"
+                    ),
+                    "reply_markup": _build_unknown_device_markup
                 }
             },
             {
@@ -151,10 +157,15 @@ class AutomationEngine:
 
         if action_type == "notify":
             message = action["message"]
+            reply_markup = action.get("reply_markup")
 
             # Se mensagem é callable, executa com evento
             if callable(message):
                 message = message(event)
+
+            # Se reply_markup é callable, executa com evento
+            if callable(reply_markup):
+                reply_markup = reply_markup(event)
 
             # Envia para todos os usuários permitidos
             from jarvis.config import Config
@@ -164,6 +175,7 @@ class AutomationEngine:
                 await self.app.bot.send_message(
                     chat_id=chat_id,
                     text=message,
+                    reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
                 logger.info(f"Automação executada: {message[:50]}...")
