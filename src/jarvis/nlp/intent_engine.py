@@ -75,6 +75,9 @@ class HybridIntentEngine:
                 "ram", "status do sistema", "como ta o sistema", "status",
                 "tudo bem", "como você está", "saúde do sistema"
             ],
+            "system_logs": [
+                "logs do sistema", "ver logs", "log de erro", "mostrar logs", "ultimos eventos"
+            ],
             "energy_status": [
                 "consumo de energia", "energia hoje",
                 "energia mensal", "quanto gasta energia"
@@ -107,7 +110,7 @@ class HybridIntentEngine:
             "identity_creator": [
                 "quem te criou", "quem fez voce", "quem é seu criador",
                 "quem programou voce", "quem desenvolveu voce",
-                "quem é seu pai", "quem te fez"
+                "quem é seu pai", "quem te fez", "quem é marcelo", "conhece o marcelo"
             ],
             "identity_purpose": [
                 "qual seu proposito", "pra que voce serve", "qual sua missao",
@@ -118,10 +121,14 @@ class HybridIntentEngine:
                 "qual sua stack", "que linguagem voce usa"
             ],
             # NOVOS INTENTS DE MENU
-            "menu_rede": ["menu rede", "comandos rede", "ajuda rede"],
-            "menu_agenda": ["menu agenda", "comandos lembretes", "ajuda lembretes"],
-            "menu_automacoes": ["menu automacoes", "ver automacoes", "automacoes ativas"],
-            "menu_sistema": ["menu sistema", "comandos sistema", "ajuda sistema"],
+            "menu_rede": ["menu rede", "comandos rede", "ajuda rede", "menu_rede"],
+            "menu_agenda": ["menu agenda", "comandos lembretes", "ajuda lembretes", "menu_agenda"],
+            "menu_automacoes": ["menu automacoes", "menu_automacoes"],
+            "menu_sistema": ["menu sistema", "comandos sistema", "ajuda sistema", "menu_sistema"],
+
+            # AUTOMATION SPECIFICS
+            "automation_list": ["listar automacoes", "ver automacoes", "automacoes ativas", "quais automacoes"],
+            "automation_config": ["config automacoes", "configurar automacoes", "editar automacoes"]
         }
         self.similarity_threshold = int(Config.INTENT_CONFIDENCE_THRESHOLD * 100)
 
