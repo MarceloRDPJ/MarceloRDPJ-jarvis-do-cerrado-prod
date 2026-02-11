@@ -1,6 +1,7 @@
 import logging
 import asyncio
 from telegram import Update
+from telegram.request import HTTPXRequest
 from telegram.ext import (
     ApplicationBuilder,
     ContextTypes,
@@ -21,13 +22,12 @@ from jarvis.services.collector import CollectorService
 from jarvis.services.scheduler import SchedulerService
 from jarvis.services.guardian import GuardianService
 
+from jarvis.core.logger import configure_logging
+
 # =====================================================
 # LOGGING
 # =====================================================
-logging.basicConfig(
-    format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
-    level=logging.INFO,
-)
+configure_logging()
 logger = logging.getLogger("Jarvis")
 
 
@@ -57,7 +57,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info(f"[MSG] {text}")
 
-    await context.bot.send_chat_action(chat_id, "typing")
+    # Robust Typing Action
+    try:
+        await context.bot.send_chat_action(chat_id, "typing")
+    except Exception as e:
+        logger.warning(f"Failed to send typing action: {e}")
 
     try:
         # Roteamento Centralizado (Regras -> NLP -> IA)
@@ -86,7 +90,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.exception("Erro crítico no handle_message")
         error_msg = f"❌ Deu ruim aqui.\n\n`{str(e)}`"
-        await update.message.reply_text(error_msg, parse_mode="Markdown")
+        try:
+            await update.message.reply_text(error_msg, parse_mode="Markdown")
+        except Exception as send_err:
+             logger.error(f"Failed to send error message: {send_err}")
 
 
 # =====================================================
@@ -94,7 +101,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =====================================================
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+
+    try:
+        await query.answer()
+    except Exception as e:
+        logger.warning(f"Failed to answer callback query: {e}")
 
     # Segurança básica (callback também precisa)
     if update.effective_user.id != Config.ALLOWED_USER_ID:
@@ -240,9 +251,18 @@ def main():
     if not Config.TELEGRAM_TOKEN:
         raise RuntimeError("TELEGRAM_TOKEN não configurado")
 
+    # Configuration for Stability
+    t_request = HTTPXRequest(
+        connection_pool_size=10,
+        connect_timeout=20.0,
+        read_timeout=20.0,
+        write_timeout=20.0
+    )
+
     application = (
         ApplicationBuilder()
         .token(Config.TELEGRAM_TOKEN)
+        .request(t_request)
         .post_init(post_init)
         .build()
     )
@@ -257,7 +277,7 @@ def main():
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
     )
 
-    logger.info("🟢 Jarvis do Cerrado operacional.")
+    logger.info("🟢 Jarvis do Cerrado operacional (Modo Seguro Ativo).")
     application.run_polling()
 
 
