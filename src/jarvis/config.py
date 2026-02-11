@@ -17,7 +17,7 @@ class Config:
     # ==================================================
     INTENT_CONFIDENCE_THRESHOLD = float(os.getenv("INTENT_CONFIDENCE_THRESHOLD", 0.88))
     SCHEDULER_INTERVAL_SECONDS = int(os.getenv("SCHEDULER_INTERVAL_SECONDS", 30))
-    HYDRATION_MIN_INTERVAL_MINUTES = int(os.getenv("HYDRATION_MIN_INTERVAL_MINUTES", 30))
+    HYDRATION_MIN_INTERVAL_MINUTES = int(os.getenv("HYDRATION_MIN_INTERVAL_MINUTES", 10))
 
     # ==================================================
     # TELEGRAM

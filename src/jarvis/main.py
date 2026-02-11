@@ -120,6 +120,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await ReminderCallbacks.handle_cancel(task_id, chat_id, context.bot)
             return
 
+    # Detecta callbacks de rede
+    if text.startswith("net_"):
+        executor: Executor = context.application.bot_data["executor"]
+        await executor.handle_network_callback(chat_id, text, query)
+        return
+
     try:
         # Processa como se fosse texto (simula comando)
         intent = await router.route(text, chat_id)

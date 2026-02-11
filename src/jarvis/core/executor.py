@@ -161,6 +161,11 @@ class Executor:
             flow = ctx.get("flow")
             text_input = params.get("text", "")
             if flow:
+                # Trata fluxos de rede (Cadastro)
+                if flow.get("type") == "network_register":
+                    result = await self._handle_network_registration(chat_id, text_input, ctx)
+                    if result: return result
+
                 # Trata fluxos de hidratação (Setup ou Confirm)
                 if flow.get("type") in ["hydration_confirm", "hydration_setup"]:
                     result = HydrationModule.handle_flow(chat_id, text_input, ctx)
@@ -340,6 +345,64 @@ class Executor:
             self.pending_actions.pop(chat_id)
             return "🛑 Ação cancelada com sucesso."
         return "⚠️ Nenhuma ação pendente para cancelar."
+
+    async def handle_network_callback(self, chat_id: int, data: str, query):
+        """
+        Trata callbacks 'net_xxx' vindos de automações.
+        """
+        parts = data.split("_")
+        action = parts[1] # reg, block, ignore
+
+        if action == "ignore":
+            await query.edit_message_text("👁️ Dispositivo ignorado.")
+            return
+
+        if action == "block":
+            ip = parts[2]
+            # Calls internal intent
+            msg = await self._execute_intent("network_block_device", "block", {"ip": ip}, chat_id)
+            await query.edit_message_text(msg)
+            return
+
+        if action == "reg":
+            # net_reg_{ip}_{mac}
+            ip = parts[2]
+            mac = parts[3] if len(parts) > 3 else None
+
+            if not mac:
+                 # Try resolve if missing (legacy compat)
+                 mac = await NetworkModule.resolve_mac_by_ip(ip)
+
+            if not mac:
+                 await query.edit_message_text("❌ Não consegui identificar o MAC address para cadastro.")
+                 return
+
+            # Start Flow
+            ContextEngine.save_context(chat_id, {
+                "flow": {
+                    "type": "network_register",
+                    "step": "ask_name",
+                    "data": {"ip": ip, "mac": mac}
+                }
+            })
+
+            await query.edit_message_text(f"📝 *Cadastro de Dispositivo*\nIP: `{ip}`\nMAC: `{mac}`\n\nQual nome você quer dar para ele?")
+            return
+
+    async def _handle_network_registration(self, chat_id: int, text: str, ctx: Dict) -> str:
+        flow = ctx.get("flow")
+        data = flow.get("data")
+        mac = data.get("mac")
+        ip = data.get("ip")
+
+        # Save Name
+        name = text.strip()
+        Persistence.set_device_name(mac, name)
+
+        # Clear Flow
+        ContextEngine.save_context(chat_id, {"flow": None})
+
+        return f"✅ Dispositivo `{ip}` cadastrado como *{name}*."
 
     def _build_menu(self, menu_type: str, chat_id: int = None) -> Dict[str, Any]:
         try: from telegram import InlineKeyboardMarkup, InlineKeyboardButton
