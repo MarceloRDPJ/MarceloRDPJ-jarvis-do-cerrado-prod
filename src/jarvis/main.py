@@ -66,8 +66,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         executor: Executor = context.application.bot_data["executor"]
         response = await executor.execute(intent, chat_id)
 
+        # Se a resposta for explicitamente None, o Executor já tratou (enviou mensagem direta)
+        if response is None:
+            return
+
         if not response:
-            response = "🤖 Não entendi direito ainda, uai."
+            logger.warning(f"Executor returned empty response for intent: {intent}")
+            response = "🤖 Não entendi direito ainda, uai. (Debug: Resposta vazia do executor)"
 
         if isinstance(response, dict):
             await update.message.reply_text(
@@ -78,9 +83,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(response, parse_mode="Markdown")
 
-    except Exception:
+    except Exception as e:
         logger.exception("Erro crítico no handle_message")
-        await update.message.reply_text("❌ Deu ruim aqui. Já anotei e vou investigar.")
+        error_msg = f"❌ Deu ruim aqui.\n\n`{str(e)}`"
+        await update.message.reply_text(error_msg, parse_mode="Markdown")
 
 
 # =====================================================
@@ -132,8 +138,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         executor: Executor = context.application.bot_data["executor"]
         response = await executor.execute(intent, chat_id)
 
+        # Se a resposta for explicitamente None, o Executor já tratou
+        if response is None:
+            return
+
         if not response:
-             response = "🤖 Não entendi direito ainda, uai."
+             logger.warning(f"Executor callback returned empty response for: {text}")
+             response = "🤖 Não entendi direito ainda, uai. (Debug: Callback vazio)"
 
         # Responde como nova mensagem (padrão chatbot)
         if isinstance(response, dict):
@@ -145,9 +156,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
              await query.message.reply_text(response, parse_mode="Markdown")
 
-    except Exception:
+    except Exception as e:
         logger.exception("Erro crítico no handle_callback")
-        await query.message.reply_text("❌ Deu ruim aqui. Já anotei e vou investigar.")
+        error_msg = f"❌ Deu ruim aqui.\n\n`{str(e)}`"
+        try:
+            await query.message.reply_text(error_msg, parse_mode="Markdown")
+        except:
+            pass
 
 
 # =====================================================

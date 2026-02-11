@@ -33,7 +33,8 @@ class HybridIntentEngine:
             "network_status": [
                 "status da internet", "internet ta on", "ping", "conexao",
                 "internet caiu", "internet ta ruim", "tem internet",
-                "monitorar internet", "verificar conexao"
+                "monitorar internet", "verificar conexao", "status da rede",
+                "estado da rede", "rede ta funcionando"
             ],
             "network_speed": [
                 "velocidade da internet", "speedtest", "teste de velocidade",
