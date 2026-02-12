@@ -13,6 +13,10 @@ async def test_executor_routes_hydration_setup():
     executor = Executor(mock_app)
     chat_id = 12345
 
+    # Mock Allowed User
+    from jarvis.config import Config
+    Config.ALLOWED_USER_ID = chat_id
+
     # Mock Context
     with patch.object(ContextEngine, 'get_context', return_value={
         "flow": {

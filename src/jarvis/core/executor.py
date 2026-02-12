@@ -14,6 +14,7 @@ from jarvis.modules.network import NetworkModule
 from jarvis.modules.hydration import HydrationModule
 from jarvis.modules.adguard import AdGuardClient
 from datetime import datetime
+from jarvis.config import Config
 
 logger = logging.getLogger("core.executor")
 
@@ -40,6 +41,15 @@ class Executor:
         logger.info("Executor inicializado com sucesso.")
 
     async def execute(self, intent_data: Dict[str, Any], chat_id: int) -> str:
+        # ===== VALIDAÇÃO DE SEGURANÇA - ADICIONAR AQUI =====
+
+        # Valida que apenas usuário autorizado pode executar comandos
+        if chat_id != Config.ALLOWED_USER_ID:
+            logger.warning(f"🚨 Tentativa de acesso não autorizado: chat_id={chat_id}")
+            return "🚫 Acesso negado. Você não está autorizado a usar este bot."
+
+        # ===== FIM DA VALIDAÇÃO =====
+
         if not isinstance(intent_data, dict):
             return "❌ Comando inválido."
 
