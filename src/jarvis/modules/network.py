@@ -385,12 +385,91 @@ class NetworkModule:
     # WAKE ON LAN
     # ==================================================
     @staticmethod
+    async def wake_on_lan(mac_address: str) -> Dict[str, Any]:
+        """
+        Envia pacote mágico Wake-on-LAN para ligar PC remotamente.
+
+        Args:
+            mac_address: MAC address do PC (formato: "AA:BB:CC:DD:EE:FF")
+
+        Returns:
+            {"success": bool, "message": str}
+        """
+        import re
+        from wakeonlan import send_magic_packet
+
+        try:
+            # Valida formato do MAC address
+            if not re.match(r'^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$', mac_address):
+                return {
+                    "success": False,
+                    "message": f"MAC address inválido: {mac_address}"
+                }
+
+            # Remove separadores para formato aceito pela lib
+            mac_clean = mac_address.replace(":", "").replace("-", "")
+
+            # Envia pacote mágico (broadcast)
+            await asyncio.to_thread(send_magic_packet, mac_clean)
+
+            logger.info(f"✅ Pacote WOL enviado para {mac_address}")
+
+            return {
+                "success": True,
+                "message": f"Pacote mágico enviado para {mac_address}"
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Erro ao enviar Wake-on-LAN: {e}")
+            return {
+                "success": False,
+                "message": f"Erro: {str(e)}"
+            }
+
+    @staticmethod
+    async def check_device_online(ip: str, timeout: int = 2) -> bool:
+        """
+        Verifica se dispositivo está online via ping.
+
+        Args:
+            ip: Endereço IP
+            timeout: Timeout em segundos
+
+        Returns:
+            True se online, False se offline
+        """
+        import subprocess
+        import platform
+
+        try:
+            # Comando ping varia por OS
+            param = '-n' if platform.system().lower() == 'windows' else '-c'
+            command = ['ping', param, '1', '-W', str(timeout), ip]
+
+            result = await asyncio.to_thread(
+                subprocess.run,
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+
+            return result.returncode == 0
+
+        except Exception as e:
+            logger.error(f"Erro ao pingar {ip}: {e}")
+            return False
+
+    @staticmethod
     @retry_with_backoff(retries=2)
     async def wake_pc() -> str:
-        if not Config.PC_MAC or Config.PC_MAC == "00:00:00:00:00:00":
+        # Mantido para retrocompatibilidade, mas usando a nova implementação
+        if not Config.PC_MAC:
             return "❌ MAC do PC não configurado."
-        send_magic_packet(Config.PC_MAC)
-        return f"⚡ Wake-on-LAN enviado para `{Config.PC_MAC}`."
+
+        res = await NetworkModule.wake_on_lan(Config.PC_MAC)
+        if res["success"]:
+            return f"⚡ Wake-on-LAN enviado para `{Config.PC_MAC}`."
+        return f"❌ {res['message']}"
 
     # ==================================================
     # PING
