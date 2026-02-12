@@ -111,6 +111,48 @@ class HybridIntentEngine:
                 "apagar luz", "desligar a luz", "apague a luz do quarto", "apagar", "desligar",
                 "apagar a luz da sala", "apagar a luz do quarto", "apagar a luz da cozinha"
             ],
+
+            # ===== WAKE-ON-LAN (WOL) =====
+            "wake_pc": [
+                # Comandos diretos
+                "ligar o pc",
+                "ligar pc",
+                "ligar computador",
+                "ligar o computador",
+
+                # Variações com "acordar"
+                "acordar o pc",
+                "acordar pc",
+                "acordar computador",
+
+                # Wake on LAN explícito
+                "wake on lan",
+                "wol",
+                "wake pc",
+
+                # Comandos naturais
+                "liga o pc pra mim",
+                "acorda o pc",
+                "preciso que ligue o pc",
+                "pode ligar o computador",
+
+                # Com urgência
+                "liga o pc agora",
+                "liga o pc urgente",
+
+                # Variações regionais (goiano)
+                "bota o pc pra funcionar",
+                "liga esse trem ai",  # (se referindo ao PC)
+            ],
+
+            "pc_status": [
+                "pc ta ligado",
+                "pc esta ligado",
+                "computador ta on",
+                "pc ta online",
+                "pc respondendo",
+            ],
+
             # NOVOS INTENTS DE IDENTIDADE
             "identity_creator": [
                 "quem te criou", "quem fez voce", "quem é seu criador",

@@ -34,6 +34,36 @@ cp .env.example .env  # (Crie o .env baseado no config.py)
 python -m jarvis.main
 ```
 
+## 🆕 Wake-on-LAN (Novo!)
+
+Ligue seu PC remotamente via pacote mágico.
+
+### Configuração
+
+1. **Habilite WOL na BIOS/UEFI** do seu PC
+2. **Configure o MAC address** no `.env`:
+```bash
+   PC_MAC=AA:BB:CC:DD:EE:FF
+```
+3. **Encontre o MAC do seu PC:**
+   - Linux: `ip link show`
+   - Windows: `ipconfig /all` (MAC = "Endereço Físico")
+   - Mac: `ifconfig`
+
+### Comandos
+
+- `Ligar o PC` - Envia pacote WOL
+- `Acordar o PC` - Mesmo que acima
+- `PC tá ligado?` - Verifica se PC está online
+
+### Como funciona
+
+O Jarvis envia um "magic packet" UDP para o MAC configurado.
+O PC precisa:
+- ✅ Estar na mesma rede (ou roteador com WOL proxy)
+- ✅ WOL habilitado na BIOS
+- ✅ Cabo ethernet conectado (Wi-Fi não funciona)
+
 ### Execução via Docker
 
 ```bash

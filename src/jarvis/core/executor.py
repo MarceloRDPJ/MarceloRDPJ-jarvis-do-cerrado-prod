@@ -15,6 +15,7 @@ from jarvis.modules.hydration import HydrationModule
 from jarvis.modules.adguard import AdGuardClient
 from datetime import datetime
 from jarvis.config import Config
+import os
 
 logger = logging.getLogger("core.executor")
 
@@ -554,6 +555,49 @@ class Executor:
                 msg += f"• {client['name'] or client['ip']}: {client['queries']} queries\n"
 
             return msg
+
+        # Wake-on-LAN
+        if intent == "wake_pc":
+            # Confirmação para ação sensível
+            if not params.get("confirmed"):
+                self.pending_actions[chat_id] = {
+                    "intent": "wake_pc",
+                    "params": {"confirmed": True}
+                }
+                return (
+                    "🖥️ *Wake-on-LAN*\n\n"
+                    "Vou enviar pacote mágico para ligar o PC.\n\n"
+                    "MAC configurado: `{}`\n\n"
+                    "Confirma? Digite *confirmar* ou *cancelar*."
+                ).format(Config.PC_MAC or "NÃO CONFIGURADO")
+
+            # Executa Wake-on-LAN
+            try:
+                from jarvis.modules.network import NetworkModule
+                result = await NetworkModule.wake_on_lan(Config.PC_MAC)
+
+                return (
+                    "🖥️ *Pacote WOL Enviado!*\n\n"
+                    "Pacote mágico enviado para: `{}`\n\n"
+                    "O PC deve ligar em alguns segundos.\n"
+                    "Aguarde 30-60 segundos e verifique se está online."
+                ).format(Config.PC_MAC)
+
+            except Exception as e:
+                logger.error(f"Erro ao executar Wake-on-LAN: {e}")
+                return f"❌ Erro ao enviar pacote WOL: {str(e)}"
+
+        # Status do PC
+        if intent == "pc_status":
+            from jarvis.modules.network import NetworkModule
+            # Tenta pingar o PC (assumindo que IP está configurado)
+            pc_ip = os.getenv("PC_IP", "192.168.0.100")  # IP do PC
+            online = await NetworkModule.check_device_online(pc_ip)
+
+            if online:
+                return f"🟢 PC está ONLINE ({pc_ip})"
+            else:
+                return f"🔴 PC está OFFLINE ou não respondendo ({pc_ip})"
 
         if intent == "context_query":
             try: return f"📊 Resultado técnico:\n```{ContextReader.handle(params)}```"
