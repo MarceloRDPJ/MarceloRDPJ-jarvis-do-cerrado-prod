@@ -34,7 +34,7 @@ class Config:
     # ==================================================
     # NETWORK / SYSTEM
     # ==================================================
-    PC_MAC = os.getenv("PC_MAC", "00:00:00:00:00:00")
+    PC_MAC = os.getenv("PC_MAC", "")
 
     # ==================================================
     # CONFIG.YAML (COMPORTAMENTO)
@@ -77,6 +77,8 @@ class Config:
         if not Config.GEMINI_API_KEY:
             missing.append("GEMINI_API_KEY")
 
+        if not Config.PC_MAC:
+            missing.append("PC_MAC (necessário para Wake-on-LAN)")
 
         if missing:
             raise RuntimeError(
