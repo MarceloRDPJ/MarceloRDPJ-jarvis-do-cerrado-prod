@@ -3,6 +3,10 @@ import json
 from datetime import datetime
 from typing import Dict, Any
 from jarvis.config import Config
+try:
+    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+except ImportError:
+    pass
 
 logger = logging.getLogger("modules.reminders")
 
@@ -46,3 +50,31 @@ def _get_hydration_message(text: str, meta: Dict, is_madrugada: bool, is_dia: bo
         return f"💧 Hora de beber água ({cup}ml). Bora manter o ritmo."
 
     return f"💧 Lembrete de hidratação."
+
+async def send_reminder(app, task_id: int, chat_id: int, message_text: str):
+    """
+    Envia o lembrete com botões interativos (Snooze, Done, Cancel).
+    """
+    try:
+        # Criar botões de ação
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Feito", callback_data=f"rem_done_{task_id}"),
+                InlineKeyboardButton("⏰ +15min", callback_data=f"rem_snooze_{task_id}_15"),
+            ],
+            [
+                InlineKeyboardButton("⏰ +1h", callback_data=f"rem_snooze_{task_id}_60"),
+                InlineKeyboardButton("❌ Cancelar", callback_data=f"rem_cancel_{task_id}"),
+            ]
+        ]
+
+        await app.bot.send_message(
+            chat_id=chat_id,
+            text=message_text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        logger.info(f"Lembrete {task_id} enviado para {chat_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Falha ao enviar lembrete {task_id}: {e}")
+        return False

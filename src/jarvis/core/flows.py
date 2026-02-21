@@ -247,7 +247,7 @@ class RemindersFlow:
 
         task_type = "recurring" if repeat else "unique"
 
-        Persistence.add_task(
+        task_id = Persistence.add_task(
             chat_id=chat_id,
             text=text,
             next_run=next_run,
@@ -266,7 +266,16 @@ class RemindersFlow:
         if action_type == "hydration":
             return f"Hidratação configurada! Meta: {meta['meta_ml']}ml."
         else:
-            return f"Combinado. Lembrete salvo para {time_display}."
+            recurrence_info = ""
+            if task_type == "recurring":
+                recurrence_info = f"\n🔄 Recorrência: A cada {minutes} min"
+
+            return (
+                f"✅ *Lembrete Criado*\n\n"
+                f"📝 {text}\n"
+                f"⏰ {time_display}{recurrence_info}\n\n"
+                f"🆔 ID: `#{task_id}`"
+            )
 
     @staticmethod
     def list_reminders(chat_id: int) -> str:
@@ -368,4 +377,4 @@ class RemindersFlow:
         # Mas finalize_creation espera Dict não serializado em 'target_date' se for datetime...
         # Não, finalize_creation aceita string iso no 'target_date'.
 
-        return RemindersFlow.finalize_creation(chat_id, params).replace("Combinado. Lembrete salvo", "Lembrete atualizado")
+        return RemindersFlow.finalize_creation(chat_id, params).replace("Lembrete Criado", "Lembrete Atualizado")

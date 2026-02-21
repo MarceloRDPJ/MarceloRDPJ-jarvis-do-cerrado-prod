@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict
 from jarvis.database.persistence import Persistence
-from jarvis.modules.reminders import get_reminder_message
+from jarvis.modules.reminders import get_reminder_message, send_reminder
 from jarvis.modules.hydration import HydrationModule
 from jarvis.config import Config
 
@@ -72,29 +72,10 @@ class SchedulerService:
         else:
             # === 2. Envio da Mensagem (Genérico) ===
             message = get_reminder_message(task, now)
-            try:
-                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-
-                # Criar botões de ação
-                keyboard = [
-                    [
-                        InlineKeyboardButton("✅ Feito", callback_data=f"rem_done_{task_id}"),
-                        InlineKeyboardButton("⏰ +15min", callback_data=f"rem_snooze_{task_id}_15"),
-                    ],
-                    [
-                        InlineKeyboardButton("⏰ +1h", callback_data=f"rem_snooze_{task_id}_60"),
-                        InlineKeyboardButton("❌ Cancelar", callback_data=f"rem_cancel_{task_id}"),
-                    ]
-                ]
-
-                await self.app.bot.send_message(
-                    chat_id=chat_id,
-                    text=message,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as e:
-                logger.error(f"Falha ao enviar lembrete {task_id}: {e}")
-                return # Não reagenda em caso de falha de transporte
+            success = await send_reminder(self.app, task_id, chat_id, message)
+            if not success:
+                logger.warning(f"Falha ao enviar lembrete {task_id}, não será reagendado agora.")
+                return # Não reagenda/conclui se falhou o envio
 
         # === 3. Reagendamento ===
         if task['type'] == 'recurring':

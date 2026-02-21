@@ -10,7 +10,7 @@ from jarvis.core.flows import RemindersFlow
 from jarvis.core.personality import Personality
 
 from jarvis.modules.system import SystemModule
-from jarvis.modules.network import NetworkModule
+from jarvis.modules.network import NetworkModule, AdGuardIntegration
 from jarvis.modules.hydration import HydrationModule
 from jarvis.modules.adguard import AdGuardClient
 from datetime import datetime
@@ -521,15 +521,18 @@ class Executor:
             else: return "❌ Preciso do IP e do novo nome. Ex: mudar nome do 192.168.1.5 para TV Sala"
 
         if intent == "network_block_device":
-            ip = params.get("ip") or params.get("target")
-            if not ip:
-                return "❌ Preciso do IP. Ex: bloquear 192.168.0.15"
+            target = params.get("ip") or params.get("target") or params.get("device")
+            if not target:
+                return "❌ Preciso do IP, MAC ou Nome. Ex: bloquear TV Sala"
 
-            result = await AdGuardClient.block_client(ip)
-            if result["success"]:
-                return f"🚫 Dispositivo {ip} bloqueado no AdGuard."
-            else:
-                return f"❌ Erro ao bloquear: {result['message']}"
+            return await AdGuardIntegration.block_device(target)
+
+        if intent == "network_unblock_device":
+            target = params.get("ip") or params.get("target") or params.get("device")
+            if not target:
+                return "❌ Preciso do IP, MAC ou Nome. Ex: desbloquear TV Sala"
+
+            return await AdGuardIntegration.unblock_device(target)
 
         if intent == "network_block_site":
             site = params.get("site") or params.get("domain")
@@ -543,18 +546,7 @@ class Executor:
                 return f"❌ Erro: {result['message']}"
 
         if intent == "network_stats":
-            stats = await AdGuardClient.get_stats()
-            top = await AdGuardClient.get_top_clients(limit=5)
-
-            msg = f"📊 **Estatísticas de Rede**\n\n"
-            msg += f"DNS Queries: {stats.get('num_dns_queries', 0)}\n"
-            msg += f"Bloqueados: {stats.get('num_blocked_filtering', 0)}\n\n"
-            msg += f"**Top 5 Consumidores:**\n"
-
-            for client in top:
-                msg += f"• {client['name'] or client['ip']}: {client['queries']} queries\n"
-
-            return msg
+            return await AdGuardIntegration.get_stats_summary()
 
         # Wake-on-LAN
         if intent == "wake_pc":

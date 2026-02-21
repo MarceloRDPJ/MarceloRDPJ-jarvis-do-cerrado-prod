@@ -4,6 +4,7 @@ import subprocess
 import time
 import socket
 import struct
+import re
 from typing import List, Dict, Any, Set
 
 import scapy.all as scapy
@@ -13,6 +14,7 @@ from mac_vendor_lookup import MacLookup
 from jarvis.config import Config
 from jarvis.core.utils import retry_with_backoff
 from jarvis.database.persistence import Persistence
+from jarvis.modules.adguard import AdGuardClient
 
 logger = logging.getLogger(__name__)
 
@@ -325,8 +327,17 @@ class NetworkModule:
         }
 
     # ==================================================
-    # HELPER: RESOLVE IP -> MAC
+    # HELPER: RESOLVE IP -> MAC & MAC -> IP
     # ==================================================
+    @staticmethod
+    async def get_ip_by_mac(mac: str) -> str | None:
+        """Retorna o IP atual de um dispositivo dado seu MAC address."""
+        snapshot = await NetworkModule.get_raw_snapshot()
+        for device in snapshot.get("devices", []):
+            if device.get("mac", "").lower() == mac.lower():
+                return device.get("ip")
+        return None
+
     @staticmethod
     async def resolve_mac_by_ip(ip: str) -> str | None:
         return await asyncio.to_thread(NetworkModule._resolve_mac_by_ip_sync, ip)
@@ -522,3 +533,90 @@ class NetworkModule:
             return f"🚀 *Velocidade da Internet:*\n\n{res.stdout}"
         except Exception as e:
             return f"❌ Falha no speedtest: {e}"
+
+
+class AdGuardIntegration:
+    """
+    Integração de alto nível com AdGuard.
+    Resolve nomes/MACs para IPs e gerencia bloqueios.
+    """
+
+    @classmethod
+    async def block_device(cls, identifier: str) -> str:
+        """
+        Bloqueia dispositivo por IP, MAC ou Nome.
+        identifier: pode ser "192.168.x.x", "AA:BB:...", ou "TV Sala"
+        """
+        ip = await cls._resolve_to_ip(identifier)
+        if not ip:
+            return f"❌ Não consegui encontrar o IP para '{identifier}'."
+
+        # Busca nome para log
+        mac = await NetworkModule.resolve_mac_by_ip(ip)
+        name = Persistence.get_device_name(mac) if mac else identifier
+
+        res = await AdGuardClient.block_client(ip, name=f"Block {name}")
+        if res.get("success"):
+            return f"🚫 Dispositivo *{name}* ({ip}) bloqueado no AdGuard."
+        return f"❌ Erro ao bloquear: {res.get('message')}"
+
+    @classmethod
+    async def unblock_device(cls, identifier: str) -> str:
+        ip = await cls._resolve_to_ip(identifier)
+        if not ip:
+            return f"❌ Não consegui encontrar o IP para '{identifier}'."
+
+        res = await AdGuardClient.unblock_client(ip)
+        if res.get("success"):
+            return f"✅ Dispositivo ({ip}) desbloqueado."
+        return f"❌ Erro ao desbloquear: {res.get('message')}"
+
+    @classmethod
+    async def get_stats_summary(cls) -> str:
+        stats = await AdGuardClient.get_stats()
+        if not stats:
+            return "❌ Não foi possível obter estatísticas do AdGuard."
+
+        top = await AdGuardClient.get_top_clients(limit=5)
+
+        msg = f"📊 **Estatísticas AdGuard**\n\n"
+        msg += f"🛡️ Bloqueios: {stats.get('num_blocked_filtering', 0)}\n"
+        msg += f"📡 Queries DNS: {stats.get('num_dns_queries', 0)}\n\n"
+        msg += f"**🏆 Top Consumidores:**\n"
+
+        for client in top:
+            name = client.get("name") or client.get("ip")
+            count = client.get("queries", 0)
+            msg += f"• {name}: {count}\n"
+
+        return msg
+
+    @classmethod
+    async def _resolve_to_ip(cls, identifier: str) -> str | None:
+        """
+        Tenta resolver identifier (MAC, IP, Nome) para um IP válido.
+        """
+        identifier = identifier.strip()
+
+        # 1. É IP?
+        if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", identifier):
+            return identifier
+
+        # 2. É MAC?
+        if re.match(r"^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$", identifier):
+            return await NetworkModule.get_ip_by_mac(identifier)
+
+        # 3. É Nome? (Busca nos devices ativos e seus nomes)
+        snapshot = await NetworkModule.get_raw_snapshot()
+        devices = snapshot.get("devices", [])
+
+        for device in devices:
+            mac = device.get("mac")
+            if not mac: continue
+
+            # Check name from persistence
+            stored_name = Persistence.get_device_name(mac)
+            if stored_name and stored_name.lower() == identifier.lower():
+                return device.get("ip")
+
+        return None

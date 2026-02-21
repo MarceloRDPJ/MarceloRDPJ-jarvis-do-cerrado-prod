@@ -68,7 +68,7 @@ class TestReminders(unittest.TestCase):
         self.assertEqual(ctx["flow"]["step"], "confirmation")
 
         resp = RemindersFlow.handle_response(chat_id, "sim", ctx)
-        self.assertIn("Combinado", resp)
+        self.assertIn("Lembrete Criado", resp)
 
         tasks = Persistence.get_active_tasks(chat_id)
         self.assertTrue(len(tasks) > 0)
@@ -115,13 +115,13 @@ class TestReminders(unittest.TestCase):
         Persistence.add_task(chat_id, "Old Task", datetime.now(), "default")
 
         resp = RemindersFlow.update_reminder(chat_id, 1, "New Text")
-        self.assertIn("Lembrete atualizado", resp)
+        self.assertIn("Lembrete Atualizado", resp)
 
         tasks = Persistence.get_active_tasks(chat_id)
         self.assertEqual(tasks[0]["text"], "New Text")
 
         resp = RemindersFlow.update_reminder(chat_id, 1, "para amanhã às 18h")
-        self.assertIn("Lembrete atualizado", resp)
+        self.assertIn("Lembrete Atualizado", resp)
 
         tasks = Persistence.get_active_tasks(chat_id)
         new_run = datetime.fromisoformat(tasks[0]["next_run"])
