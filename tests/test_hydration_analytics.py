@@ -49,7 +49,7 @@ def test_analyze_patterns(mock_history, monkeypatch):
 
     # Let's rebuild mock history properly
     history = []
-    base_date = datetime.now(timezone.utc) - timedelta(days=30)
+    base_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=30)
 
     for day in range(30):
         date = base_date + timedelta(days=day)
