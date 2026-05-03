@@ -11,7 +11,7 @@ from telegram.ext import (
 )
 
 from jarvis.config import Config
-from jarvis.core.brain import Brain
+
 from jarvis.core.executor import Executor
 from jarvis.core import router
 from jarvis.database.persistence import Persistence
@@ -256,6 +256,49 @@ async def post_init(application):
     # Inject telegram bot services into FastAPI state
     fastapi_app.state.fan_service = application.bot_data.get("fan_service")
     fastapi_app.state.bot_app = application
+    fastapi_app.state.automation_service = application.bot_data.get("automation")
+
+    # Initialize Webhook Manager
+    from jarvis.api.webhook_manager import WebhookManager
+    webhook_manager = WebhookManager()
+    fastapi_app.state.webhook_manager = webhook_manager
+    application.bot_data["webhook_manager"] = webhook_manager
+    logger.info("🔗 Webhook Manager inicializado")
+
+    # Initialize MCP Handler
+    from jarvis.api.mcp_handler import MCPHandler
+    mcp_handler = MCPHandler(fastapi_app.state)
+    fastapi_app.state.mcp_handler = mcp_handler
+    logger.info("🧠 MCP Handler inicializado")
+
+    # Initialize Integration Engine
+    from jarvis.api.integration_engine import IntegrationEngine
+    integration_engine = IntegrationEngine(fastapi_app.state)
+    fastapi_app.state.integration_engine = integration_engine
+    application.bot_data["integration_engine"] = integration_engine
+    logger.info("🔌 Integration Engine inicializado")
+
+    # Connect integration engine to guardian events
+    guardian = application.bot_data.get("guardian")
+    if guardian and integration_engine:
+        # Patch guardian to dispatch events to integration engine
+        original_check = guardian.check_device_changes
+
+        async def patched_check():
+            await original_check()
+            # Dispatch events to integration engine
+            if hasattr(integration_engine, 'handle_event'):
+                try:
+                    from jarvis.modules.network import NetworkModule
+                    metrics = await NetworkModule.get_ping_metrics()
+                    await integration_engine.handle_event(
+                        "network.status_changed",
+                        {"status": "online" if metrics.get("success") else "down"}
+                    )
+                except Exception:
+                    pass
+
+        guardian.check_device_changes = patched_check
 
     config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, log_level="info")
     server = uvicorn.Server(config)
