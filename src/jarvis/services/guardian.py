@@ -82,12 +82,11 @@ class GuardianService:
         latency = metrics.get("latency_ms")
 
         if success:
+            self.consecutive_ping_failures = 0
             if self.internet_state == "offline":
                 await self.send_message("A internet voltou agora. Tudo subindo aos poucos por aqui.")
                 self.internet_state = "online"
-                self.consecutive_ping_failures = 0
             elif self.internet_state == "unstable":
-                if self.consecutive_ping_failures > 0: self.consecutive_ping_failures = 0
                 self.internet_state = "online"
 
             if latency:

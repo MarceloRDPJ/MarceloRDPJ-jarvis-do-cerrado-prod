@@ -483,23 +483,28 @@ class NetworkModule:
         return "🔴 Offline"
 
     @staticmethod
-    async def get_ping_metrics(host: str = "8.8.8.8") -> Dict[str, Any]:
-        return await asyncio.to_thread(NetworkModule._ping_metrics_sync, host)
+    async def get_ping_metrics(hosts: List[str] = None) -> Dict[str, Any]:
+        if hosts is None:
+            hosts = ["8.8.8.8", "1.1.1.1", "208.67.222.222"]
+        return await asyncio.to_thread(NetworkModule._ping_metrics_sync, hosts)
 
     @staticmethod
-    def _ping_metrics_sync(host: str) -> Dict[str, Any]:
-        try:
-            output = subprocess.check_output(
-                ["ping", "-c", "1", "-W", "2", host],
-                stderr=subprocess.STDOUT,
-                text=True
-            )
-            import re
-            match = re.search(r"time=([\d\.]+)", output)
-            latency = float(match.group(1)) if match else None
-            return {"success": True, "latency_ms": latency, "error": None}
-        except Exception as e:
-            return {"success": False, "latency_ms": None, "error": str(e)}
+    def _ping_metrics_sync(hosts: List[str]) -> Dict[str, Any]:
+        import re
+        for host in hosts:
+            try:
+                output = subprocess.check_output(
+                    ["ping", "-c", "1", "-W", "2", host],
+                    stderr=subprocess.STDOUT,
+                    text=True
+                )
+                match = re.search(r"time=([\d\.]+)", output)
+                latency = float(match.group(1)) if match else None
+                return {"success": True, "latency_ms": latency, "error": None}
+            except Exception as e:
+                continue
+
+        return {"success": False, "latency_ms": None, "error": "All pings failed"}
 
     # ==================================================
     # SPEEDTEST
