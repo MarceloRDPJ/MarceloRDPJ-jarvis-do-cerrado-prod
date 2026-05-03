@@ -22,6 +22,8 @@ from jarvis.services.scheduler import SchedulerService
 from jarvis.services.guardian import GuardianService
 from jarvis.services.fan_control import FanControlService
 
+import uvicorn
+
 # =====================================================
 # LOGGING
 # =====================================================
@@ -246,6 +248,19 @@ async def post_init(application):
     else:
         logger.warning("⚠️ ALLOWED_USER_ID não definido. GuardianService não foi iniciado.")
 
+    # -------------------------
+    # WEB DASHBOARD API
+    # -------------------------
+    from jarvis.api.app import app as fastapi_app
+
+    # Inject telegram bot services into FastAPI state
+    fastapi_app.state.fan_service = application.bot_data.get("fan_service")
+    fastapi_app.state.bot_app = application
+
+    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, log_level="info")
+    server = uvicorn.Server(config)
+    application.bot_data["api_task"] = asyncio.create_task(server.serve())
+    logger.info("🌐 Web Dashboard API inicializado")
 
 # =====================================================
 # MAIN
@@ -258,6 +273,8 @@ def main():
         ApplicationBuilder()
         .token(Config.TELEGRAM_TOKEN)
         .post_init(post_init)
+
+
         .build()
     )
 

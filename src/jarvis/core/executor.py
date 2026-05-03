@@ -659,18 +659,24 @@ class Executor:
         if "ligar" in t:
             if fan_service.fan:
                 fan_service.fan.on()
-                return "🌬️ Ventoinha **ligada** manualmente."
+                fan_service.manual_override = True
+                return "🌬️ Ventoinha **ligada** manualmente. O controle automático está pausado. Use 'voltar pro auto' para reativar."
             return "❌ Fan hardware não disponível."
         elif "desligar" in t:
             if fan_service.fan:
                 fan_service.fan.off()
-                return "🛑 Ventoinha **desligada** manualmente."
+                fan_service.manual_override = True
+                return "🛑 Ventoinha **desligada** manualmente. O controle automático está pausado. Use 'voltar pro auto' para reativar."
             return "❌ Fan hardware não disponível."
+        elif "auto" in t:
+            fan_service.manual_override = False
+            return "✅ Controle automático da ventoinha reativado."
         else:
             state = "LIGADA" if fan_service.fan and fan_service.fan.is_active else "DESLIGADA"
+            override = " (Manual Override)" if fan_service.manual_override else " (Automático)"
             return (
                 f"🌬️ *Status da Ventoinha*\n\n"
-                f"Estado Atual: **{state}**\n"
+                f"Estado Atual: **{state}{override}**\n"
                 f"GPIO Pin: `{fan_service.pin}`\n"
                 f"Liga acima de: `{fan_service.threshold_on}°C`\n"
                 f"Desliga abaixo de: `{fan_service.threshold_off}°C`"
