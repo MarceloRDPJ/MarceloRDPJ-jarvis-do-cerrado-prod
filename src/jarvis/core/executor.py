@@ -479,6 +479,8 @@ class Executor:
         # --- END SUBMENUS ---
 
         if intent == "system_status": return await SystemModule.get_status()
+        if intent == "fan_control":
+            return await Executor._handle_fan_control(text, app)
         if intent == "system_reboot": return SystemModule.reboot_device()
         if intent == "system_restart_adguard": return SystemModule.restart_container("adguardhome")
 
@@ -646,6 +648,33 @@ class Executor:
 
         logger.warning(f"Intent não tratada pelo Executor: {intent}")
         return "🤖 Ainda não sei executar isso… mas já anotei."
+
+    @staticmethod
+    async def _handle_fan_control(text: str, app) -> str:
+        fan_service = app.bot_data.get("fan_service")
+        if not fan_service:
+            return "❌ Serviço de controle da ventoinha (FanControlService) não está inicializado."
+
+        t = text.lower()
+        if "ligar" in t:
+            if fan_service.fan:
+                fan_service.fan.on()
+                return "🌬️ Ventoinha **ligada** manualmente."
+            return "❌ Fan hardware não disponível."
+        elif "desligar" in t:
+            if fan_service.fan:
+                fan_service.fan.off()
+                return "🛑 Ventoinha **desligada** manualmente."
+            return "❌ Fan hardware não disponível."
+        else:
+            state = "LIGADA" if fan_service.fan and fan_service.fan.is_active else "DESLIGADA"
+            return (
+                f"🌬️ *Status da Ventoinha*\n\n"
+                f"Estado Atual: **{state}**\n"
+                f"GPIO Pin: `{fan_service.pin}`\n"
+                f"Liga acima de: `{fan_service.threshold_on}°C`\n"
+                f"Desliga abaixo de: `{fan_service.threshold_off}°C`"
+            )
 
     async def _confirm_action(self, chat_id: int) -> str:
         pending = self.pending_actions.pop(chat_id, None)

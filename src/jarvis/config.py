@@ -35,6 +35,9 @@ class Config:
     # NETWORK / SYSTEM
     # ==================================================
     PC_MAC = os.getenv("PC_MAC", "")
+    FAN_GPIO_PIN = int(os.getenv("FAN_GPIO_PIN", 14))
+    FAN_TEMP_ON = float(os.getenv("FAN_TEMP_ON", 60.0))
+    FAN_TEMP_OFF = float(os.getenv("FAN_TEMP_OFF", 50.0))
 
     # ==================================================
     # CONFIG.YAML (COMPORTAMENTO)

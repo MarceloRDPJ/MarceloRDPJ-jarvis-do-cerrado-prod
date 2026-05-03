@@ -20,6 +20,7 @@ from jarvis.core.events import Event
 from jarvis.services.collector import CollectorService
 from jarvis.services.scheduler import SchedulerService
 from jarvis.services.guardian import GuardianService
+from jarvis.services.fan_control import FanControlService
 
 # =====================================================
 # LOGGING
@@ -219,6 +220,19 @@ async def post_init(application):
     task_automation = asyncio.create_task(automation.start())
     application.bot_data["tasks"].append(task_automation)
     logger.info("🤖 AutomationEngine iniciado")
+
+    # -------------------------
+    # FAN CONTROL SERVICE
+    # -------------------------
+    fan_service = FanControlService(
+        pin=Config.FAN_GPIO_PIN,
+        threshold_on=Config.FAN_TEMP_ON,
+        threshold_off=Config.FAN_TEMP_OFF
+    )
+    application.bot_data["fan_service"] = fan_service
+    task_fan = asyncio.create_task(fan_service.start())
+    application.bot_data["tasks"].append(task_fan)
+    logger.info("🌬️ FanControlService acoplado ao ciclo de vida")
 
     # -------------------------
     # GUARDIAN SERVICE (NOVO)
