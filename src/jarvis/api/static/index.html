@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jarvis Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-900 text-white p-8">
+
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold mb-8 flex items-center">
+            <span class="mr-3">🤖</span> Jarvis Dashboard
+        </h1>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+            <!-- System Status Card -->
+            <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                <h2 class="text-xl font-semibold mb-4 border-b border-gray-700 pb-2">🖥️ System Status</h2>
+                <div id="system-status" class="space-y-3">
+                    <p class="text-gray-400">Loading...</p>
+                </div>
+                <button onclick="fetchSystemStatus()" class="mt-4 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded text-sm transition">
+                    Refresh
+                </button>
+            </div>
+
+            <!-- Fan Control Card -->
+            <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                <h2 class="text-xl font-semibold mb-4 border-b border-gray-700 pb-2">🌬️ Fan Control</h2>
+                <div id="fan-status" class="space-y-3 mb-4">
+                    <p class="text-gray-400">Loading...</p>
+                </div>
+                <button onclick="toggleFan()" class="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded text-sm transition">
+                    Toggle Fan
+                </button>
+            </div>
+
+            <!-- Network Card -->
+            <div class="bg-gray-800 p-6 rounded-lg shadow-lg md:col-span-2">
+                <h2 class="text-xl font-semibold mb-4 border-b border-gray-700 pb-2">📡 Network Scanner</h2>
+                <button onclick="scanNetwork()" class="mb-4 bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded text-sm transition">
+                    Run Deep Scan
+                </button>
+                <div id="network-scan" class="bg-gray-900 p-4 rounded text-sm font-mono overflow-x-auto h-64 overflow-y-auto">
+                    <p class="text-gray-500">Click "Run Deep Scan" to analyze the network.</p>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        async function fetchSystemStatus() {
+            const container = document.getElementById('system-status');
+            try {
+                const res = await fetch('/api/system/status');
+                const data = await res.json();
+                container.innerHTML = `
+                    <div class="flex justify-between"><span>CPU:</span> <span class="font-bold">${data.cpu_percent}%</span></div>
+                    <div class="flex justify-between"><span>RAM:</span> <span class="font-bold">${data.memory.percent}%</span></div>
+                    <div class="flex justify-between"><span>Disk:</span> <span class="font-bold">${data.disk.percent}%</span></div>
+                    <div class="flex justify-between"><span>Temp:</span> <span class="font-bold text-red-400">${data.temperature_c !== null ? data.temperature_c + '°C' : 'N/A'}</span></div>
+                    <div class="flex justify-between"><span>Uptime:</span> <span class="font-mono text-xs">${data.uptime_seconds}s</span></div>
+                `;
+            } catch (e) {
+                container.innerHTML = `<p class="text-red-500">Failed to load system data.</p>`;
+            }
+        }
+
+        async function fetchFanStatus() {
+            const container = document.getElementById('fan-status');
+            try {
+                const res = await fetch('/api/fan/status');
+                const data = await res.json();
+                if (!data.available) {
+                    container.innerHTML = `<p class="text-yellow-500">Fan hardware not available or service not running.</p>`;
+                    return;
+                }
+                const stateColor = data.state === 'on' ? 'text-green-400' : 'text-gray-400';
+                container.innerHTML = `
+                    <div class="flex justify-between"><span>State:</span> <span class="font-bold uppercase ${stateColor}">${data.state}</span></div>
+                    <div class="flex justify-between text-sm text-gray-400"><span>Threshold ON:</span> <span>${data.threshold_on}°C</span></div>
+                    <div class="flex justify-between text-sm text-gray-400"><span>Threshold OFF:</span> <span>${data.threshold_off}°C</span></div>
+                `;
+            } catch (e) {
+                container.innerHTML = `<p class="text-red-500">Failed to load fan status.</p>`;
+            }
+        }
+
+        async function toggleFan() {
+            try {
+                await fetch('/api/fan/toggle', { method: 'POST' });
+                fetchFanStatus();
+            } catch (e) {
+                alert("Failed to toggle fan");
+            }
+        }
+
+        async function scanNetwork() {
+            const container = document.getElementById('network-scan');
+            container.innerHTML = `<p class="text-yellow-500 animate-pulse">Scanning network (this may take a few seconds)...</p>`;
+            try {
+                const res = await fetch('/api/network/scan');
+                const data = await res.json();
+                if (data.devices && data.devices.length > 0) {
+                    let html = `<table class="w-full text-left"><thead><tr class="text-gray-400 border-b border-gray-700"><th>IP</th><th>MAC</th><th>Device Type</th><th>Vendor</th></tr></thead><tbody>`;
+                    data.devices.forEach(d => {
+                        const name = d.custom_name || d.guessed_type || 'Unknown';
+                        html += `<tr class="border-b border-gray-800">
+                            <td class="py-2 text-blue-400">${d.ip}</td>
+                            <td class="py-2 text-xs">${d.mac}</td>
+                            <td class="py-2">${name}</td>
+                            <td class="py-2 text-xs text-gray-400">${d.vendor}</td>
+                        </tr>`;
+                    });
+                    html += `</tbody></table>`;
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = `<p class="text-gray-400">No devices found.</p>`;
+                }
+            } catch (e) {
+                container.innerHTML = `<p class="text-red-500">Scan failed.</p>`;
+            }
+        }
+
+        // Initial Load
+        fetchSystemStatus();
+        fetchFanStatus();
+        setInterval(fetchSystemStatus, 5000); // Auto-refresh sys metrics every 5s
+    </script>
+</body>
+</html>

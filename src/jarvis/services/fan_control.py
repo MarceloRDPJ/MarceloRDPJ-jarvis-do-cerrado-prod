@@ -18,6 +18,7 @@ class FanControlService:
         self.interval = interval_seconds
         self.running = False
         self.fan = None
+        self.manual_override = False
         self._init_gpio()
 
     def _init_gpio(self):
@@ -45,6 +46,9 @@ class FanControlService:
             await asyncio.sleep(self.interval)
 
     async def _check_temperature(self):
+        if self.manual_override:
+            return
+
         raw_status = await SystemModule.get_raw_status()
         temp = raw_status.get("temperature_c")
 
