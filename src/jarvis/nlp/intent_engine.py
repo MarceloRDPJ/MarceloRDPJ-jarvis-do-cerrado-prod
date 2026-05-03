@@ -75,6 +75,11 @@ class HybridIntentEngine:
                 "ram", "status do sistema", "como ta o sistema", "status",
                 "tudo bem", "como você está", "saúde do sistema"
             ],
+            "fan_control": [
+                "ligar fan", "desligar fan", "status do fan", "ventoinha",
+                "ligar ventoinha", "desligar ventoinha", "controlar fan",
+                "cooler"
+            ],
             "system_logs": [
                 "logs do sistema", "ver logs", "log de erro", "mostrar logs", "ultimos eventos"
             ],
