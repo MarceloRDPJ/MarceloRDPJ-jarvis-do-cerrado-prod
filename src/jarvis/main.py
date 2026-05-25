@@ -249,6 +249,16 @@ async def post_init(application):
         logger.warning("⚠️ ALLOWED_USER_ID não definido. GuardianService não foi iniciado.")
 
     # -------------------------
+    # REPORTER SERVICE (DIARIO / SEMANAL)
+    # -------------------------
+    from jarvis.services.reporter import ReporterService
+    reporter = ReporterService(application)
+    application.bot_data["reporter"] = reporter
+    task_reporter = asyncio.create_task(reporter.start())
+    application.bot_data["tasks"].append(task_reporter)
+    logger.info("ReporterService iniciado")
+
+    # -------------------------
     # WEB DASHBOARD API
     # -------------------------
     from jarvis.api.app import app as fastapi_app

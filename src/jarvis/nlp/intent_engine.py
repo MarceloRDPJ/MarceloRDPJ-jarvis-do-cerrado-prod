@@ -264,7 +264,24 @@ class HybridIntentEngine:
                                 "lista de automacoes", "quais automacoes existem"],
             "automation_config": ["config automacoes", "configurar automacoes", "editar automacoes",
                                   "configurar automacao", "editar automacao", "criar automacao",
-                                  "nova automacao", "alterar automacao"]
+                                  "nova automacao", "alterar automacao"],
+
+            # TOKEN USAGE & REPORT
+            "token_usage": [
+                "gastos do jarvis", "quanto gastei", "uso de tokens", "consumo de api",
+                "quanto custou", "estatisticas de uso", "meus gastos", "tokens usados",
+                "consumo do dia", "gastei hoje"
+            ],
+            "daily_report": [
+                "relatorio diario", "resumo do dia", "relatorio do sistema",
+                "como foi o dia", "resumo de hoje", "relatorio completo",
+                "status geral", "panorama do dia"
+            ],
+            "unknown_queries": [
+                "o que voce nao sabe", "perguntas sem resposta", "duvidas pendentes",
+                "comandos desconhecidos", "o que nao entendi", "falhas de interpretacao",
+                "queries falhas"
+            ]
         }
         # Never higher than 85 to ensure good recall
         raw_threshold = int(Config.INTENT_CONFIDENCE_THRESHOLD * 100)
@@ -365,6 +382,15 @@ def detect_intent(text: str) -> Dict:
 
     if intent == "command_list":
         return {"intent": "command_list"}
+
+    if intent == "token_usage":
+        return {"intent": "token_usage"}
+
+    if intent == "daily_report":
+        return {"intent": "daily_report"}
+
+    if intent == "unknown_queries":
+        return {"intent": "unknown_queries"}
 
     return result
 

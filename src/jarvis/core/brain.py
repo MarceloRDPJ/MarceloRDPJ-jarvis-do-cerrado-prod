@@ -116,6 +116,10 @@ class Brain:
         """
         Resposta padrão quando TUDO falha.
         """
+        try:
+            Persistence.log_unknown_query(user_text, "final_fallback")
+        except Exception:
+            pass
         return {
             "intent": "chat",
             "response": Personality.get_response("FALLBACK"),

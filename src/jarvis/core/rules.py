@@ -58,6 +58,33 @@ def apply_rules(text: str) -> Optional[Dict]:
         }
 
     # =====================================================
+    # TOKEN USAGE & REPORT
+    # =====================================================
+    if t in ("gastos", "uso de tokens", "quantos tokens", "consumo de ia", "uso da ia"):
+        return {
+            "intent": "token_usage",
+            "action": "check",
+            "entity": "system",
+            "confidence": 1.0,
+        }
+
+    if t in ("relatorio", "relatorio diario", "resumo do dia", "relatorio do dia", "me resuma o dia"):
+        return {
+            "intent": "daily_report",
+            "action": "show",
+            "entity": "system",
+            "confidence": 1.0,
+        }
+
+    if t in ("queries desconhecidas", "o que nao sabe", "perguntas sem resposta", "duvidas pendentes"):
+        return {
+            "intent": "unknown_queries",
+            "action": "list",
+            "entity": "system",
+            "confidence": 1.0,
+        }
+
+    # =====================================================
     # LISTA DE COMANDOS (NOVO)
     # =====================================================
     if t in ["lista de comandos", "lista comandos", "todos os comandos", "quais seus comandos", "manual de comandos"]:

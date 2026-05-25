@@ -8,6 +8,8 @@ import json
 import logging
 from typing import Dict, Any, Optional
 from openai import OpenAI
+from jarvis.database.persistence import Persistence
+from datetime import datetime, timedelta
 
 logger = logging.getLogger("core.crof_ai")
 
@@ -97,12 +99,23 @@ SYSTEM_PROMPT = (
 
 class CrofAIEngine:
 
+    MODEL_PRICING = {
+        "qwen3.5-9b": {"input": 0.04, "output": 0.008},
+        "glm-4.7-flash": {"input": 0.04, "output": 0.008},
+        "deepseek-v4-flash": {"input": 0.12, "output": 0.003},
+        "gemma-4-31b-it": {"input": 0.10, "output": 0.02},
+        "kimi-k2.5": {"input": 0.35, "output": 0.07},
+    }
+
     def __init__(self, api_key: str, model: str = "qwen3.5-9b"):
         self.client = OpenAI(
             api_key=api_key,
             base_url="https://crof.ai/v1"
         )
         self.model = model
+        self.consecutive_failures = 0
+        self.max_consecutive_failures = 5
+        self.disabled_until = None
         self._tool_map = {
             "get_system_status": self._get_system_status,
             "check_internet": self._check_internet,
@@ -116,6 +129,12 @@ class CrofAIEngine:
         logger.info(f"CrofAI Engine ativado (modelo: {model})")
 
     async def process(self, user_text: str, chat_id: int = None) -> Optional[Dict[str, Any]]:
+        if self.disabled_until:
+            if datetime.now() >= self.disabled_until:
+                self.consecutive_failures = 0
+                self.disabled_until = None
+            else:
+                return None
         try:
             messages = [
                 {"role": "system", "content": SYSTEM_PROMPT},
@@ -131,6 +150,14 @@ class CrofAIEngine:
                 temperature=0.3,
             )
 
+            if response.usage:
+                pt = response.usage.prompt_tokens
+                ct = response.usage.completion_tokens
+                tt = response.usage.total_tokens
+                pricing = self.MODEL_PRICING.get(self.model, {"input": 0.04, "output": 0.008})
+                cost = (pt * pricing["input"] + ct * pricing["output"]) / 1_000_000
+                Persistence.log_token_usage(self.model, pt, ct, tt, cost, success=True)
+
             msg = response.choices[0].message
 
             if msg.tool_calls:
@@ -142,7 +169,7 @@ class CrofAIEngine:
                         result = await handler(**func_args)
                         if func_name == "send_telegram_message":
                             from jarvis.config import Config
-                            self.client.chat.completions.create(
+                            confirm = self.client.chat.completions.create(
                                 model=self.model,
                                 messages=[{"role": "system", "content": (
                                     "Responda em 1 frase confirmando que a mensagem foi enviada. "
@@ -151,6 +178,13 @@ class CrofAIEngine:
                                 max_tokens=50,
                                 temperature=0.3,
                             )
+                            if confirm.usage:
+                                pt = confirm.usage.prompt_tokens
+                                ct = confirm.usage.completion_tokens
+                                tt = confirm.usage.total_tokens
+                                pricing = self.MODEL_PRICING.get(self.model, {"input": 0.04, "output": 0.008})
+                                cost = (pt * pricing["input"] + ct * pricing["output"]) / 1_000_000
+                                Persistence.log_token_usage(self.model, pt, ct, tt, cost, success=True)
                             return {
                                 "intent": "chat",
                                 "response": f"Pronto. Mensagem enviada.",
@@ -177,6 +211,13 @@ class CrofAIEngine:
                     max_tokens=100,
                     temperature=0.3,
                 )
+                if final.usage:
+                    pt = final.usage.prompt_tokens
+                    ct = final.usage.completion_tokens
+                    tt = final.usage.total_tokens
+                    pricing = self.MODEL_PRICING.get(self.model, {"input": 0.04, "output": 0.008})
+                    cost = (pt * pricing["input"] + ct * pricing["output"]) / 1_000_000
+                    Persistence.log_token_usage(self.model, pt, ct, tt, cost, success=True)
                 response_text = final.choices[0].message.content
             else:
                 response_text = msg.content
@@ -192,6 +233,11 @@ class CrofAIEngine:
 
         except Exception as e:
             logger.error(f"CrofAI error: {e}")
+            Persistence.log_api_error("crof_ai", str(e))
+            self.consecutive_failures += 1
+            if self.consecutive_failures >= self.max_consecutive_failures:
+                self.disabled_until = datetime.now() + timedelta(hours=1)
+                logger.warning(f"CrofAI auto-desativado ate {self.disabled_until}")
 
         return None
 

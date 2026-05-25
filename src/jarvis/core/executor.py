@@ -650,6 +650,15 @@ class Executor:
         if intent == "hydration_update": return HydrationModule.update_config(chat_id, params)
         if intent == "automation_create": return "🤖 Automação registrada. Vou observar."
 
+        if intent == "token_usage":
+            return await Executor._get_token_usage_report()
+
+        if intent == "daily_report":
+            return await Executor._get_daily_report()
+
+        if intent == "unknown_queries":
+            return Executor._get_unknown_queries()
+
         logger.warning(f"Intent não tratada pelo Executor: {intent}")
         return "🤖 Ainda não sei executar isso… mas já anotei."
 
@@ -685,6 +694,96 @@ class Executor:
                 f"Liga acima de: `{fan_service.threshold_on}°C`\n"
                 f"Desliga abaixo de: `{fan_service.threshold_off}°C`"
             )
+
+    @staticmethod
+    async def _get_token_usage_report() -> str:
+        from jarvis.database.persistence import Persistence
+        today = Persistence.get_token_usage_today()
+        all_time = Persistence.get_token_usage_all_time()
+
+        msg = "📊 *Consumo de IA*\n\n"
+        msg += f"*Hoje:*\n"
+        msg += f"• Chamadas: {today['calls']}\n"
+        msg += f"• Tokens: {today['total']} ({today['prompt']} in / {today['completion']} out)\n"
+        msg += f"• Custo: ${today['cost']:.6f}\n\n"
+        msg += f"*Total (todo histórico):*\n"
+        msg += f"• Chamadas: {all_time['calls']}\n"
+        msg += f"• Tokens: {all_time['total']}\n"
+        msg += f"• Custo: ${all_time['cost']:.6f}\n\n"
+
+        if today['calls'] == 0:
+            msg += "_Nenhuma chamada ao Crof AI hoje. O Jarvis resolveu tudo localmente._ 🤖"
+        else:
+            msg += f"_Custo médio por chamada: ${today['cost']/max(today['calls'],1):.8f}_"
+
+        return msg
+
+    @staticmethod
+    async def _get_daily_report() -> str:
+        from jarvis.database.persistence import Persistence
+        from jarvis.modules.network import NetworkModule
+        from jarvis.modules.system import SystemModule
+        import os
+
+        # Token usage
+        tokens = Persistence.get_token_usage_today()
+        unknown = Persistence.get_unknown_queries_today()
+        errors = Persistence.get_api_errors_today()
+
+        # System status
+        try:
+            raw = await SystemModule.get_raw_status()
+            temp = f"{raw['temperature_c']}C" if raw.get('temperature_c') else "N/A"
+            uptime = str(__import__('datetime').timedelta(seconds=raw['uptime_seconds']))
+            sys_info = f"CPU: {raw['cpu_percent']}% | RAM: {raw['memory']['percent']}% | Temp: {temp}"
+        except:
+            sys_info = "N/A"
+
+        # Internet
+        try:
+            ping = await NetworkModule.get_ping_metrics()
+            net = "Online" if ping.get('success') else "Offline"
+            lat = ping.get('latency_ms', 'N/A')
+            net_info = f"{net} ({lat}ms)"
+        except:
+            net_info = "N/A"
+
+        msg = "📋 *Relatório Diário — Jarvis do Cerrado*\n\n"
+        msg += f"🖥️ *Sistema*\n{sys_info}\nUptime: {uptime}\n\n"
+        msg += f"🌐 *Internet*\n{net_info}\n\n"
+        msg += f"🤖 *IA (Crof AI)*\n"
+        msg += f"• {tokens['calls']} chamadas · {tokens['total']} tokens\n"
+        msg += f"• Custo: ${tokens['cost']:.6f}\n\n"
+
+        if unknown:
+            msg += f"❓ *Consultas não reconhecidas:* {len(unknown)}\n"
+            for q in unknown[:5]:
+                msg += f"• _{q['query'][:50]}_\n"
+            msg += "\n"
+
+        if errors:
+            msg += f"⚠️ *Erros de API:* {len(errors)}\n\n"
+        else:
+            msg += "✅ *Nenhum erro de API hoje.*\n\n"
+
+        msg += "_Relatório 100% local — zero tokens gastos para gerar isso._"
+        return msg
+
+    @staticmethod
+    def _get_unknown_queries() -> str:
+        from jarvis.database.persistence import Persistence
+        queries = Persistence.get_unknown_queries_today()
+        total = Persistence.get_unknown_queries_count(days=30)
+
+        if not queries:
+            return "❓ Nenhuma consulta desconhecida hoje. Tô entendendo tudo! 🤖"
+
+        msg = f"📝 *Consultas não reconhecidas (hoje: {len(queries)}, 30d: {total})*\n\n"
+        for q in queries:
+            msg += f"• ❓ {q['query'][:60]}\n"
+
+        msg += "\n_Essas queries são registradas para eu aprender e melhorar._"
+        return msg
 
     async def _confirm_action(self, chat_id: int) -> str:
         pending = self.pending_actions.pop(chat_id, None)

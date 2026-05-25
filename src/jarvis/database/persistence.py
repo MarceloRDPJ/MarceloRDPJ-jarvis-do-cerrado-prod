@@ -153,9 +153,43 @@ class Persistence:
             )
             """)
 
+            c.execute("""
+            CREATE TABLE IF NOT EXISTS token_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                model TEXT,
+                prompt_tokens INTEGER DEFAULT 0,
+                completion_tokens INTEGER DEFAULT 0,
+                total_tokens INTEGER DEFAULT 0,
+                cost REAL DEFAULT 0.0,
+                success INTEGER DEFAULT 1,
+                error TEXT,
+                timestamp TEXT
+            )
+            """)
+
+            c.execute("""
+            CREATE TABLE IF NOT EXISTS unknown_queries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                query TEXT,
+                fallback_source TEXT,
+                timestamp TEXT
+            )
+            """)
+
+            c.execute("""
+            CREATE TABLE IF NOT EXISTS api_errors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source TEXT,
+                error TEXT,
+                timestamp TEXT
+            )
+            """)
+
             # Índices estratégicos
             c.execute("CREATE INDEX IF NOT EXISTS idx_tasks_next_run ON tasks(next_run, status)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_token_log_timestamp ON token_log(timestamp)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_api_errors_source ON api_errors(source, id)")
 
             conn.commit()
 
@@ -621,3 +655,107 @@ class Persistence:
             rows = c.fetchall()
 
             return [dict(row) for row in rows]
+
+    # ==================================================
+    # TOKEN USAGE LOG
+    # ==================================================
+    @staticmethod
+    def log_token_usage(model: str, prompt_tokens: int, completion_tokens: int,
+                        total_tokens: int, cost: float = 0.0, success: bool = True,
+                        error: str = None):
+        with closing(sqlite3.connect(_get_db_path())) as conn:
+            c = conn.cursor()
+            c.execute(
+                "INSERT INTO token_log (model, prompt_tokens, completion_tokens, total_tokens, cost, success, error, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (model, prompt_tokens, completion_tokens, total_tokens, cost, 1 if success else 0, error, datetime.now(timezone.utc).isoformat())
+            )
+            conn.commit()
+
+    @staticmethod
+    def get_token_usage_today() -> dict:
+        start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        with closing(sqlite3.connect(_get_db_path())) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute(
+                "SELECT COUNT(*) as calls, COALESCE(SUM(prompt_tokens), 0) as prompt, COALESCE(SUM(completion_tokens), 0) as completion, COALESCE(SUM(total_tokens), 0) as total, COALESCE(SUM(cost), 0.0) as cost FROM token_log WHERE timestamp >= ? AND success = 1",
+                (start,)
+            )
+            row = c.fetchone()
+            return dict(row) if row else {"calls": 0, "prompt": 0, "completion": 0, "total": 0, "cost": 0.0}
+
+    @staticmethod
+    def get_token_usage_all_time() -> dict:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute("SELECT COUNT(*) as calls, COALESCE(SUM(prompt_tokens), 0) as prompt, COALESCE(SUM(completion_tokens), 0) as completion, COALESCE(SUM(total_tokens), 0) as total, COALESCE(SUM(cost), 0.0) as cost FROM token_log WHERE success = 1")
+            row = c.fetchone()
+            return dict(row) if row else {"calls": 0, "prompt": 0, "completion": 0, "total": 0, "cost": 0.0}
+
+    # ==================================================
+    # UNKNOWN QUERIES
+    # ==================================================
+    @staticmethod
+    def log_unknown_query(query: str, fallback_source: str):
+        with closing(sqlite3.connect(_get_db_path())) as conn:
+            c = conn.cursor()
+            c.execute(
+                "INSERT INTO unknown_queries (query, fallback_source, timestamp) VALUES (?, ?, ?)",
+                (query, fallback_source, datetime.now(timezone.utc).isoformat())
+            )
+            conn.commit()
+
+    @staticmethod
+    def get_unknown_queries_today() -> list:
+        start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        with closing(sqlite3.connect(_get_db_path())) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute("SELECT query, fallback_source, timestamp FROM unknown_queries WHERE timestamp >= ? ORDER BY timestamp DESC", (start,))
+            return [dict(r) for r in c.fetchall()]
+
+    @staticmethod
+    def get_unknown_queries_count(days: int = 7) -> int:
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        with closing(sqlite3.connect(_get_db_path())) as conn:
+            c = conn.cursor()
+            c.execute("SELECT COUNT(*) FROM unknown_queries WHERE timestamp >= ?", (since,))
+            row = c.fetchone()
+            return row[0] if row else 0
+
+    # ==================================================
+    # API ERRORS
+    # ==================================================
+    @staticmethod
+    def log_api_error(source: str, error: str):
+        with closing(sqlite3.connect(_get_db_path())) as conn:
+            c = conn.cursor()
+            c.execute(
+                "INSERT INTO api_errors (source, error, timestamp) VALUES (?, ?, ?)",
+                (source, error, datetime.now(timezone.utc).isoformat())
+            )
+            conn.commit()
+
+    @staticmethod
+    def get_api_errors_today() -> list:
+        start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        with closing(sqlite3.connect(_get_db_path())) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute("SELECT source, error, timestamp FROM api_errors WHERE timestamp >= ? ORDER BY timestamp DESC", (start,))
+            return [dict(r) for r in c.fetchall()]
+
+    @staticmethod
+    def get_consecutive_api_failures(source: str) -> int:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
+            c = conn.cursor()
+            c.execute("SELECT error FROM api_errors WHERE source = ? ORDER BY id DESC LIMIT 10", (source,))
+            rows = c.fetchall()
+            count = 0
+            for row in rows:
+                if row[0]:
+                    count += 1
+                else:
+                    break
+            return count
