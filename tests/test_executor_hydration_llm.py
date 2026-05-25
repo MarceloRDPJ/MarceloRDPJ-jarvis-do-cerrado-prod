@@ -47,8 +47,8 @@ async def test_brain_llm_fallback():
     # Mock LocalBrain to return None (miss)
     brain.local_brain.process = AsyncMock(return_value=None)
 
-    # Mock Cloud LLM (missing)
-    brain.cloud_llm = None
+    # Mock Crof AI (missing)
+    brain.crof = None
 
     # Mock Local LLM
     brain.local_llm = MagicMock()

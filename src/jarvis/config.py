@@ -27,10 +27,10 @@ class Config:
     ALLOWED_USER_ID = int(raw_id) if raw_id.strip() else 0
 
     # ==================================================
-    # GEMINI (LLM)
+    # CROF AI (FALLBACK LLM - OPENAI COMPATIBLE)
     # ==================================================
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    CROF_API_KEY = os.getenv("CROF_API_KEY")
+    CROF_MODEL = os.getenv("CROF_MODEL", "qwen3.5-9b")
 
     # ==================================================
     # NETWORK / SYSTEM
@@ -78,8 +78,8 @@ class Config:
         if not Config.ALLOWED_USER_ID:
             missing.append("ALLOWED_USER_ID")
 
-        if not Config.GEMINI_API_KEY:
-            missing.append("GEMINI_API_KEY")
+        if not Config.CROF_API_KEY:
+            missing.append("CROF_API_KEY")
 
         if not Config.PC_MAC:
             missing.append("PC_MAC (necessário para Wake-on-LAN)")

@@ -9,7 +9,7 @@ wakeonlan
 mac-vendor-lookup
 scapy
 bleak
-google-genai
+openai
 rapidfuzz
 aiohttp
 pytest==7.4.3

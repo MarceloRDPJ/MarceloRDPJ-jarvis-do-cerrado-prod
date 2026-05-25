@@ -29,7 +29,7 @@ dependencies = [
     "tinytuya",
     "rapidfuzz",
     "aiohttp",
-    "google-genai",
+    "openai",
     "gpiozero",
     "pytz",
     "fastapi>=0.110.0",

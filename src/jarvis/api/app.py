@@ -344,7 +344,7 @@ async def get_bot_settings():
         "notification_level": "normal",
         "timezone": Config.TIMEZONE,
         "allowed_user_id": Config.ALLOWED_USER_ID,
-        "gemini_model": Config.GEMINI_MODEL,
+        "crof_model": Config.CROF_MODEL,
         "intent_confidence": Config.INTENT_CONFIDENCE_THRESHOLD,
     }
 
@@ -717,7 +717,7 @@ async def get_dashboard_data():
     # Bot Info
     data["bot"] = {
         "timezone": Config.TIMEZONE,
-        "model": Config.GEMINI_MODEL,
+        "crof_model": Config.CROF_MODEL,
         "user_id": Config.ALLOWED_USER_ID,
     }
 
@@ -734,7 +734,7 @@ async def get_config():
     from jarvis.config import Config
     return {
         "timezone": Config.TIMEZONE,
-        "gemini_model": Config.GEMINI_MODEL,
+        "crof_model": Config.CROF_MODEL,
         "intent_confidence": Config.INTENT_CONFIDENCE_THRESHOLD,
         "scheduler_interval": Config.SCHEDULER_INTERVAL_SECONDS,
         "hydration_interval": Config.HYDRATION_MIN_INTERVAL_MINUTES,
