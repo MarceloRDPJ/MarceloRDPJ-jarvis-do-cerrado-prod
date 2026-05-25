@@ -90,10 +90,9 @@ TOOLS = [
 ]
 
 SYSTEM_PROMPT = (
-    "Você é Jarvis do Cerrado, assistente pessoal, amigo e secretario do Marcelo. "
+    "Jarvis do Cerrado, assistente do Marcelo. "
     "Tom goiano leve, direto, util. Maximo 2 frases. "
-    "Use as ferramentas disponiveis quando precisar de informacoes ou executar acoes. "
-    "Nunca invente informacoes — se nao sabe, use uma ferramenta para descobrir."
+    "Use tools para dados. Nao invente."
 )
 
 
@@ -136,17 +135,15 @@ class CrofAIEngine:
             else:
                 return None
         try:
-            messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_text}
-            ]
-
             response = self.client.chat.completions.create(
                 model=self.model,
-                messages=messages,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_text}
+                ],
                 tools=TOOLS,
                 tool_choice="auto",
-                max_tokens=150,
+                max_tokens=100,
                 temperature=0.3,
             )
 
@@ -161,64 +158,16 @@ class CrofAIEngine:
             msg = response.choices[0].message
 
             if msg.tool_calls:
-                for tc in msg.tool_calls:
-                    func_name = tc.function.name
-                    func_args = json.loads(tc.function.arguments)
-                    handler = self._tool_map.get(func_name)
-                    if handler:
-                        result = await handler(**func_args)
-                        if func_name == "send_telegram_message":
-                            from jarvis.config import Config
-                            confirm = self.client.chat.completions.create(
-                                model=self.model,
-                                messages=[{"role": "system", "content": (
-                                    "Responda em 1 frase confirmando que a mensagem foi enviada. "
-                                    "Nao repita o conteudo da mensagem."
-                                )}, {"role": "user", "content": user_text}],
-                                max_tokens=50,
-                                temperature=0.3,
-                            )
-                            if confirm.usage:
-                                pt = confirm.usage.prompt_tokens
-                                ct = confirm.usage.completion_tokens
-                                tt = confirm.usage.total_tokens
-                                pricing = self.MODEL_PRICING.get(self.model, {"input": 0.04, "output": 0.008})
-                                cost = (pt * pricing["input"] + ct * pricing["output"]) / 1_000_000
-                                Persistence.log_token_usage(self.model, pt, ct, tt, cost, success=True)
-                            return {
-                                "intent": "chat",
-                                "response": f"Pronto. Mensagem enviada.",
-                                "text": user_text,
-                                "source": "crof_ai|tool",
-                                "confidence": 0.9,
-                                "tool_action": {"type": "send_message", "message": func_args.get("message", "")}
-                            }
-
-                messages.append(msg)
+                results = []
                 for tc in msg.tool_calls:
                     handler = self._tool_map.get(tc.function.name)
                     if handler:
-                        result = await handler(**json.loads(tc.function.arguments))
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc.id,
-                            "content": result if isinstance(result, str) else json.dumps(result)
-                        })
+                        r = await handler(**json.loads(tc.function.arguments))
+                        results.append(str(r))
 
-                final = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    max_tokens=100,
-                    temperature=0.3,
-                )
-                if final.usage:
-                    pt = final.usage.prompt_tokens
-                    ct = final.usage.completion_tokens
-                    tt = final.usage.total_tokens
-                    pricing = self.MODEL_PRICING.get(self.model, {"input": 0.04, "output": 0.008})
-                    cost = (pt * pricing["input"] + ct * pricing["output"]) / 1_000_000
-                    Persistence.log_token_usage(self.model, pt, ct, tt, cost, success=True)
-                response_text = final.choices[0].message.content
+                response_text = (msg.content or "").strip()
+                if not response_text:
+                    response_text = " | ".join(results) if results else "Pronto."
             else:
                 response_text = msg.content
 
