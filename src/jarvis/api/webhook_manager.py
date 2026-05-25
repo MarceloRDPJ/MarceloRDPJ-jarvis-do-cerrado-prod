@@ -26,7 +26,8 @@ class WebhookManager:
     - Fila de execução com logs
     """
 
-    def __init__(self):
+    def __init__(self, app_state=None):
+        self.app = app_state
         self.webhooks: Dict[str, Dict[str, Any]] = {}
         self.execution_logs: List[Dict[str, Any]] = []
         self._load_webhooks()
@@ -193,7 +194,7 @@ class WebhookManager:
             params = payload.get("parameters", {})
 
             # Process the command via the bot's executor if available
-            bot_app = getattr(self.app, "bot_app", None) if hasattr(self, 'app') else None
+            bot_app = getattr(self.app, "bot_app", None) if self.app else None
             if bot_app:
                 executor = bot_app.bot_data.get("executor")
                 if executor:

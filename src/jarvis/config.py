@@ -23,7 +23,8 @@ class Config:
     # TELEGRAM
     # ==================================================
     TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-    ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", 0))
+    raw_id = os.getenv("ALLOWED_USER_ID", "0")
+    ALLOWED_USER_ID = int(raw_id) if raw_id.strip() else 0
 
     # ==================================================
     # GEMINI (LLM)

@@ -260,7 +260,7 @@ async def post_init(application):
 
     # Initialize Webhook Manager
     from jarvis.api.webhook_manager import WebhookManager
-    webhook_manager = WebhookManager()
+    webhook_manager = WebhookManager(app_state=fastapi_app.state)
     fastapi_app.state.webhook_manager = webhook_manager
     application.bot_data["webhook_manager"] = webhook_manager
     logger.info("🔗 Webhook Manager inicializado")
