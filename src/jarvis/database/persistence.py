@@ -225,6 +225,21 @@ class Persistence:
             return row[0] if row and row[0] else None
 
     # ==================================================
+    # MAC VENDOR CACHE
+    # ==================================================
+    @staticmethod
+    def get_mac_vendor(mac: str) -> Optional[str]:
+        """Get cached vendor for a MAC address"""
+        mac_clean = mac.lower().replace(":", "").replace("-", "")
+        return Persistence.get_state(f"mac_vendor:{mac_clean}")
+
+    @staticmethod
+    def set_mac_vendor(mac: str, vendor: str):
+        """Cache a MAC vendor lookup result"""
+        mac_clean = mac.lower().replace(":", "").replace("-", "")
+        Persistence.set_state(f"mac_vendor:{mac_clean}", vendor)
+
+    # ==================================================
     # EVENTS
     # ==================================================
     @staticmethod

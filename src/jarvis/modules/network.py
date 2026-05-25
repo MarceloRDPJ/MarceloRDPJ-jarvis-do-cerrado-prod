@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import subprocess
+import sys
 import time
 import socket
 import struct
@@ -27,6 +28,32 @@ class NetworkModule:
     - Resposta HUMANA (chat)
     - Deep Scanning (Hostname, Ports)
     """
+
+    @staticmethod
+    def _detect_scan_range() -> str | None:
+        try:
+            if sys.platform.startswith("linux"):
+                result = subprocess.run(["ip", "route"], capture_output=True, text=True, timeout=5)
+                for line in result.stdout.splitlines():
+                    if "via" in line or "dev" in line:
+                        parts = line.split()
+                        for p in parts:
+                            if p.count(".") > 0 and "/" in p:
+                                return p
+            elif sys.platform == "win32":
+                result = subprocess.run(["route", "print"], capture_output=True, text=True, timeout=5)
+                for line in result.stdout.splitlines():
+                    line = line.strip()
+                    if line and line[0].isdigit():
+                        parts = line.split()
+                        if len(parts) >= 4 and parts[0].count(".") == 3:
+                            ip = parts[0]
+                            mask = parts[1]
+                            cidr = sum(bin(int(x)).count("1") for x in mask.split("."))
+                            return f"{ip}/{cidr}"
+        except Exception:
+            pass
+        return None
 
     # ==================================================
     # SCANNING HELPERS (mDNS / SSDP)
@@ -227,29 +254,21 @@ class NetworkModule:
             # Persisted Name
             custom_name = Persistence.get_device_name(mac)
 
-            # Vendor
-            try:
-                # Some libraries might be async, check documentation or behavior
-                # mac_vendor_lookup is typically sync unless using AsyncMacLookup?
-                # Based on usage elsewhere, it seems sync but let's be safe.
-                # Actually, in the verified script warning: "coroutine 'AsyncMacLookup.lookup' was never awaited"
-                # It implies MacLookup might be initialized as async or we imported the async one?
-                # Let's inspect import. "from mac_vendor_lookup import MacLookup" -> usually sync.
-                # But error says AsyncMacLookup... maybe the lib changed?
-                # Let's try await if it's awaitable, or just call.
-                # For safety in this hybrid environment:
-                # Try simple sync first
+            # Vendor (cached lookup)
+            cached_vendor = Persistence.get_mac_vendor(mac)
+            if cached_vendor:
+                vendor = cached_vendor
+            else:
                 try:
-                    vendor = mac_lookup.lookup(mac)
-                except TypeError:
-                    # If it complains about await, it's async
-                    vendor = await mac_lookup.lookup(mac)
-
-                # Double check for coroutine object if lookup didn't raise but returned coroutine
-                if asyncio.iscoroutine(vendor):
-                    vendor = await vendor
-            except:
-                vendor = "Desconhecido"
+                    try:
+                        vendor = mac_lookup.lookup(mac)
+                    except TypeError:
+                        vendor = await mac_lookup.lookup(mac)
+                    if asyncio.iscoroutine(vendor):
+                        vendor = await vendor
+                    Persistence.set_mac_vendor(mac, vendor)
+                except:
+                    vendor = "Desconhecido"
 
             # Hostname & Ports
             hostname = await NetworkModule._resolve_hostname_deep(ip)
@@ -304,9 +323,10 @@ class NetworkModule:
     @staticmethod
     def _get_raw_snapshot_sync() -> Dict[str, Any]:
         devices: List[Dict[str, str]] = []
+        scan_range = NetworkModule._detect_scan_range() or Config.get("network.scan_range") or "192.168.0.0/24"
         try:
             # Simple ARP
-            arp = scapy.ARP(pdst="192.168.1.0/24")
+            arp = scapy.ARP(pdst=scan_range)
             ether = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")
             result = scapy.srp(ether / arp, timeout=2, verbose=0)[0]
 
@@ -347,12 +367,9 @@ class NetworkModule:
     # LEGACY SCAN (WRAPPER)
     # ==================================================
     @staticmethod
-    async def scan_network(ip_range: str = "192.168.1.0/24") -> str:
-        # Legacy method kept for compatibility, but redirecting to deep scan logic could be better?
-        # The prompt asked to improve the scanner.
-        # Let's keep it simple for legacy calls or quick scans, but the main Executor will use the new method.
-        # Actually, let's point scan_network to a simplified sync version or keep it as is.
-        # Keeping as is to not break other things, but Executor will call scan_network_deep.
+    async def scan_network(ip_range: str | None = None) -> str:
+        if ip_range is None:
+            ip_range = NetworkModule._detect_scan_range() or Config.get("network.scan_range") or "192.168.0.0/24"
         return await asyncio.to_thread(NetworkModule._scan_network_human_sync, ip_range)
 
     @staticmethod
