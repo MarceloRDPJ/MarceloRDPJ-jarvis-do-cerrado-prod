@@ -15,6 +15,8 @@ class GuardianService:
     GuardianService — O Guardião da Casa e da Rede.
     """
 
+    DEBOUNCE_SECONDS = 300
+
     def __init__(
         self,
         application,
@@ -40,6 +42,7 @@ class GuardianService:
         self.online_macs: Optional[Set[str]] = None
 
         self.pending_power_msg: Optional[str] = None
+        self._debounce_tracker: Dict[str, float] = {}
 
     async def start(self):
         if self.running: return
@@ -170,19 +173,22 @@ class GuardianService:
                 pass
         else:
             # NOVO DISPOSITIVO REAL (Nunca visto antes)
-            # Avisa PRIMEIRO, depois registra.
-            # Se registrar antes, o Persistence já marca como conhecido e a verificação poderia falhar em condições de corrida?
-            # Não, aqui é sequencial.
-
-            # Avisa
-            msg = (
-                f"🕵️‍♂️ *Novo dispositivo detectado*\n"
-                f"IP: `{ip}`\n"
-                f"MAC: `{mac}`\n\n"
-                f"Para nomear, diga:\n"
-                f"`Renomear {ip} para [NOME]`"
-            )
-            await self.send_message(msg)
+            # Debounce: evitar spam se o WiFi ficar flapping
+            now = time.time()
+            last_notified = self._debounce_tracker.get(mac, 0)
+            if now - last_notified < self.DEBOUNCE_SECONDS:
+                logger.info(f"Debounced notification for new device {mac} (last notified {now - last_notified:.0f}s ago)")
+            else:
+                # Avisa
+                msg = (
+                    f"🕵️‍♂️ *Novo dispositivo detectado*\n"
+                    f"IP: `{ip}`\n"
+                    f"MAC: `{mac}`\n\n"
+                    f"Para nomear, diga:\n"
+                    f"`Renomear {ip} para [NOME]`"
+                )
+                await self.send_message(msg)
+                self._debounce_tracker[mac] = now
 
             # Registra imediatamente para não avisar de novo
             Persistence.register_device_seen(mac)
