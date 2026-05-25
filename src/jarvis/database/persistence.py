@@ -9,6 +9,10 @@ from typing import List, Dict, Any, Optional
 logger = logging.getLogger(__name__)
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "homebot.db")
+_db_path_override = None
+
+def _get_db_path():
+    return _db_path_override if _db_path_override is not None else DB_PATH
 
 
 class Persistence:
@@ -21,12 +25,23 @@ class Persistence:
     - ZERO interpretação
     """
 
+    _db_path = None
+
+    @classmethod
+    def set_db_path(cls, path):
+        global _db_path_override
+        _db_path_override = path
+
+    @classmethod
+    def get_db_path(cls):
+        return _get_db_path()
+
     # ==================================================
     # INIT
     # ==================================================
     @staticmethod
     def init_db():
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             # Otimizações para Raspberry Pi
             conn.execute("PRAGMA journal_mode=WAL")  # Menos I/O
             conn.execute("PRAGMA synchronous=NORMAL")  # Performance vs segurança
@@ -149,7 +164,7 @@ class Persistence:
     # ==================================================
     @staticmethod
     def set_device_name(mac: str, name: str):
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
             c.execute(
                 "INSERT OR REPLACE INTO devices (mac, name, updated_at) VALUES (?, ?, ?)",
@@ -163,7 +178,7 @@ class Persistence:
         Registra que um dispositivo foi visto, mesmo sem nome.
         Garante que ele exista na tabela 'devices'.
         """
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
             # Se já existe, não faz nada (preserva o nome se tiver).
             # Se não existe, insere com nome NULL (ou string vazia).
@@ -184,7 +199,7 @@ class Persistence:
         """
         Verifica se um MAC já foi registrado (com ou sem nome).
         """
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
             c.execute("SELECT 1 FROM devices WHERE mac=?", (mac,))
             row = c.fetchone()
@@ -192,7 +207,7 @@ class Persistence:
 
     @staticmethod
     def update_task_meta(task_id: int, meta: Dict):
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
             c.execute(
                 "UPDATE tasks SET meta = ? WHERE id = ?",
@@ -202,7 +217,7 @@ class Persistence:
 
     @staticmethod
     def get_device_name(mac: str) -> Optional[str]:
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
             c.execute("SELECT name FROM devices WHERE mac=?", (mac,))
             row = c.fetchone()
@@ -215,7 +230,7 @@ class Persistence:
     @staticmethod
     def log_event(event):
         try:
-            with closing(sqlite3.connect(DB_PATH)) as conn:
+            with closing(sqlite3.connect(_get_db_path())) as conn:
                 c = conn.cursor()
                 c.execute(
                     "INSERT INTO events VALUES (?, ?, ?, ?, ?)",
@@ -233,7 +248,7 @@ class Persistence:
 
     @staticmethod
     def get_recent_events(limit: int = 5) -> List[Dict[str, Any]]:
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             c.execute(
@@ -248,7 +263,7 @@ class Persistence:
     # ==================================================
     @staticmethod
     def set_state(key: str, value: Any):
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
             c.execute(
                 "INSERT OR REPLACE INTO state VALUES (?, ?, ?)",
@@ -259,7 +274,7 @@ class Persistence:
     @staticmethod
     def get_state(key: str, default=None):
         try:
-            with closing(sqlite3.connect(DB_PATH)) as conn:
+            with closing(sqlite3.connect(_get_db_path())) as conn:
                 c = conn.cursor()
                 c.execute("SELECT value FROM state WHERE key=?", (key,))
                 row = c.fetchone()
@@ -281,7 +296,7 @@ class Persistence:
         meta: Dict = None,
         status: str = "active"
     ):
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
             c.execute(
                 """
@@ -309,7 +324,7 @@ class Persistence:
 
     @staticmethod
     def update_task_next_run(task_id: int, next_run: datetime):
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
             c.execute(
                 "UPDATE tasks SET next_run = ? WHERE id = ?",
@@ -319,7 +334,7 @@ class Persistence:
 
     @staticmethod
     def update_task_status(task_id: int, status: str):
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
             c.execute(
                 "UPDATE tasks SET status = ? WHERE id = ?",
@@ -329,7 +344,7 @@ class Persistence:
 
     @staticmethod
     def get_active_tasks_due(now: datetime):
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             # Seleciona tarefas ativas que já passaram da hora de execução
@@ -342,7 +357,7 @@ class Persistence:
 
     @staticmethod
     def get_active_tasks(chat_id: int):
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             c.execute(
@@ -354,7 +369,7 @@ class Persistence:
 
     @staticmethod
     def get_tasks_by_action(chat_id: int, action: str):
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             c.execute(
@@ -366,7 +381,7 @@ class Persistence:
 
     @staticmethod
     def log_interaction(task_id: int, interaction_type: str, value: str = None):
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
             c.execute(
                 "INSERT INTO task_interactions (task_id, interaction_type, value, timestamp) VALUES (?, ?, ?, ?)",
@@ -377,7 +392,7 @@ class Persistence:
     @staticmethod
     def get_task_interactions_today(task_id: int):
         start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
             c.execute(
                 "SELECT value FROM task_interactions WHERE task_id = ? AND timestamp >= ? AND interaction_type = 'confirm'",
@@ -392,7 +407,7 @@ class Persistence:
         Conta quantas interações de 'confirm' para tarefas do tipo 'hydration' ocorreram hoje.
         """
         start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
 
             # Join tasks and task_interactions
@@ -415,7 +430,7 @@ class Persistence:
         Soma o volume (ml) de interações 'confirm' para tarefas 'hydration' hoje.
         """
         start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
 
             # Join tasks and task_interactions
@@ -436,7 +451,7 @@ class Persistence:
 
     @staticmethod
     def get_last_cancelled_task_by_action(chat_id: int, action: str) -> Optional[Dict[str, Any]]:
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             c.execute(
@@ -453,7 +468,7 @@ class Persistence:
 
     @staticmethod
     def get_tasks_by_status(chat_id: int, status: str, action: str = None):
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
 
@@ -473,7 +488,7 @@ class Persistence:
     # ==================================================
     @staticmethod
     def save_snapshot(snapshot: Dict[str, Any]):
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
             c.execute(
                 "INSERT INTO snapshots (timestamp, data) VALUES (?, ?)",
@@ -484,7 +499,7 @@ class Persistence:
     @staticmethod
     def get_recent_snapshots(minutes: int, limit: int = 50) -> List[Dict[str, Any]]:
         since = datetime.now(timezone.utc) - timedelta(minutes=minutes)
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
             c.execute(
                 """
@@ -503,7 +518,7 @@ class Persistence:
     @staticmethod
     def get_snapshot_before(minutes: int) -> Optional[Dict[str, Any]]:
         before = datetime.now(timezone.utc) - timedelta(minutes=minutes)
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
             c.execute(
                 """
@@ -521,7 +536,7 @@ class Persistence:
 
     @staticmethod
     def get_last_snapshot() -> Optional[Dict[str, Any]]:
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
             c.execute(
                 """
@@ -540,7 +555,7 @@ class Persistence:
     # ==================================================
     @staticmethod
     def save_baseline(snapshot: Dict[str, Any]):
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
             c.execute(
                 """
@@ -553,7 +568,7 @@ class Persistence:
 
     @staticmethod
     def get_baseline() -> Optional[Dict[str, Any]]:
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
             c.execute("SELECT data FROM baseline WHERE key='baseline'")
             row = c.fetchone()
@@ -566,7 +581,7 @@ class Persistence:
     @staticmethod
     def log_hydration_intake(chat_id: int, amount_ml: int, goal_ml: int, consumed_so_far_ml: int, manual: bool = True):
         """Registra consumo de água no histórico"""
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
             c.execute(
                 "INSERT INTO hydration_log (chat_id, amount_ml, timestamp, manual, goal_ml, consumed_so_far_ml) VALUES (?, ?, ?, ?, ?, ?)",
@@ -577,7 +592,7 @@ class Persistence:
     @staticmethod
     def get_hydration_history(chat_id: int, days: int = 30) -> List[Dict[str, Any]]:
         """Retorna histórico de hidratação dos últimos X dias"""
-        with closing(sqlite3.connect(DB_PATH)) as conn:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
 

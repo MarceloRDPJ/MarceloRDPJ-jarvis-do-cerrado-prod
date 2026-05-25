@@ -15,13 +15,9 @@ from jarvis.nlp.intent_engine import detect_intent
 
 class TestReminders(unittest.TestCase):
 
-    @classmethod
-    def setUpClass(cls):
-        Persistence.init_db()
-
     def setUp(self):
-        # Clean tasks table
-        conn = sqlite3.connect(os.path.abspath(os.path.join(os.path.dirname(__file__), '../src/jarvis/database/homebot.db')))
+        # Clean tasks table using overridden path
+        conn = sqlite3.connect(Persistence.get_db_path())
         c = conn.cursor()
         c.execute("DELETE FROM tasks")
         conn.commit()

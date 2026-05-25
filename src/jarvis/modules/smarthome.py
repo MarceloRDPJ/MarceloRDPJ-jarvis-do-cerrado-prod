@@ -93,7 +93,7 @@ class SmartHomeModule:
             return {"status": "error", "message": str(e)}
 
     @staticmethod
-    async def execute(text: str, **kwargs):
+    async def execute(text: str, **kwargs) -> Dict[str, Any]:
         """
         Legacy handler para compatibilidade se necessário,
         ou para processar intents genéricas de smarthome.

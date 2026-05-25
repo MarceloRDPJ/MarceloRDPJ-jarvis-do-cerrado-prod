@@ -2,7 +2,6 @@ import unittest
 from unittest.mock import MagicMock, patch, AsyncMock
 import sys
 import os
-import sqlite3
 
 # Add src to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
@@ -16,11 +15,6 @@ from jarvis.core.flows import RemindersFlow
 from jarvis.core.context import ContextEngine
 
 class TestHomeAssistantBot(unittest.IsolatedAsyncioTestCase):
-
-    @classmethod
-    def setUpClass(cls):
-        # Initialize DB
-        Persistence.init_db()
 
     @patch('jarvis.core.brain.LocalBrainEngine')
     async def test_brain_process_intent_local(self, mock_local_brain_cls):
@@ -63,33 +57,17 @@ class TestHomeAssistantBot(unittest.IsolatedAsyncioTestCase):
         # Simulate final step of flow
         RemindersFlow.finalize_creation(chat_id, data)
 
-        db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../src/jarvis/database/homebot.db'))
-
-        conn = sqlite3.connect(db_path)
-        c = conn.cursor()
-        c.execute("SELECT text FROM tasks WHERE chat_id=?", (123,))
-        rows = c.fetchall()
-        conn.close()
-
-        found = False
-        for row in rows:
-            if row[0] == "Teste DB":
-                found = True
-                break
+        tasks = Persistence.get_active_tasks(123)
+        found = any(t["text"] == "Teste DB" for t in tasks)
         self.assertTrue(found)
 
     async def test_persistence_event_log(self):
         event = Event(type="test.event", source="test", payload={"foo": "bar"})
         Persistence.log_event(event)
 
-        db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../src/jarvis/database/homebot.db'))
-        conn = sqlite3.connect(db_path)
-        c = conn.cursor()
-        c.execute("SELECT type FROM events WHERE id=?", (event.id,))
-        row = c.fetchone()
-        conn.close()
-
-        self.assertEqual(row[0], "test.event")
+        events = Persistence.get_recent_events(10)
+        found = any(e["id"] == event.id for e in events)
+        self.assertTrue(found)
 
     async def test_reminders_flow_conversation(self):
         chat_id = 999
