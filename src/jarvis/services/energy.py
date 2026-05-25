@@ -3,19 +3,21 @@ import time
 from datetime import datetime, timedelta
 from jarvis.database.persistence import Persistence
 
+# -*- coding: utf-8 -*-
+
 # =============================================================================
-# CONFIGURA\xc7\xc3O BASE (Raspberry Pi 3B)
+# CONFIGURAÇÃO BASE (Raspberry Pi 3B)
 # =============================================================================
 
-# Consumo m\xe9dio estimado (Watts)
+# Consumo médio estimado (Watts)
 RPI_IDLE_WATTS = 2.5
 RPI_LOAD_WATTS = 5.5
 
 class EnergyService:
     """
-    Servi\xe7o de consumo de energia.
-    N\xe3o usa IA.
-    Baseado em m\xe9tricas reais do sistema.
+    Serviço de consumo de energia.
+    Não usa IA.
+    Baseado em métricas reais do sistema.
     """
 
     @staticmethod
@@ -25,7 +27,7 @@ class EnergyService:
         """
         cpu_load = psutil.cpu_percent(interval=1)
 
-        # interpola\xe7\xe3o simples
+        # interpolação simples
         watts = RPI_IDLE_WATTS + (
             (cpu_load / 100) * (RPI_LOAD_WATTS - RPI_IDLE_WATTS)
         )
@@ -57,7 +59,7 @@ class EnergyService:
         events = Persistence.get_events_by_type("energy.sample", limit=500)
 
         if not events:
-            return "? Ainda n\xe3o tenho dados suficientes de energia hoje."
+            return "? Ainda não tenho dados suficientes de energia hoje."
 
         total_wh = 0.0
         for e in events:
@@ -78,7 +80,7 @@ class EnergyService:
         events = Persistence.get_events_by_type("energy.sample", limit=5000)
 
         if not events:
-            return "? Ainda n\xe3o tenho dados suficientes este m\xeas."
+            return "? Ainda não tenho dados suficientes este mês."
 
         total_wh = 0.0
         for e in events:
@@ -86,7 +88,7 @@ class EnergyService:
 
         kwh = total_wh / 1000
         return (
-            "? *Consumo estimado do m\xeas:*\n"
+            "? *Consumo estimado do mês:*\n"
             f"- `{kwh:.2f} kWh`\n"
-            f"- Estimativa baseada no hist\xf3rico do sistema"
+            f"- Estimativa baseada no histórico do sistema"
         )

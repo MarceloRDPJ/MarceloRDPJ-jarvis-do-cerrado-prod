@@ -1,3 +1,4 @@
+# DEPRECATED: Use jarvis.database.persistence.Persistence instead
 import json
 import os
 

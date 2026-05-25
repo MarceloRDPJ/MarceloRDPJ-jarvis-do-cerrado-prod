@@ -27,7 +27,15 @@ dependencies = [
     "scapy",
     "bleak",
     "tinytuya",
-    "rapidfuzz"
+    "rapidfuzz",
+    "aiohttp",
+    "google-generativeai",
+    "gpiozero",
+    "pytz",
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0",
+    "pydantic>=2.0.0",
+    "aiofiles>=23.0.0"
 ]
 
 [project.urls]

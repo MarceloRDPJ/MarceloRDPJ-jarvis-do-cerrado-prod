@@ -1,3 +1,14 @@
+"""
+INTENT_ENGINE.PY — FUZZY MATCHING ENGINE (RAPIDFUZZ)
+======================================================
+
+- This is the SECOND engine called by router.py
+- Runs AFTER rules.py (deterministic rule engine)
+- Handles natural language variations via rapidfuzz.WRatio
+- Do NOT add patterns here that need EXACT matching
+  (those belong in rules.py)
+"""
+
 from typing import Dict
 from rapidfuzz import process, fuzz
 import re

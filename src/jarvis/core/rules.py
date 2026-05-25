@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-Rules Engine — Jarvis do Cerrado
+RULES.PY — HIGH PRIORITY DETERMINISTIC RULE ENGINE
+====================================================
 
-Camada 100% determinística.
-NENHUMA IA aqui.
-NENHUMA execução aqui.
-Apenas decisão explícita de intenção.
+- This is the FIRST engine called by router.py
+- Runs BEFORE intent_engine.py (fuzzy matching via rapidfuzz)
+- Handles EXACT matches, confirm/cancel, greetings, and commands
+  that MUST work precisely (dangerous actions, regex extraction)
+- Do NOT duplicate patterns already covered by intent_engine.py's
+  fuzzy matching
+- Returns None if no rule matches → router falls through to intent_engine.py
 """
 
 from typing import Dict, Optional
@@ -97,18 +101,6 @@ def apply_rules(text: str) -> Optional[Dict]:
         return {"intent": "system_logs", "action": "read", "entity": "system", "confidence": 1.0}
 
     # =====================================================
-    # HELP (GENERIC)
-    # =====================================================
-    # Só cai aqui se não for um menu específico acima
-    if "ajuda" in t or "help" in t or "o que voce faz" in t:
-        return {
-            "intent": "help",
-            "action": None,
-            "entity": None,
-            "confidence": 1.0,
-        }
-
-    # =====================================================
     # SYSTEM STATUS
     # =====================================================
     if (
@@ -167,22 +159,6 @@ def apply_rules(text: str) -> Optional[Dict]:
         }
 
     # =====================================================
-    # NETWORK SCAN (HUMANO)
-    # =====================================================
-    if (
-        "quem ta na rede" in t
-        or "quem esta na rede" in t
-        or "scan rede" in t
-        or "dispositivos na rede" in t
-    ):
-        return {
-            "intent": "network_scan",
-            "action": "scan",
-            "entity": "network",
-            "confidence": 1.0,
-        }
-
-    # =====================================================
     # NETWORK RENAME
     # =====================================================
     # Captura "renomear X por Y" ou "renomear X para Y" ou "renomear X Y"
@@ -227,17 +203,6 @@ def apply_rules(text: str) -> Optional[Dict]:
                 "mode": "baseline",
             },
             "confidence": 0.9,
-        }
-
-    # =====================================================
-    # LEMBRETES - GERENCIAMENTO (PRIORITÁRIO)
-    # =====================================================
-    if any(x in t for x in ["listar lembretes", "meus lembretes", "quais lembretes", "agenda", "o que tenho marcado", "lembretes ativos"]):
-        return {
-            "intent": "reminder_list",
-            "action": "list",
-            "entity": "reminder",
-            "confidence": 1.0,
         }
 
     delete_match = re.search(r"(?:apagar|remover|esquecer|deletar|cancelar)\s+lembrete\s+(\d+)", t)
@@ -300,22 +265,7 @@ def apply_rules(text: str) -> Optional[Dict]:
             "confidence": 1.0,
         }
 
-    # 2. Status (Acentuação tratada)
-    # Prioridade para evitar que caia em system_status
-    if any(x in t for x in [
-        "status hidratacao", "status hidratação",
-        "status da agua", "status da água",
-        "quanto bebi", "como ta a agua", "como tá a água", "como está a água",
-        "meta de agua", "meta de água"
-    ]):
-        return {
-            "intent": "hydration_status",
-            "action": "check",
-            "entity": "hydration",
-            "confidence": 1.0,
-        }
-
-    # 3. Log de Consumo com Valor Específico
+    # 2. Log de Consumo com Valor Específico
     log_match = re.search(r"(?:bebi|tomei|mais)\s*(\d+)\s*(?:ml|l)?", t)
     if log_match:
         return {
@@ -326,7 +276,7 @@ def apply_rules(text: str) -> Optional[Dict]:
             "confidence": 1.0,
         }
 
-    # 4. Log de Consumo Explícito (Sem valor -> Usa copo padrão)
+    # 3. Log de Consumo Explícito (Sem valor -> Usa copo padrão)
     if any(x in t for x in [
         "bebi agua", "bebi água",
         "tomei agua", "tomei água",
@@ -341,7 +291,7 @@ def apply_rules(text: str) -> Optional[Dict]:
             "confidence": 1.0,
         }
 
-    # 5. Log de Consumo Implícito (Depende de contexto/modo)
+    # 4. Log de Consumo Implícito (Depende de contexto/modo)
     # Apenas frases muito curtas e afirmativas
     if t in ["ok", "👍", "beleza", "blz", "joia"]:
         return {
@@ -352,7 +302,7 @@ def apply_rules(text: str) -> Optional[Dict]:
             "confidence": 0.8, # Menor confiança para permitir override de fluxo
         }
 
-    # 6. Controle (Pausa/Cancelamento)
+    # 5. Controle (Pausa/Cancelamento)
     if re.search(r"(?:pausar|parar|cancelar|silenciar|interromper)\s+(?:hidratação|hidratacao|agua|água)", t):
         return {
             "intent": "hydration_control",
@@ -371,7 +321,7 @@ def apply_rules(text: str) -> Optional[Dict]:
             "confidence": 1.0,
         }
 
-    # 7. Edição de Parâmetros
+    # 6. Edição de Parâmetros
     # Ex: "corrigir meta para 5000", "meu copo agora é 300ml"
     update_match = re.search(r"(?:editar|corrigir|mudar|alterar|definir)\s+(?:meta|copo|total|tamanho|intervalo)(?:.*de\s+)?(?:agua|água|hidratação)?\s*(?:pra|para|é)?\s*(\d+)?", t)
     if update_match:

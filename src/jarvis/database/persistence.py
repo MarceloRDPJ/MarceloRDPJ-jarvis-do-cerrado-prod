@@ -231,6 +231,18 @@ class Persistence:
         except Exception as e:
             logger.error(f"DB Log Error: {e}")
 
+    @staticmethod
+    def get_recent_events(limit: int = 5) -> List[Dict[str, Any]]:
+        with closing(sqlite3.connect(DB_PATH)) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute(
+                "SELECT * FROM events ORDER BY timestamp DESC LIMIT ?",
+                (limit,),
+            )
+            rows = c.fetchall()
+            return [dict(row) for row in rows]
+
     # ==================================================
     # STATE
     # ==================================================

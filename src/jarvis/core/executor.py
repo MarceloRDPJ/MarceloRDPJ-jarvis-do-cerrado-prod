@@ -493,14 +493,18 @@ class Executor:
             return "⚙️ **Configuração de Automações**\n\nFuncionalidade em desenvolvimento. Edite o arquivo `config.yaml` para alterações avançadas."
 
         if intent == "system_logs":
-            # Get last few logs - naive implementation
             try:
-                # Assuming logs go to stdout/stderr in docker, or specific file.
-                # For now return a simulated log or read from a known path if available.
-                # Since we don't have easy file access to logs inside container unless mounted, returning a static message or checking Event DB.
-                events = Persistence.get_recent_snapshots(60, limit=5) # actually getting events table would be better
-                # But we don't have a get_recent_events exposed easily.
-                return "📜 **Logs do Sistema (Últimos Eventos)**\n\n• Sistema iniciado com sucesso.\n• Scheduler ativo.\n• Monitoramento de rede operacional.\n• Nenhum erro crítico registrado nas últimas 24h."
+                events = Persistence.get_recent_events(limit=5)
+                if events:
+                    lines = [f"• `{e['type']}` de `{e['source']}` em {e['timestamp'][:19]}" for e in events]
+                    return "📜 **Logs do Sistema (Últimos Eventos)**\n\n" + "\n".join(lines)
+
+                snapshots = Persistence.get_recent_snapshots(1440, limit=5)
+                if snapshots:
+                    lines = [f"• Snapshot {s['timestamp'][:19]}" for s in snapshots]
+                    return "📜 **Snapshots Recentes (24h)**\n\n" + "\n".join(lines)
+
+                return "📜 **Logs do Sistema**\n\nNenhum evento ou snapshot registrado."
             except Exception as e:
                 return f"❌ Erro ao ler logs: {e}"
 
