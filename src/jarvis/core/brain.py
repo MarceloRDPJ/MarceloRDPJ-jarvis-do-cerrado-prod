@@ -1,6 +1,5 @@
 import json
 import logging
-import asyncio
 from typing import Dict, Any
 
 from jarvis.config import Config
@@ -8,6 +7,11 @@ from jarvis.database.persistence import Persistence
 from jarvis.core.personality import Personality
 from jarvis.nlp.local_brain import LocalBrain as LocalBrainEngine
 from jarvis.core.llm_fallback import LLMFallbackEngine
+from jarvis.core.context import ContextEngine
+from datetime import timedelta
+from jarvis.modules.system import SystemModule
+from jarvis.modules.network import NetworkModule
+from jarvis.nlp.normalizer import normalize_text
 
 logger = logging.getLogger("core.brain")
 
@@ -32,19 +36,18 @@ class Brain:
         self.local_llm = LLMFallbackEngine()
 
         # Cloud LLM: Opcional, se a chave estiver configurada
-        self.cloud_llm = None
+        self.cloud_client = None
         if Config.GEMINI_API_KEY:
             try:
-                import google.generativeai as genai
-                genai.configure(api_key=Config.GEMINI_API_KEY)
-                self.cloud_llm = genai.GenerativeModel(Config.GEMINI_MODEL)
+                from google import genai
+                self.cloud_client = genai.Client(api_key=Config.GEMINI_API_KEY)
                 logger.info(f"🧠 Cloud Brain (Gemini) ativado: {Config.GEMINI_MODEL}")
             except Exception as e:
                 logger.warning(f"⚠️ Erro ao inicializar Gemini: {e}")
 
         logger.info("🧠 Brain inicializado.")
 
-    async def process_intent(self, user_text: str) -> Dict[str, Any]:
+    async def process_intent(self, user_text: str, chat_id: int = None) -> Dict[str, Any]:
         """
         Chamado quando Rules e IntentEngine falham.
         Tenta LocalBrain primeiro, depois Cloud LLM.
@@ -63,6 +66,8 @@ class Brain:
                 "text": user_text,
                 "confidence": 1.0,
             }
+
+        user_text = normalize_text(user_text)
 
         # ==================================================
         # 1. LOCAL MINI-BRAIN (RÁPIDO & FREE)
@@ -84,12 +89,49 @@ class Brain:
         # ==================================================
         # 2. CLOUD LLM (INTELIGÊNCIA REAL)
         # ==================================================
-        if self.cloud_llm:
+        if self.cloud_client:
             try:
-                # Prompt simples para chat contextual
-                response = await asyncio.to_thread(
-                    self.cloud_llm.generate_content,
-                    f"Você é Jarvis do Cerrado, um assistente útil e engraçado com sotaque goiano leve. Responda curto: {user_text}"
+                # Build system context
+                system_context = ""
+                try:
+                    raw = await SystemModule.get_raw_status()
+                    temp_str = f"{raw['temperature_c']}°C" if raw.get('temperature_c') else "N/A"
+                    uptime_str = str(timedelta(seconds=raw['uptime_seconds']))
+                    system_context = (
+                        f"[SISTEMA]\n"
+                        f"CPU: {raw['cpu_percent']}% | RAM: {raw['memory']['percent']}% | "
+                        f"Temp: {temp_str} | Uptime: {uptime_str}\n"
+                    )
+                except: pass
+
+                # Add network context
+                try:
+                    ping = await NetworkModule.get_ping_metrics()
+                    internet_status = "Online" if ping.get('success') else "Offline"
+                    latency = ping.get('latency_ms', 'N/A')
+                    system_context += f"Internet: {internet_status} (latência: {latency}ms)\n"
+                except: pass
+
+                # Add conversation history if chat_id provided
+                history_context = ""
+                if chat_id:
+                    ctx = ContextEngine.get_context(chat_id)
+                    last_intent = ctx.get("last_intent", "unknown")
+                    if last_intent:
+                        history_context = f"[ÚLTIMA AÇÃO] Intenção: {last_intent}\n"
+
+                prompt = (
+                    f"Você é Jarvis do Cerrado, um assistente de automação residencial direto, técnico e com humor sutil (sotaque goiano leve). "
+                    f"Responda de forma CURTA (1-3 frases), útil e precisa.\n\n"
+                    f"{system_context}"
+                    f"{history_context}"
+                    f"[USUÁRIO] {user_text}\n"
+                    f"[JARVIS]"
+                )
+
+                response = self.cloud_client.models.generate_content(
+                    model=Config.GEMINI_MODEL,
+                    contents=prompt
                 )
 
                 if response and response.text:
@@ -105,7 +147,7 @@ class Brain:
                 # Se for erro de permissão (403), desativa permanentemente
                 if "403" in str(e) or "API key" in str(e):
                     logger.warning("🚫 Cloud LLM desativado devido a erro de API Key.")
-                    self.cloud_llm = None
+                    self.cloud_client = None
 
         # ==================================================
         # 2.5 LOCAL LLM (OLLAMA FALLBACK)

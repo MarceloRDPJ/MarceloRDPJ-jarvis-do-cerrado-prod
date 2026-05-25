@@ -167,7 +167,13 @@ class Personality:
         "Vixi, deu ruim no processamento. Tenta de novo?",
         "Negativo, Houston. Não entendi o comando. 🛰️",
         "Deu um enrosco nos circuitos. Repete por favor?",
-        "Falha na interpretação. Solicito reenvio do comando."
+        "Falha na interpretação. Solicito reenvio do comando.",
+        "Puts, algo deu errado aqui nos meus fios. Pode tentar de novo?",
+        "Erro interno detectado. Já anotei nos logs pro Marcelo dar uma olhada.",
+        "Não foi dessa vez. O sistema travou na execução. Tenta novamente?",
+        "Bug identificado. Meu criador vai receber o relatório assim que possível.",
+        "Ih, a corrente não fechou. Vamos de novo?",
+        "Falha crítica... mentira, foi só um errinho besta. Repete aí?"
     ]
 
     # Respostas de Fallback (Quando não sabe o que fazer)
@@ -175,7 +181,50 @@ class Personality:
         "Ainda não sei fazer isso, mas já registrei aqui nos meus logs pro meu criador me ensinar. 📝",
         "Comando desconhecido, capitão. Anotei a solicitação para análise futura. 🚀",
         "Uai, essa eu não conheço ainda. Mas tá anotado pra eu aprender logo, logo.",
-        "Sistema não reconheceu o comando. Solicitando update ao desenvolvedor... (brincadeira, mas anotei)."
+        "Sistema não reconheceu o comando. Solicitando update ao desenvolvedor... (brincadeira, mas anotei).",
+        "Hmm, comando não mapeado. Meu cérebro de Pi deu um tilt. Já registrei pra aprender.",
+        "Essa função ainda não foi habilitada. Mas o Marcelo já vai saber que você pediu.",
+        "Infelizmente essa skill não está no meu chip. Mas vou estudar o manual.",
+        "Pois é... meu treinamento ainda não cobriu isso. Mas o log já foi salvo.",
+        "Comando estranho. Não tô nos meus domínios. Anotado pra versão futura.",
+        "Sei não, hein. Minha base de conhecimento não alcança esse assunto. Mas já gravei.",
+        "Ainda não manjo dessa parada. Mas trust the process — um dia eu aprendo.",
+        "Meu repertório não inclui esse comando ainda. Mas já entrei em modo de aprendizado.",
+        "Opa, essa é nova pra mim. Vou esperar o Marcelo me atualizar.",
+        "Missão impossível... por enquanto. Anotei o requerimento pra próxima release."
+    ]
+
+    # Respostas de Agradecimento
+    THANKYOU = [
+        "Imagina, chefe. Pra isso que tô aqui.",
+        "Disponha! Qualquer hora dessas é só chamar.",
+        "Magina! Faz parte do serviço de guardião.",
+        "Tamo junto. Conte comigo sempre.",
+        "Por nada! É uma honra ajudar.",
+        "Disponha! Lembra de beber água também, hein.",
+        "De nada! Se cuida e não me deixa sem energia.",
+        "Fechou! É nóis."
+    ]
+
+    # Respostas de Despedida
+    GOODBYE = [
+        "Falou! Vou ficar aqui de sentinela.",
+        "Tchau! Qualquer coisa, tô aqui no Pi.",
+        "Até mais! Vou monitorar tudo por aqui.",
+        "Fui! Não esquece de beber água.",
+        "Inté! Se aparecer invasor, eu tô de olho.",
+        "Até a volta! Vou manter a rede segura.",
+        "Valeu! Volta sempre que precisar.",
+        "Fechou, comandante. Até a próxima."
+    ]
+
+    # Piadas do Cerrado
+    JOKES = [
+        "Por que o computador foi pro psicólogo? Porque ele tinha muitos problemas de processamento emocional.",
+        "O que o ping falou pro servidor? 'Espera aí que já volto, só dei um timeout.'",
+        "Por que o Wi-Fi não vai pra igreja? Porque ele não confia em conexões divinas.",
+        "Qual o protocolo favorito do goiano? O IP do chão — o 'IP' que cê pisa.",
+        "O que o roteador disse pra tomada? 'Sem você eu não tenho energia, mas com você eu tenho latência.'"
     ]
 
     # Small Talk (Manter fluxo)
@@ -183,7 +232,18 @@ class Personality:
         "kk": ["Rir é bom demais né.", "Hahaha", "😄"],
         "uai": ["Uai sô.", "Uai.", "Bão?"],
         "aham": ["Tô ouvindo.", "Pode falar.", "Certo."],
-        "to bebendo": ["Boa 😄 Vou marcar aqui então.", "Isso aí, hidratação é importante.", "Saúde!"]
+        "to bebendo": ["Boa 😄 Vou marcar aqui então.", "Isso aí, hidratação é importante.", "Saúde!"],
+        "bom dia": ["Bom dia, chefe! Tudo certo por aqui.", "Bão dia! Já tomei meu café (virtual) hoje.", "Bom dia! Rede estável, sistema operacional."],
+        "boa tarde": ["Boa tarde! Tudo nos conformes.", "Boa tarde! Tô de plantão como sempre.", "Boa tarde! Monitoramento ativo."],
+        "boa noite": ["Boa noite! Vou reduzir os alertas, pode descansar.", "Boa noite! Fico de sentinela enquanto você dorme.", "Boa noite! Modo vigilante ativado."],
+        "como voce esta": ["Tô bem, chefe! Rodando liso. E você?", "Tudo certo nos circuitos. E aí, bão?", "Na paz. Só monitorando tudo. E você?"],
+        "obrigado": ["Por nada!", "Disponha!", "Imagina!"],
+        "tchau": ["Até mais, chefe!", "Falou!", "Inté! Não esquece de beber água."],
+        "piada": ["Opa! Vou mandar uma aqui:", "Essa é boa:", "Rapaz, deixa eu ver uma aqui..."],
+        "tempo": ["Tô sem acesso ao clima agora, mas chuto que lá fora tá fazendo temperatura.", "Se eu fosse você, olhava pela janela.", "Segundo meus sensores... hmm, não tenho sensor de clima."],
+        "deus": ["Amém! Proteção divina nunca é demais.", "Deus abençoe essa rede.", "Gloria! Aqui também tem oração."],
+        "cafe": ["Café? Só se for virtual. Mas entendo o vício.", "Café combustível de dev. Tô dentro.", "Bora! Se for um pingado, eu aceito digitalmente."],
+        "musica": ["Só consigo tocar música se conectar num speaker. Mas adoraria.", "Infelizmente minhas habilidades musicais estão em desenvolvimento.", "Se ligar no Spotify, posso tentar."]
     }
 
     # Fluxo de Lembretes
@@ -214,3 +274,18 @@ class Personality:
             if key in trigger.lower():
                 return random.choice(responses)
         return "Beleza."
+
+    @classmethod
+    def get_contextual_fallback(cls, text: str) -> str:
+        """Retorna resposta contextual baseada em palavras-chave do texto."""
+        if not text:
+            return random.choice(cls.FALLBACK)
+        text_lower = text.lower()
+        if any(word in text_lower for word in ["obrigado", "valeu", "brigado", "obrigada"]):
+            return random.choice(cls.THANKYOU)
+        if any(word in text_lower for word in ["tchau", "bye", "falou", "inté", "ate mais", "até mais", "flw"]):
+            return random.choice(cls.GOODBYE)
+        if any(word in text_lower for word in ["piada", "risada", "engracado", "engraçado", "haha", "kkk"]):
+            joke = random.choice(cls.JOKES)
+            return f"{random.choice(cls.SMALL_TALK['piada'])}\n\n{joke}"
+        return random.choice(cls.FALLBACK)

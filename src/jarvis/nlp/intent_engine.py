@@ -14,6 +14,7 @@ from rapidfuzz import process, fuzz
 import re
 from jarvis.nlp.time_parser import parse_time_command
 from jarvis.config import Config
+from jarvis.nlp.normalizer import normalize_text
 
 # =============================================================================
 # ENGINE HÍBRIDO (PHASE 1)
@@ -25,107 +26,151 @@ class HybridIntentEngine:
             "reminder_set": [
                 "lembra", "lembrete", "me lembra", "me avisa", "avisa",
                 "nao deixa eu esquecer", "me recorda", "lembre", "me lembre",
-                "lembrar de beber agua", "avisa a cada minuto", "criar lembrete"
+                "lembrar de beber agua", "avisa a cada minuto", "criar lembrete",
+                "lembrar de", "não esquecer de", "pode me lembrar", "agenda pra",
+                "marca pra", "quero lembrar", "cria um aviso"
             ],
             "reminder_list": [
                 "listar lembretes", "ver meus lembretes", "quais sao meus lembretes",
-                "ver avisos", "mostrar lembretes", "lista de tarefas", "o que tenho pra hoje"
+                "ver avisos", "mostrar lembretes", "lista de tarefas", "o que tenho pra hoje",
+                "agenda", "compromissos", "mostra lembretes", "exibe lembretes", "lembretes ativos"
             ],
             "reminder_delete": [
                 "cancelar lembrete", "apagar lembrete", "remover aviso",
-                "deleta esse lembrete", "esquecer lembrete", "excluir tarefa"
+                "deleta esse lembrete", "esquecer lembrete", "excluir tarefa",
+                "remove lembrete", "cancela aviso", "apaga esse", "deleta lembrete", "tira esse lembrete"
             ],
             "network_scan": [
                 "quem ta na rede", "quem esta conectado",
                 "dispositivos conectados", "quem ta usando internet",
                 "quem ta online", "verificar rede", "scan de rede",
-                "scanear", "escanear", "escaniar", "scan", "ver rede"
+                "scanear", "escanear", "escaniar", "scan", "ver rede",
+                "mostra dispositivos", "lista devices", "dispositivos na wifi",
+                "conectados na rede", "quem esta usando", "mostra quem ta"
             ],
             "network_status": [
                 "status da internet", "internet ta on", "ping", "conexao",
                 "internet caiu", "internet ta ruim", "tem internet",
                 "monitorar internet", "verificar conexao", "status da rede",
-                "estado da rede", "rede ta funcionando"
+                "estado da rede", "rede ta funcionando",
+                "testar internet", "internet funcionando", "wifi ta ok",
+                "conexao ta boa", "rede online"
             ],
             "network_speed": [
                 "velocidade da internet", "speedtest", "teste de velocidade",
-                "internet ta lenta", "medir velocidade", "taxa de download"
+                "internet ta lenta", "medir velocidade", "taxa de download",
+                "testar velocidade", "velocidade da net", "net ta lenta",
+                "download ta quanto", "upload ta quanto"
             ],
             "network_stats": [
                 "estatisticas de rede", "stats adguard", "consumo de rede",
                 "quem ta gastando internet", "top consumidores", "bloqueios adguard",
-                "uso do adguard"
+                "uso do adguard",
+                "dados da rede", "relatorio da rede", "trafico de rede",
+                "uso de dados", "quem ta baixando"
             ],
             "network_block_device": [
                 "bloquear dispositivo", "bloquear ip", "cortar internet do",
-                "bloqueia o ip", "travar internet"
+                "bloqueia o ip", "travar internet",
+                "bloqueia esse", "bloquear mac", "negar acesso",
+                "bloqueia o celular", "cortar acesso do"
             ],
             "network_block_site": [
                 "bloquear site", "bloquear dominio", "bloqueia o site",
-                "proibir site", "nao deixar acessar"
+                "proibir site", "nao deixar acessar",
+                "bloquear url", "bloquear pagina", "bloqueia dominio",
+                "nao quero ver", "impedir acesso a"
             ],
             "network_rename": [
                 "mudar o nome do", "renomear", "renomear dispositivo", "chamar o dispositivo",
                 "apelidar o ip", "alterar nome na rede", "editar o nome da", "editar nome",
-                "mudar nome de", "trocar nome"
+                "mudar nome de", "trocar nome",
+                "muda nome", "renomeia", "dar nome pra",
+                "identificar como", "chamar o device de"
             ],
             "hydration_status": [
                 "quantas aguas eu ja bebi", "status hidratacao", "meta de agua",
-                "quanto eu bebi hoje", "contagem de agua"
+                "quanto eu bebi hoje", "contagem de agua",
+                "quanto bebi", "status da agua", "minha hidratacao",
+                "como ta minha hidratacao", "bebi quantas aguas"
             ],
             "hydration_log": [
                 "bebi", "tomei agua", "mais um copo", "bebi agua", "tomei mais uma",
-                "registra agua", "anota ai bebi"
+                "registra agua", "anota ai bebi",
+                "vou beber", "agua", "hidratar", "copo de agua", "bebendo",
+                "tomei", "ja bebi", "beber agua"
             ],
             "hydration_analytics": [
                 "analise de hidratacao", "padroes de agua", "insights agua",
-                "estatisticas agua", "como tenho bebido agua", "historico de agua"
+                "estatisticas agua", "como tenho bebido agua", "historico de agua",
+                "graficos de agua", "media de agua", "comparativo agua",
+                "semana de agua", "hidratacao semanal"
             ],
             "system_status": [
                 "status da cpu", "uso da cpu", "memoria",
                 "ram", "status do sistema", "como ta o sistema", "status",
-                "tudo bem", "como você está", "saúde do sistema"
+                "tudo bem", "como você está", "saúde do sistema",
+                "como ta o rasp", "diagnostico", "saude do sistema",
+                "healthcheck", "desempenho", "como esta o sistema", "performance"
             ],
             "fan_control": [
                 "ligar fan", "desligar fan", "status do fan", "ventoinha",
                 "ligar ventoinha", "desligar ventoinha", "controlar fan",
-                "cooler"
+                "cooler",
+                "ventilador", "controlar ventoinha", "fan speed",
+                "velocidade do fan", "status cooler"
             ],
             "system_logs": [
-                "logs do sistema", "ver logs", "log de erro", "mostrar logs", "ultimos eventos"
+                "logs do sistema", "ver logs", "log de erro", "mostrar logs", "ultimos eventos",
+                "ultimos logs", "eventos do sistema", "registros",
+                "historico de eventos", "log de atividades"
             ],
             "energy_status": [
                 "consumo de energia", "energia hoje",
-                "energia mensal", "quanto gasta energia"
+                "energia mensal", "quanto gasta energia",
+                "conta de luz", "gasto de energia", "consumo eletrico",
+                "kwh hoje", "quanto gastei de energia"
             ],
             "greet": [
-                "oi", "ola", "bom dia", "boa tarde", "boa noite", "e ai"
+                "oi", "ola", "bom dia", "boa tarde", "boa noite", "e ai",
+                "fala ai", "opa", "salve", "beleza", "fala", "eae"
             ],
             "small_talk": [
-                "kk", "uai", "aham", "to bebendo", "boa"
+                "kk", "uai", "aham", "to bebendo", "boa",
+                "entendi", "ok", "certo", "show", "legal", "demorou", "ta bom", "blz"
             ],
             "identity_who": [
-                "quem é você", "quem e voce", "qual seu nome"
+                "quem é você", "quem e voce", "qual seu nome",
+                "me apresente", "quem e jarvis", "fala de voce", "apresentacao"
             ],
             "identity_capabilities": [
                 "o que voce sabe fazer", "o que voce faz", "quais seus poderes",
-                "me ajuda com o que"
+                "me ajuda com o que",
+                "suas habilidades", "capacidades", "o que consegue fazer",
+                "funcoes", "para que serve"
             ],
             "help": [
-                "ajuda", "comandos", "menu", "opcoes", "socorro"
+                "ajuda", "comandos", "menu", "opcoes", "socorro",
+                "comando", "o que posso perguntar", "duvida", "como funciona", "me orienta"
             ],
             # COMMAND LIST INTENT
             "command_list": [
                 "lista de comandos", "todos os comandos", "lista comandos", "manual",
-                "quais seus comandos", "o que posso falar", "comandos disponiveis"
+                "quais seus comandos", "o que posso falar", "comandos disponiveis",
+                "mostra comandos", "exibe comandos", "comandos uteis",
+                "o que fala", "verbos"
             ],
             "light_on": [
                 "ligar a luz", "acender luz", "acenda a luz da sala", "ligar", "acender",
-                "ligar a luz da sala", "ligar a luz do quarto", "ligar a luz da cozinha"
+                "ligar a luz da sala", "ligar a luz do quarto", "ligar a luz da cozinha",
+                "acende a luz", "liga a lampada", "acender lampada",
+                "luz on", "aceso"
             ],
             "light_off": [
                 "apagar luz", "desligar a luz", "apague a luz do quarto", "apagar", "desligar",
-                "apagar a luz da sala", "apagar a luz do quarto", "apagar a luz da cozinha"
+                "apagar a luz da sala", "apagar a luz do quarto", "apagar a luz da cozinha",
+                "apaga a lampada", "desligar lampada", "luz off",
+                "luz apagada", "desliga lampada"
             ],
 
             # ===== WAKE-ON-LAN (WOL) =====
@@ -159,6 +204,14 @@ class HybridIntentEngine:
                 # Variações regionais (goiano)
                 "bota o pc pra funcionar",
                 "liga esse trem ai",  # (se referindo ao PC)
+
+                # Novas variações
+                "acorda pc",
+                "ligar meu pc",
+                "iniciar pc",
+                "power on pc",
+                "dar boot no pc",
+                "manda ligar o pc"
             ],
 
             "pc_status": [
@@ -167,37 +220,61 @@ class HybridIntentEngine:
                 "computador ta on",
                 "pc ta online",
                 "pc respondendo",
+                "status do pc", "pc on", "pc ligado?",
+                "computador ligado?", "o pc ta funcionando"
             ],
 
             # NOVOS INTENTS DE IDENTIDADE
             "identity_creator": [
                 "quem te criou", "quem fez voce", "quem é seu criador",
                 "quem programou voce", "quem desenvolveu voce",
-                "quem é seu pai", "quem te fez", "quem é marcelo", "conhece o marcelo"
+                "quem é seu pai", "quem te fez", "quem é marcelo", "conhece o marcelo",
+                "criador", "quem desenvolveu", "criador do jarvis",
+                "quem criou o jarvis", "quem te programou"
             ],
             "identity_purpose": [
                 "qual seu proposito", "pra que voce serve", "qual sua missao",
-                "por que voce existe", "qual seu objetivo"
+                "por que voce existe", "qual seu objetivo",
+                "sua funcao", "utilidade", "qual sua funcao",
+                "para que foi criado", "qual seu papel"
             ],
             "identity_tech": [
                 "como voce funciona", "qual sua tecnologia", "como foi feito",
-                "qual sua stack", "que linguagem voce usa"
+                "qual sua stack", "que linguagem voce usa",
+                "como e feito", "stack tecnologica", "qual linguagem",
+                "tecnologia usada", "como programa"
             ],
             # NOVOS INTENTS DE MENU
-            "menu_rede": ["menu rede", "comandos rede", "ajuda rede", "menu_rede"],
-            "menu_agenda": ["menu agenda", "comandos lembretes", "ajuda lembretes", "menu_agenda"],
-            "menu_automacoes": ["menu automacoes", "menu_automacoes"],
-            "menu_sistema": ["menu sistema", "comandos sistema", "ajuda sistema", "menu_sistema"],
+            "menu_rede": ["menu rede", "comandos rede", "ajuda rede", "menu_rede",
+                          "ajuda de rede", "rede ajuda", "comandos da rede",
+                          "funcoes de rede", "opcoes de rede"],
+            "menu_agenda": ["menu agenda", "comandos lembretes", "ajuda lembretes", "menu_agenda",
+                            "ajuda de agenda", "agenda ajuda", "comandos da agenda",
+                            "funcoes de agenda", "opcoes de agenda"],
+            "menu_automacoes": ["menu automacoes", "menu_automacoes",
+                                "ajuda automacoes", "comandos automacoes", "automacoes ajuda",
+                                "funcoes automacao", "opcoes automacao"],
+            "menu_sistema": ["menu sistema", "comandos sistema", "ajuda sistema", "menu_sistema",
+                             "ajuda de sistema", "sistema ajuda", "comandos do sistema",
+                             "funcoes de sistema", "opcoes de sistema"],
 
             # AUTOMATION SPECIFICS
-            "automation_list": ["listar automacoes", "ver automacoes", "automacoes ativas", "quais automacoes"],
-            "automation_config": ["config automacoes", "configurar automacoes", "editar automacoes"]
+            "automation_list": ["listar automacoes", "ver automacoes", "automacoes ativas", "quais automacoes",
+                                "mostrar automacoes", "exibir automacoes", "automacoes configuradas",
+                                "lista de automacoes", "quais automacoes existem"],
+            "automation_config": ["config automacoes", "configurar automacoes", "editar automacoes",
+                                  "configurar automacao", "editar automacao", "criar automacao",
+                                  "nova automacao", "alterar automacao"]
         }
-        self.similarity_threshold = int(Config.INTENT_CONFIDENCE_THRESHOLD * 100)
+        # Never higher than 85 to ensure good recall
+        raw_threshold = int(Config.INTENT_CONFIDENCE_THRESHOLD * 100)
+        self.similarity_threshold = min(raw_threshold, 85)
 
     def identify_intent(self, user_input: str) -> Dict:
         if not user_input or not isinstance(user_input, str):
              return {"intent": "unknown", "confidence": 0.0}
+        # Normalize before matching
+        user_input = normalize_text(user_input)
 
         best_intent = "unknown"
         best_score = 0

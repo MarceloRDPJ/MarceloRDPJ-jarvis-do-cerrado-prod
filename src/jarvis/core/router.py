@@ -2,6 +2,7 @@ from jarvis.core.rules import apply_rules
 from jarvis.nlp.intent_engine import detect_intent
 from jarvis.core.brain import Brain
 from jarvis.core.context import ContextEngine
+from jarvis.nlp.normalizer import normalize_text
 import re
 
 brain = Brain()
@@ -26,6 +27,9 @@ def _extract_entities(text: str):
     return entities
 
 async def route(text: str, chat_id: int = None):
+    # Normalize text first (remove accents, slang, typos)
+    text = normalize_text(text)
+
     # 1. Regras Determinísticas (Alta Prioridade & Interrupção de Fluxo)
     rule = apply_rules(text)
 
@@ -103,4 +107,4 @@ async def route(text: str, chat_id: int = None):
          return nlp_intent
 
     # 3. IA Generativa (Fallback Cognitivo)
-    return await brain.process_intent(text)
+    return await brain.process_intent(text, chat_id=chat_id)
