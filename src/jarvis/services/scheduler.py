@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import json
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict
 from jarvis.database.persistence import Persistence
@@ -79,10 +80,13 @@ class SchedulerService:
                 keyboard = [
                     [
                         InlineKeyboardButton("✅ Feito", callback_data=f"rem_done_{task_id}"),
-                        InlineKeyboardButton("⏰ +15min", callback_data=f"rem_snooze_{task_id}_15"),
+                        InlineKeyboardButton("⏰ +10min", callback_data=f"rem_snooze_{task_id}_10"),
                     ],
                     [
                         InlineKeyboardButton("⏰ +1h", callback_data=f"rem_snooze_{task_id}_60"),
+                        InlineKeyboardButton("📅 Remarcar", callback_data=f"rem_reschedule_{task_id}"),
+                    ],
+                    [
                         InlineKeyboardButton("❌ Cancelar", callback_data=f"rem_cancel_{task_id}"),
                     ]
                 ]
@@ -99,7 +103,12 @@ class SchedulerService:
         # === 3. Reagendamento ===
         if task['type'] == 'recurring':
             interval = task['interval_minutes']
-            next_run = now + timedelta(minutes=interval)
+            base = datetime.fromisoformat(task['next_run'])
+            if base.tzinfo is None:
+                base = base.replace(tzinfo=timezone.utc)
+            next_run = base + timedelta(minutes=interval)
+            while next_run <= now:
+                next_run += timedelta(minutes=interval)
 
             # Se a próxima execução cair no período de silêncio (hidratação),
             # já ajusta para o dia seguinte?
@@ -109,8 +118,16 @@ class SchedulerService:
             Persistence.update_task_next_run(task_id, next_run)
             logger.info(f"Tarefa {task_id} reagendada para {next_run}")
         else:
-            Persistence.update_task_status(task_id, 'completed')
-            logger.info(f"Tarefa {task_id} concluída.")
+            meta = json.loads(task.get('meta') or '{}')
+            if meta.get('nag'):
+                interval = int(meta.get('nag_interval_minutes') or 15)
+                next_run = now + timedelta(minutes=interval)
+                Persistence.update_task_next_run_and_status(task_id, next_run, 'active')
+                Persistence.log_interaction(task_id, 'nag_sent', str(interval))
+                logger.info(f"Tarefa {task_id} enviada e reagendada para cobrança em {interval}min.")
+            else:
+                Persistence.update_task_status(task_id, 'delivered')
+                logger.info(f"Tarefa {task_id} entregue; aguardando ação do usuário.")
 
     def check_madrugada(self, now: datetime) -> bool:
         # Horário local baseado na configuração

@@ -382,6 +382,16 @@ class Persistence:
             conn.commit()
 
     @staticmethod
+    def update_task_next_run_and_status(task_id: int, next_run: datetime, status: str):
+        with closing(sqlite3.connect(_get_db_path())) as conn:
+            c = conn.cursor()
+            c.execute(
+                "UPDATE tasks SET next_run = ?, status = ? WHERE id = ?",
+                (next_run.isoformat(), status, task_id),
+            )
+            conn.commit()
+
+    @staticmethod
     def update_task_status(task_id: int, status: str):
         with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
@@ -390,6 +400,15 @@ class Persistence:
                 (status, task_id),
             )
             conn.commit()
+
+    @staticmethod
+    def get_task(task_id: int):
+        with closing(sqlite3.connect(_get_db_path())) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+            row = c.fetchone()
+            return dict(row) if row else None
 
     @staticmethod
     def get_active_tasks_due(now: datetime):
@@ -410,7 +429,7 @@ class Persistence:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             c.execute(
-                "SELECT * FROM tasks WHERE chat_id = ? AND status = 'active' ORDER BY next_run ASC",
+                "SELECT * FROM tasks WHERE chat_id = ? AND status IN ('active', 'delivered') ORDER BY next_run ASC",
                 (chat_id,),
             )
             rows = c.fetchall()
@@ -437,6 +456,55 @@ class Persistence:
                 (task_id, interaction_type, value, datetime.now(timezone.utc).isoformat()),
             )
             conn.commit()
+
+    @staticmethod
+    def get_task_interactions(task_id: int):
+        with closing(sqlite3.connect(_get_db_path())) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute(
+                "SELECT * FROM task_interactions WHERE task_id = ? ORDER BY timestamp ASC",
+                (task_id,),
+            )
+            rows = c.fetchall()
+            return [dict(row) for row in rows]
+
+    @staticmethod
+    def get_tasks_between(chat_id: int, start: datetime, end: datetime):
+        with closing(sqlite3.connect(_get_db_path())) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute(
+                """
+                SELECT * FROM tasks
+                WHERE chat_id = ?
+                  AND status IN ('active', 'delivered')
+                  AND next_run >= ?
+                  AND next_run < ?
+                ORDER BY next_run ASC
+                """,
+                (chat_id, start.isoformat(), end.isoformat()),
+            )
+            rows = c.fetchall()
+            return [dict(row) for row in rows]
+
+    @staticmethod
+    def get_overdue_tasks(chat_id: int, now: datetime):
+        with closing(sqlite3.connect(_get_db_path())) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute(
+                """
+                SELECT * FROM tasks
+                WHERE chat_id = ?
+                  AND status IN ('active', 'delivered')
+                  AND next_run < ?
+                ORDER BY next_run ASC
+                """,
+                (chat_id, now.isoformat()),
+            )
+            rows = c.fetchall()
+            return [dict(row) for row in rows]
 
     @staticmethod
     def get_task_interactions_today(task_id: int):

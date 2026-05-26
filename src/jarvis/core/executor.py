@@ -154,7 +154,7 @@ class Executor:
 
             # 3. Run Deep Scan
             try:
-                devices = await NetworkModule.scan_network_deep(status_callback=update_status, app=self.app)
+                devices = await NetworkModule.scan_network_deep(status_callback=update_status)
 
                 # 4. Format Final Report
                 if not devices:
@@ -229,6 +229,9 @@ class Executor:
                     st_response = Personality.get_small_talk(text_input)
                     if st_response: return st_response
                     return Personality.get_response("FALLBACK")
+
+                if flow.get("type") == "reminder_reschedule":
+                    return RemindersFlow.handle_reschedule_response(chat_id, text_input, ctx)
             return RemindersFlow.handle_response(chat_id, text_input, ctx)
 
         # ---------------- STANDARD INTENTS ----------------
@@ -579,7 +582,6 @@ class Executor:
 
             # Executa Wake-on-LAN
             try:
-                from jarvis.modules.network import NetworkModule
                 result = await NetworkModule.wake_on_lan(Config.PC_MAC)
 
                 return (
@@ -595,7 +597,6 @@ class Executor:
 
         # Status do PC
         if intent == "pc_status":
-            from jarvis.modules.network import NetworkModule
             # Tenta pingar o PC (assumindo que IP está configurado)
             pc_ip = os.getenv("PC_IP", "192.168.0.100")  # IP do PC
             online = await NetworkModule.check_device_online(pc_ip)
@@ -621,6 +622,12 @@ class Executor:
                 return {"text": text, "reply_markup": InlineKeyboardMarkup(keyboard)}
             except: return text
 
+        if intent == "reminder_today":
+            return RemindersFlow.list_today(chat_id)
+
+        if intent == "reminder_overdue":
+            return RemindersFlow.list_overdue(chat_id)
+
         if intent == "reminder_delete":
             index = params.get("index") or params.get("target_id")
             if index: return RemindersFlow.delete_reminder(chat_id, int(index))
@@ -630,7 +637,13 @@ class Executor:
             index = params.get("index")
             modification = params.get("modification")
             if index: return RemindersFlow.update_reminder(chat_id, int(index), modification)
-            else: return "❌ Preciso do número do lembrete pra editar."
+            else:
+                reminders = RemindersFlow.list_reminders(chat_id)
+                return (
+                    f"Pra editar eu preciso do número do lembrete.\n\n"
+                    f"{reminders}\n"
+                    f"Exemplo: `editar lembrete 1 para hoje às 20h`"
+                )
 
         if intent == "energy_status": return "⚡ Monitoramento de energia em fase de coleta."
 

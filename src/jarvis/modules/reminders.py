@@ -29,13 +29,23 @@ def get_reminder_message(task: Dict[str, Any], now: datetime) -> str:
         return _get_hydration_message(text, meta, is_madrugada, is_dia)
 
     # Genérico
+    prefix = "⏰"
+    priority = meta.get("priority", "normal")
+    if priority == "urgent":
+        prefix = "🚨 URGENTE"
+    elif priority == "high":
+        prefix = "⚠️ IMPORTANTE"
+
+    category = meta.get("category")
+    suffix = f"\n🏷️ {category}" if category else ""
+
     if is_madrugada:
-        return f"🌙 {text}"
+        return f"🌙 {text}{suffix}"
 
     if is_dia:
-        return f"⏰ {text}"
+        return f"{prefix} {text}{suffix}"
 
-    return f"⏰ Lembrete: {text}"
+    return f"{prefix} Lembrete: {text}{suffix}"
 
 def _get_hydration_message(text: str, meta: Dict, is_madrugada: bool, is_dia: bool) -> str:
     if is_madrugada:

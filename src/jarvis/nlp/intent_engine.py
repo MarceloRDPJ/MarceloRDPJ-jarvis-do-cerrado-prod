@@ -35,6 +35,14 @@ class HybridIntentEngine:
                 "ver avisos", "mostrar lembretes", "lista de tarefas", "o que tenho pra hoje",
                 "agenda", "compromissos", "mostra lembretes", "exibe lembretes", "lembretes ativos"
             ],
+            "reminder_today": [
+                "lembretes de hoje", "agenda de hoje", "o que tenho hoje", "tarefas de hoje",
+                "meus compromissos hoje", "hoje", "minha agenda hoje"
+            ],
+            "reminder_overdue": [
+                "lembretes atrasados", "tarefas atrasadas", "o que esta atrasado", "vencidos",
+                "pendencias atrasadas", "overdue", "atrasados"
+            ],
             "reminder_delete": [
                 "cancelar lembrete", "apagar lembrete", "remover aviso",
                 "deleta esse lembrete", "esquecer lembrete", "excluir tarefa",
@@ -345,6 +353,12 @@ def detect_intent(text: str) -> Dict:
     if intent == "reminder_list":
         return {"intent": "reminder_list"}
 
+    if intent == "reminder_today":
+        return {"intent": "reminder_today"}
+
+    if intent == "reminder_overdue":
+        return {"intent": "reminder_overdue"}
+
     if intent == "network_status":
         return {"intent": "network_status", "action": "check", "entity": "network"}
 
@@ -451,8 +465,38 @@ def _parse_reminder(text: str) -> Dict:
     recurrence = time_data["recurrence"]
     is_recurring = time_data["is_recurring"]
     target_date = time_data.get("target_date")
+    interval_minutes = time_data.get("interval_minutes", 0)
 
     reminder_text = text
+
+    priority = "normal"
+    if re.search(r"\b(urgente|critico|crítico|emergencia|emergência)\b", reminder_text, re.IGNORECASE):
+        priority = "urgent"
+    elif re.search(r"\b(importante|alta prioridade|prioridade alta)\b", reminder_text, re.IGNORECASE):
+        priority = "high"
+    elif re.search(r"\b(baixa prioridade|sem pressa)\b", reminder_text, re.IGNORECASE):
+        priority = "low"
+
+    nag = bool(re.search(r"\b(insiste|me cobra|fica me lembrando|nao deixa eu esquecer|não deixa eu esquecer|ate eu confirmar|até eu confirmar|ate eu responder|até eu responder)\b", reminder_text, re.IGNORECASE))
+    nag_interval_minutes = 15
+    nag_match = re.search(r"(?:me cobra|insiste|fica me lembrando).*?(?:a cada|de)\s*(\d+)\s*(minutos|min|horas|h)", reminder_text, re.IGNORECASE)
+    if nag_match:
+        nag_interval_minutes = int(nag_match.group(1)) * (60 if nag_match.group(2).lower().startswith(("h", "hora")) else 1)
+
+    category = None
+    category_map = {
+        "saude": ["saude", "saúde", "remedio", "remédio", "medico", "médico"],
+        "financeiro": ["boleto", "conta", "pagar", "banco", "pix", "financeiro"],
+        "trabalho": ["trabalho", "reuniao", "reunião", "cliente"],
+        "igreja": ["igreja", "culto", "celula", "célula", "ipog"],
+        "casa": ["casa", "lixo", "limpar", "comprar", "mercado"],
+        "estudos": ["estudo", "estudar", "tarefa", "curso", "faculdade"],
+    }
+    lower_text = reminder_text.lower()
+    for cat, words in category_map.items():
+        if any(w in lower_text for w in words):
+            category = cat
+            break
 
     # 1. Remove palavras-chave da intenção
     keywords = engine.intent_patterns["reminder_set"]
@@ -462,6 +506,9 @@ def _parse_reminder(text: str) -> Dict:
         if rule in reminder_text.lower():
              reminder_text = re.sub(re.escape(rule), "", reminder_text, flags=re.IGNORECASE)
 
+    reminder_text = re.sub(r"\b(urgente|critico|crítico|emergencia|emergência|importante|alta prioridade|prioridade alta|baixa prioridade|sem pressa)\b", "", reminder_text, flags=re.IGNORECASE)
+    reminder_text = re.sub(r"\b(insiste|me cobra|fica me lembrando|nao deixa eu esquecer|não deixa eu esquecer|ate eu confirmar|até eu confirmar|ate eu responder|até eu responder)\b", "", reminder_text, flags=re.IGNORECASE)
+
     # 2. Remove expressões de tempo (Cleaning agressivo)
     # Dias da semana
     weekdays = ["domingo", "segunda", "segunda-feira", "terca", "terça", "terça-feira", "quarta", "quarta-feira", "quinta", "quinta-feira", "sexta", "sexta-feira", "sabado", "sábado"]
@@ -470,8 +517,10 @@ def _parse_reminder(text: str) -> Dict:
 
     # Hoje/Amanhã/Daqui
     reminder_text = re.sub(r"\b(hoje|amanha|amanhã)\b", "", reminder_text, flags=re.IGNORECASE)
+    reminder_text = re.sub(r"\b(mais tarde|depois|mais de noite|mais a noite|mais à noite)\b", "", reminder_text, flags=re.IGNORECASE)
     reminder_text = re.sub(r"\bdaqui a pouco\b", "", reminder_text, flags=re.IGNORECASE)
     reminder_text = re.sub(r"\bdaqui (?:a )?[\d]+ (?:minutos|min|horas|h)\b", "", reminder_text, flags=re.IGNORECASE)
+    reminder_text = re.sub(r"\ba cada\s+\d+\s*(?:minutos|min|horas|h)\b", "", reminder_text, flags=re.IGNORECASE)
 
     # Horários (às 14h, 12:30, etc)
     reminder_text = re.sub(r"\b(?:as|às|ás)\s+\d{1,2}(?:[:h]\d{2})?h?\b", "", reminder_text, flags=re.IGNORECASE)
@@ -484,7 +533,7 @@ def _parse_reminder(text: str) -> Dict:
     # Limpeza final
     reminder_text = reminder_text.strip()
     # Remove preposições de ligação que sobraram no início (ex: "de puxar" -> "puxar")
-    reminder_text = re.sub(r"^(?:de|pra|que|o|a)\s+", "", reminder_text, flags=re.IGNORECASE)
+    reminder_text = re.sub(r"^(?:de|pra|para|que|o|a)\s+", "", reminder_text, flags=re.IGNORECASE)
 
     reminder_text = re.sub(r'\s+', ' ', reminder_text).strip(' .,-')
 
@@ -503,7 +552,13 @@ def _parse_reminder(text: str) -> Dict:
             "target_date": target_date,
             "repeat": is_recurring,
             "recurrence": recurrence,
-            "action_type": action
+            "interval_minutes": interval_minutes,
+            "action_type": action,
+            "priority": priority,
+            "nag": nag,
+            "nag_interval_minutes": nag_interval_minutes,
+            "category": category,
+            "raw_text": text,
         }
     }
 

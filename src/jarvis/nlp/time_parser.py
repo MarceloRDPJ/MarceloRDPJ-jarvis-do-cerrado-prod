@@ -30,7 +30,8 @@ def parse_time_command(text: str) -> Dict[str, Any]:
         "target_date": None,
         "formatted": None,
         "recurrence": "none",
-        "is_recurring": False
+        "is_recurring": False,
+        "interval_minutes": 0,
     }
 
     text = text.lower()
@@ -40,9 +41,11 @@ def parse_time_command(text: str) -> Dict[str, Any]:
     if "todo dia" in text or "todos os dias" in text or "diariamente" in text:
         result["recurrence"] = "daily"
         result["is_recurring"] = True
+        result["interval_minutes"] = 1440
     elif "semanal" in text or "toda semana" in text:
         result["recurrence"] = "weekly"
         result["is_recurring"] = True
+        result["interval_minutes"] = 10080
     elif "a cada" in text:
         # "a cada" implica recorrência, mesmo que seja intraday
         result["is_recurring"] = True
@@ -62,6 +65,8 @@ def parse_time_command(text: str) -> Dict[str, Any]:
         result["minutes"] = relative_minutes
         result["target_date"] = now + timedelta(minutes=relative_minutes)
         result["formatted"] = format_pt_br(result["target_date"])
+        if "a cada" in text:
+            result["interval_minutes"] = relative_minutes
 
         # Se tem intervalo relativo e "a cada", já está resolvido
         if result["is_recurring"] or "daqui" in text:

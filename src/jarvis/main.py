@@ -117,16 +117,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         task_id = int(parts[2])
 
         if action == "done":
-            await ReminderCallbacks.handle_done(task_id, chat_id, context.bot)
+            await ReminderCallbacks.handle_done(task_id, chat_id, query)
             return
 
         elif action == "snooze":
             minutes = int(parts[3])
-            await ReminderCallbacks.handle_snooze(task_id, chat_id, minutes, context.bot)
+            await ReminderCallbacks.handle_snooze(task_id, chat_id, minutes, query)
             return
 
         elif action == "cancel":
-            await ReminderCallbacks.handle_cancel(task_id, chat_id, context.bot)
+            await ReminderCallbacks.handle_cancel(task_id, chat_id, query)
+            return
+
+        elif action == "reschedule":
+            await ReminderCallbacks.handle_reschedule_request(task_id, chat_id, query)
             return
 
     # Detecta callbacks de rede

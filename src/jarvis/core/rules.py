@@ -259,6 +259,31 @@ def apply_rules(text: str) -> Optional[Dict]:
             "confidence": 1.0,
         }
 
+    if t in ("lembretes de hoje", "agenda de hoje", "o que tenho hoje", "tarefas de hoje"):
+        return {
+            "intent": "reminder_today",
+            "action": "list",
+            "entity": "reminder",
+            "confidence": 1.0,
+        }
+
+    if t in ("lembretes atrasados", "tarefas atrasadas", "atrasados", "vencidos", "o que esta atrasado"):
+        return {
+            "intent": "reminder_overdue",
+            "action": "list",
+            "entity": "reminder",
+            "confidence": 1.0,
+        }
+
+    if re.fullmatch(r"(?:editar|mudar|alterar)\s+(?:meus?\s+)?lembretes?", t):
+        return {
+            "intent": "reminder_update",
+            "action": "update",
+            "entity": "reminder",
+            "params": {},
+            "confidence": 1.0,
+        }
+
     # =====================================================
     # LEMBRETES (CRIAÇÃO BÁSICA)
     # =====================================================
@@ -318,18 +343,7 @@ def apply_rules(text: str) -> Optional[Dict]:
             "confidence": 1.0,
         }
 
-    # 4. Log de Consumo Implícito (Depende de contexto/modo)
-    # Apenas frases muito curtas e afirmativas
-    if t in ["ok", "👍", "beleza", "blz", "joia"]:
-        return {
-            "intent": "hydration_log_implicit",
-            "action": "log",
-            "entity": "hydration",
-            "params": {"amount": None},
-            "confidence": 0.8, # Menor confiança para permitir override de fluxo
-        }
-
-    # 5. Controle (Pausa/Cancelamento)
+    # 4. Controle (Pausa/Cancelamento)
     if re.search(r"(?:pausar|parar|cancelar|silenciar|interromper)\s+(?:hidratação|hidratacao|agua|água)", t):
         return {
             "intent": "hydration_control",

@@ -119,7 +119,13 @@ class GuardianService:
         try:
             snapshot = await NetworkModule.get_raw_snapshot()
             devices = snapshot.get("devices", [])
-            current_macs = {d["mac"] for d in devices}
+            current_macs = {d["mac"].lower() for d in devices if d.get("mac")}
+
+            # A transient empty ARP scan must not become the baseline. If it did,
+            # the next successful scan would look like every device just joined.
+            if not current_macs:
+                logger.warning("Scan de dispositivos vazio; mantendo baseline anterior.")
+                return
 
             # Inicialização silenciosa
             if self.online_macs is None:
@@ -147,6 +153,7 @@ class GuardianService:
             logger.error(f"Erro no scan de dispositivos: {e}")
 
     async def handle_device_joined(self, mac: str, all_devices: List[Dict]):
+        mac = mac.lower()
         # Se já existe no banco, é CONHECIDO (mesmo sem nome customizado)
         # Isso previne spam se o dispositivo cai e volta ("flapping")
         is_known = Persistence.device_exists(mac)

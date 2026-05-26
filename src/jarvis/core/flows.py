@@ -8,6 +8,7 @@ from jarvis.database.persistence import Persistence
 from jarvis.core.context import ContextEngine
 from jarvis.core.personality import Personality
 from jarvis.nlp.time_parser import parse_time_command, format_pt_br
+from jarvis.config import Config
 
 logger = logging.getLogger("core.flows")
 
@@ -74,12 +75,27 @@ class RemindersFlow:
             flow_state["data"]["target_date"] = dt.isoformat()
             ContextEngine.save_context(chat_id, {"flow": flow_state})
 
+        extra = RemindersFlow._confirmation_extra(params)
         return (
             f"Beleza, vê se tá certo:\n\n"
             f"📅 {time_display}\n"
-            f"📝 {text}\n\n"
+            f"📝 {text}\n"
+            f"{extra}\n"
             f"Confirma?"
         )
+
+    @staticmethod
+    def _confirmation_extra(data: Dict[str, Any]) -> str:
+        lines = []
+        if data.get("priority") in ("urgent", "high"):
+            lines.append("⚠️ Prioridade: urgente" if data.get("priority") == "urgent" else "⚠️ Prioridade: alta")
+        if data.get("category"):
+            lines.append(f"🏷️ Categoria: {data['category']}")
+        if data.get("nag"):
+            lines.append(f"🔁 Vou cobrar a cada {data.get('nag_interval_minutes', 15)} min até você concluir")
+        if data.get("repeat"):
+            lines.append("🔄 Recorrente")
+        return "\n".join(lines)
 
     @staticmethod
     def handle_response(chat_id: int, text: str, context_data: Dict) -> str:
@@ -117,6 +133,7 @@ class RemindersFlow:
                 data["minutes"] = time_data["minutes"]
                 data["repeat"] = time_data["is_recurring"] or data.get("repeat", False)
                 data["recurrence"] = time_data["recurrence"]
+                data["interval_minutes"] = time_data.get("interval_minutes", data.get("interval_minutes", 0))
 
                 # Se ainda faltar texto
                 if not data.get("text") or data.get("text").lower() == "lembrete":
@@ -224,9 +241,16 @@ class RemindersFlow:
         repeat = data.get("repeat")
         action_type = data.get("action_type", "default")
         target_date_iso = data.get("target_date")
+        interval_minutes = data.get("interval_minutes") or minutes
 
         # Meta dados
         meta = {}
+        meta["priority"] = data.get("priority", "normal")
+        meta["nag"] = bool(data.get("nag"))
+        meta["nag_interval_minutes"] = int(data.get("nag_interval_minutes") or 15)
+        meta["category"] = data.get("category")
+        meta["raw_text"] = data.get("raw_text")
+        meta["recurrence"] = data.get("recurrence", "none")
         if action_type == "hydration":
             # GARANTIA: Apenas UMA tarefa de hidratação ativa por usuário.
             # Cancela todas as anteriores antes de criar a nova.
@@ -240,10 +264,15 @@ class RemindersFlow:
 
         # Calcular next_run
         if target_date_iso:
-             next_run = datetime.fromisoformat(target_date_iso)
+             next_run = target_date_iso if isinstance(target_date_iso, datetime) else datetime.fromisoformat(target_date_iso)
         else:
              now = datetime.now(timezone.utc)
              next_run = now + timedelta(minutes=minutes)
+
+        if next_run.tzinfo is None:
+            next_run = next_run.replace(tzinfo=Config.TZ).astimezone(timezone.utc)
+        else:
+            next_run = next_run.astimezone(timezone.utc)
 
         task_type = "recurring" if repeat else "unique"
 
@@ -253,7 +282,7 @@ class RemindersFlow:
             next_run=next_run,
             action=action_type,
             task_type=task_type,
-            interval_minutes=minutes,
+            interval_minutes=interval_minutes if repeat else 0,
             meta=meta
         )
 
@@ -269,6 +298,20 @@ class RemindersFlow:
             return f"Combinado. Lembrete salvo para {time_display}."
 
     @staticmethod
+    def _format_task_line(index: int, task: Dict) -> str:
+        dt = datetime.fromisoformat(task['next_run'])
+        meta = json.loads(task.get('meta') or '{}')
+        tags = []
+        if meta.get("priority") in ("urgent", "high"):
+            tags.append("prioridade alta" if meta.get("priority") == "high" else "urgente")
+        if meta.get("category"):
+            tags.append(meta["category"])
+        if meta.get("nag"):
+            tags.append("insistente")
+        suffix = f" _({' · '.join(tags)})_" if tags else ""
+        return f"*{index}.* {format_pt_br(dt)}\n   ↳ {task['text']}{suffix}"
+
+    @staticmethod
     def list_reminders(chat_id: int) -> str:
         """
         Lista lembretes ativos formatados humanamente.
@@ -281,21 +324,62 @@ class RemindersFlow:
         response = "📝 *Seus Lembretes:*\n\n"
 
         for i, task in enumerate(tasks, 1):
-            next_run_iso = task['next_run']
-            try:
-                dt = datetime.fromisoformat(next_run_iso)
-                time_display = format_pt_br(dt)
-            except ValueError:
-                time_display = "Data inválida"
-
-            text = task['text']
-            # Se for recorrente, indica
+            line = RemindersFlow._format_task_line(i, task)
             if task['type'] == 'recurring':
-                time_display += " (Recorrente)"
-
-            response += f"*{i}.* {time_display}\n   ↳ {text}\n\n"
+                line += "\n   ↳ Recorrente"
+            response += line + "\n\n"
 
         return response
+
+    @staticmethod
+    def list_today(chat_id: int) -> str:
+        now = datetime.now(timezone.utc).astimezone(Config.TZ)
+        start_local = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_local = start_local + timedelta(days=1)
+        tasks = Persistence.get_tasks_between(chat_id, start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc))
+        if not tasks:
+            return "Hoje não tem lembrete pendente."
+        msg = "📅 *Lembretes de hoje*\n\n"
+        for i, task in enumerate(tasks, 1):
+            msg += RemindersFlow._format_task_line(i, task) + "\n\n"
+        return msg
+
+    @staticmethod
+    def list_overdue(chat_id: int) -> str:
+        tasks = Persistence.get_overdue_tasks(chat_id, datetime.now(timezone.utc))
+        if not tasks:
+            return "Nenhum lembrete atrasado agora."
+        msg = "⚠️ *Lembretes atrasados*\n\n"
+        for i, task in enumerate(tasks, 1):
+            msg += RemindersFlow._format_task_line(i, task) + "\n\n"
+        return msg
+
+    @staticmethod
+    def handle_reschedule_response(chat_id: int, text: str, context_data: Dict) -> str:
+        flow = context_data.get("flow")
+        if not flow or flow.get("type") != "reminder_reschedule":
+            return None
+
+        task_id = flow.get("data", {}).get("task_id")
+        task = Persistence.get_task(task_id)
+        if not task or task.get("chat_id") != chat_id:
+            ContextEngine.save_context(chat_id, {"flow": None})
+            return "Não encontrei esse lembrete para remarcar."
+
+        time_data = parse_time_command(text)
+        if not time_data.get("target_date"):
+            return "Pra quando? Tenta `amanhã às 9h`, `hoje às 20h` ou `daqui 30 minutos`."
+
+        target = time_data["target_date"]
+        if target.tzinfo is None:
+            target = target.replace(tzinfo=Config.TZ).astimezone(timezone.utc)
+        else:
+            target = target.astimezone(timezone.utc)
+
+        Persistence.update_task_next_run_and_status(task_id, target, "active")
+        Persistence.log_interaction(task_id, "reschedule", target.isoformat())
+        ContextEngine.save_context(chat_id, {"flow": None})
+        return f"📅 Remarquei *{task['text']}* para {format_pt_br(target.astimezone(Config.TZ))}."
 
     @staticmethod
     def delete_reminder(chat_id: int, index: int) -> str:
