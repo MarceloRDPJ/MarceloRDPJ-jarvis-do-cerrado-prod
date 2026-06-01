@@ -401,7 +401,7 @@ async def get_intent_rules():
 # ===================================================================
 
 @app.get("/api/network/scan")
-async def scan_network(depth: str = Query("standard", regex="^(standard|deep|quick)$")):
+async def scan_network(depth: str = Query("standard", pattern="^(standard|deep|quick)$")):
     """Scan the local network for devices."""
     from jarvis.modules.network import NetworkModule
     try:

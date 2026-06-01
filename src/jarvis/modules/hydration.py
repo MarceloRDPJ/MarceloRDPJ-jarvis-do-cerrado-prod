@@ -108,6 +108,19 @@ class HydrationModule:
         return False
 
     @staticmethod
+    async def snooze_hydration(chat_id: int, query, minutes: int = 15):
+        """Snooze hydration reminder by N minutes."""
+        state = HydrationModule._load_state(chat_id)
+        if not state or not state.get("active"):
+            await query.message.reply_text("Hidratação não está ativa.")
+            return
+        from datetime import timedelta
+        now = datetime.now(Config.TZ)
+        state["last_reminder_at"] = (now + timedelta(minutes=minutes)).isoformat()
+        HydrationModule._save_state(chat_id, state)
+        await query.message.reply_text(f"💤 Beleza, te lembro de novo em {minutes} min. Quando beber água, manda `bebi`.")
+
+    @staticmethod
     def activate_flow(chat_id: int) -> str:
         """
         Inicia o fluxo de ativação/configuração.

@@ -125,27 +125,48 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Detecta callbacks de lembretes
     if text.startswith("rem_"):
         from jarvis.core.reminder_callbacks import ReminderCallbacks
+        try:
+            parts = text.split("_")
+            if len(parts) < 3:
+                logger.warning(f"Callback rem_ malformatado: {text}")
+                await query.message.reply_text("❌ Callback inválido.")
+                return
+            action = parts[1]
+            task_id = int(parts[2])
 
-        parts = text.split("_")
-        action = parts[1]  # done, snooze, cancel
-        task_id = int(parts[2])
+            if action == "done":
+                await ReminderCallbacks.handle_done(task_id, chat_id, query)
+                return
 
-        if action == "done":
-            await ReminderCallbacks.handle_done(task_id, chat_id, query)
+            elif action == "snooze":
+                if len(parts) < 4:
+                    await query.message.reply_text("❌ Callback snooze inválido (sem minutos).")
+                    return
+                minutes = int(parts[3])
+                await ReminderCallbacks.handle_snooze(task_id, chat_id, minutes, query)
+                return
+
+            elif action == "cancel":
+                await ReminderCallbacks.handle_cancel(task_id, chat_id, query)
+                return
+
+            elif action == "reschedule":
+                await ReminderCallbacks.handle_reschedule_request(task_id, chat_id, query)
+                return
+            else:
+                logger.warning(f"Ação de callback desconhecida: {action}")
+                await query.message.reply_text("❌ Ação de callback desconhecida.")
+                return
+        except (ValueError, IndexError) as e:
+            logger.warning(f"Erro ao parsear callback rem_: {e}")
+            await query.message.reply_text("❌ Erro ao processar callback.")
             return
 
-        elif action == "snooze":
-            minutes = int(parts[3])
-            await ReminderCallbacks.handle_snooze(task_id, chat_id, minutes, query)
-            return
-
-        elif action == "cancel":
-            await ReminderCallbacks.handle_cancel(task_id, chat_id, query)
-            return
-
-        elif action == "reschedule":
-            await ReminderCallbacks.handle_reschedule_request(task_id, chat_id, query)
-            return
+    # Detecta snooze de hidratação
+    if text == "agora nao":
+        from jarvis.modules.hydration import HydrationModule
+        await HydrationModule.snooze_hydration(chat_id, query, minutes=15)
+        return
 
     # Detecta callbacks de rede
     if text.startswith("net_"):

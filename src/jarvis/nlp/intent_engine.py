@@ -298,14 +298,25 @@ class HybridIntentEngine:
     def identify_intent(self, user_input: str) -> Dict:
         if not user_input or not isinstance(user_input, str):
              return {"intent": "unknown", "confidence": 0.0}
-        # Normalize before matching
         user_input = normalize_text(user_input)
+
+        # Exact-match intents: short patterns that should NOT use fuzzy matching
+        # Prevents "copa" matching "opa" (greet) via WRatio partial ratio
+        _EXACT_INTENTS = {"greet"}
+        for intent in _EXACT_INTENTS:
+            examples = self.intent_patterns.get(intent, [])
+            for pattern in examples:
+                if len(pattern) <= 5 and pattern in user_input:
+                    return {"intent": intent, "confidence": 0.95}
+                if user_input == pattern:
+                    return {"intent": intent, "confidence": 0.95}
 
         best_intent = "unknown"
         best_score = 0
 
         for intent, examples in self.intent_patterns.items():
-            # WRatio handles partial matches and casing better
+            if intent in _EXACT_INTENTS:
+                continue
             match_result = process.extractOne(user_input, examples, scorer=fuzz.WRatio, score_cutoff=self.similarity_threshold)
             if match_result:
                 match, score, _ = match_result
