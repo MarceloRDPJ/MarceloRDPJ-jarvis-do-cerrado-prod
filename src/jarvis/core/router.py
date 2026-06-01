@@ -3,6 +3,7 @@ from jarvis.nlp.intent_engine import detect_intent
 from jarvis.core.brain import Brain
 from jarvis.core.context import ContextEngine
 from jarvis.nlp.normalizer import normalize_text
+from jarvis.config import Config
 import re
 
 brain = Brain()
@@ -56,10 +57,23 @@ async def route(text: str, chat_id: int = None):
             "text": text
         }
 
-    # 0. Fluxo Ativo (Prioridade Máxima - salvo exceções acima)
+    # 0. Fluxo Ativo (Prioridade Máxima - salvo exceções acima) com timeout
+    FLOW_TIMEOUT_MINUTES = 10
     if chat_id:
         context = ContextEngine.get_context(chat_id)
-        if context.get("flow"):
+        flow = context.get("flow")
+        if flow:
+            from datetime import datetime, timezone
+            flow_ts = flow.get("timestamp") or context.get("timestamp")
+            if flow_ts:
+                try:
+                    elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(flow_ts)).total_seconds()
+                    if elapsed > FLOW_TIMEOUT_MINUTES * 60:
+                        ContextEngine.save_context(chat_id, {"flow": None})
+                        flow = None
+                except Exception:
+                    pass
+        if flow:
             return {
                 "intent": "flow_input",
                 "action": "handle_input",
@@ -90,23 +104,28 @@ async def route(text: str, chat_id: int = None):
     # 2. NLP Local (Intent Engine)
     nlp_intent = detect_intent(text)
     if nlp_intent and nlp_intent.get('intent') not in ['chat', 'unknown']:
-         # Phase 2: Context Enrichment
-         if chat_id:
-            context = ContextEngine.get_context(chat_id)
+        confidence = nlp_intent.get('confidence', 0)
+        # Gate de confiança: só aceita NLP se o score for alto o suficiente
+        if confidence >= Config.INTENT_CONFIDENCE_THRESHOLD:
+            # Phase 2: Context Enrichment
+            if chat_id:
+                context = ContextEngine.get_context(chat_id)
 
-            # Simple Entity Extraction
-            current_entities = _extract_entities(text)
+                # Simple Entity Extraction
+                current_entities = _extract_entities(text)
 
-            # Se encontrou entidades, usa elas.
-            # Se NÃO encontrou, tenta herdar do contexto.
-            if current_entities:
-                nlp_intent["entities"] = current_entities
-            elif context.get("entities"):
-                # Herança de contexto (ex: "agora apagar" -> herda "luz da sala")
-                nlp_intent["entities"] = context["entities"]
-                nlp_intent["context_inherited"] = True
+                # Se encontrou entidades, usa elas.
+                # Se NÃO encontrou, tenta herdar do contexto.
+                if current_entities:
+                    nlp_intent["entities"] = current_entities
+                elif context.get("entities"):
+                    nlp_intent["entities"] = context["entities"]
+                    nlp_intent["context_inherited"] = True
 
-         return nlp_intent
+            return nlp_intent
+        else:
+            import logging
+            logging.getLogger("core.router").debug(f"NLP baixa confiança ({confidence:.2f}) para '{text[:40]}' — roteando para Brain")
 
     # 3. IA Generativa (Fallback Cognitivo)
     return await brain.process_intent(text, chat_id=chat_id)

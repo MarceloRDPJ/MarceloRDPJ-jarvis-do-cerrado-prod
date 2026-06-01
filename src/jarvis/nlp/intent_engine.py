@@ -291,22 +291,22 @@ class HybridIntentEngine:
                 "queries falhas"
             ]
         }
-        # Never higher than 85 to ensure good recall
+        # Threshold: never higher than 80 to avoid false positives on generic text
         raw_threshold = int(Config.INTENT_CONFIDENCE_THRESHOLD * 100)
-        self.similarity_threshold = min(raw_threshold, 85)
+        self.similarity_threshold = min(raw_threshold, 80)
 
     def identify_intent(self, user_input: str) -> Dict:
         if not user_input or not isinstance(user_input, str):
              return {"intent": "unknown", "confidence": 0.0}
         user_input = normalize_text(user_input)
 
-        # Exact-match intents: short patterns that should NOT use fuzzy matching
-        # Prevents "copa" matching "opa" (greet) via WRatio partial ratio
+        # Exact-match intents only — requires word boundaries
+        # Prevents "copa" matching "opa" (greet) via substring
         _EXACT_INTENTS = {"greet"}
         for intent in _EXACT_INTENTS:
             examples = self.intent_patterns.get(intent, [])
             for pattern in examples:
-                if len(pattern) <= 5 and pattern in user_input:
+                if len(pattern) <= 5 and re.search(rf"\b{re.escape(pattern)}\b", user_input):
                     return {"intent": intent, "confidence": 0.95}
                 if user_input == pattern:
                     return {"intent": intent, "confidence": 0.95}
