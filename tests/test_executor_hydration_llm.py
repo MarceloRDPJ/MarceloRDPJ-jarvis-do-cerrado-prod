@@ -47,28 +47,26 @@ async def test_brain_llm_fallback():
     # Mock LocalBrain to return None (miss)
     brain.local_brain.process = AsyncMock(return_value=None)
 
-    # Mock Crof AI (missing)
-    brain.crof = None
-
     # Mock Local LLM
     brain.local_llm = MagicMock()
-    brain.local_llm.generate_chat_response.return_value = "Ollama Response"
+    brain.local_llm.generate_chat_response.return_value = "Local LLM Response"
 
     # Execute
     result = await brain.process_intent("some random text")
 
     # Verify
     assert result["intent"] == "chat"
-    assert result["response"] == "Ollama Response"
+    assert result["response"] == "Local LLM Response"
     assert result["source"] == "local_llm"
 
 def test_llm_fallback_engine_chat():
     engine = LLMFallbackEngine()
+    engine.backend = "llamacpp"
 
     # Mock requests.post
     with patch("requests.post") as mock_post:
         mock_response = MagicMock()
-        mock_response.json.return_value = {"response": "  Hello World  "}
+        mock_response.json.return_value = {"content": "  Hello World  "}
         mock_post.return_value = mock_response
 
         response = engine.generate_chat_response("Hi")
@@ -78,14 +76,39 @@ def test_llm_fallback_engine_chat():
 
 def test_llm_fallback_engine_interpret():
     engine = LLMFallbackEngine()
+    engine.backend = "llamacpp"
 
     # Mock requests.post
     with patch("requests.post") as mock_post:
         mock_response = MagicMock()
-        mock_response.json.return_value = {"response": '{"intent": "chat"}'}
+        mock_response.json.return_value = {"content": '{"intent": "chat"}'}
         mock_post.return_value = mock_response
 
         result = engine.interpret("Hi")
 
         assert result == {"intent": "chat"}
         assert mock_post.called
+
+def test_llm_fallback_engine_cli_chat():
+    engine = LLMFallbackEngine()
+    engine.backend = "llamacpp_cli"
+    engine.cli_path = "/opt/bot/llama.cpp/build/bin/llama-cli"
+    engine.model_path = "/opt/bot/models/model.gguf"
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="""
+build      : test
+model      : model.gguf
+> prompt
+  Oi, Marcelo.
+[ Prompt: 10 t/s | Generation: 8 t/s ]
+""",
+            stderr="",
+        )
+
+        response = engine.generate_chat_response("Hi")
+
+        assert response == "Oi, Marcelo."
+        assert mock_run.called

@@ -725,7 +725,7 @@ class Executor:
         msg += f"• Custo: ${all_time['cost']:.6f}\n\n"
 
         if today['calls'] == 0:
-            msg += "_Nenhuma chamada ao Crof AI hoje. O Jarvis resolveu tudo localmente._ 🤖"
+            msg += "_Nenhuma chamada de API hoje. O Jarvis resolveu tudo localmente/gratuito._ 🤖"
         else:
             msg += f"_Custo médio por chamada: ${today['cost']/max(today['calls'],1):.8f}_"
 
@@ -764,7 +764,7 @@ class Executor:
         msg = "📋 *Relatório Diário — Jarvis do Cerrado*\n\n"
         msg += f"🖥️ *Sistema*\n{sys_info}\nUptime: {uptime}\n\n"
         msg += f"🌐 *Internet*\n{net_info}\n\n"
-        msg += f"🤖 *IA (Crof AI)*\n"
+        msg += f"🤖 *IA Local / Gratuita*\n"
         msg += f"• {tokens['calls']} chamadas · {tokens['total']} tokens\n"
         msg += f"• Custo: ${tokens['cost']:.6f}\n\n"
 

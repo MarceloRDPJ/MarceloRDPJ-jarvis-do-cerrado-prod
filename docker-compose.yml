@@ -9,6 +9,8 @@ services:
       - ./src/jarvis/storage:/app/src/jarvis/storage
       - ./.env:/app/.env
       - ./src/jarvis/config.yaml:/app/src/jarvis/config.yaml
+      - /opt/bot/llama.cpp:/opt/bot/llama.cpp:ro
+      - /opt/bot/models:/opt/bot/models:ro
     environment:
       - TZ=America/Sao_Paulo
     mem_limit: 512m

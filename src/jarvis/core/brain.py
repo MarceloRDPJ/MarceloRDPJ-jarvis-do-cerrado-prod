@@ -19,30 +19,19 @@ class Brain:
 
     ARQUITETURA:
     1. Local Mini-Brain (Retrieval-Based) - Prioridade Máxima (Rápido, Local, Free)
-    2. Crof AI (OpenAI-compatible) - Fallback Cognitivo Econômico (tools para ações)
-    3. Ollama (Local LLM) - Fallback offline
-    4. Fallback Determinístico (Hardcoded) - Segurança Final
+    2. llama.cpp (Local LLM) - Fallback cognitivo 100% gratuito/local
+    3. Fallback Determinístico (Hardcoded) - Segurança Final
     """
 
     def __init__(self):
         self.local_brain = LocalBrainEngine()
         self.local_llm = LLMFallbackEngine()
-
-        self.crof = None
-        if Config.CROF_API_KEY:
-            try:
-                from jarvis.core.crof_ai import CrofAIEngine
-                self.crof = CrofAIEngine(api_key=Config.CROF_API_KEY, model=Config.CROF_MODEL)
-                logger.info(f"Crof AI ativado (modelo: {Config.CROF_MODEL})")
-            except Exception as e:
-                logger.warning(f"Erro ao inicializar Crof AI: {e}")
-
-        logger.info("Brain inicializado.")
+        logger.info("Brain inicializado (100% local/free).")
 
     async def process_intent(self, user_text: str, chat_id: int = None) -> Dict[str, Any]:
         """
         Chamado quando Rules e IntentEngine falham.
-        Tenta LocalBrain primeiro, depois Cloud LLM.
+        Tenta LocalBrain primeiro, depois LLM local opcional.
         """
 
         # ==================================================
@@ -79,20 +68,8 @@ class Brain:
             logger.warning(f"⚠️ Erro no LocalBrain: {e}")
 
         # ==================================================
-        # 2. CROF AI (ECONÔMICO, TOOLS, AUTÔNOMO)
+        # 2. LOCAL LLM (LLAMA.CPP / OFFLINE)
         # ==================================================
-        if self.crof:
-            try:
-                crof_result = await self.crof.process(user_text, chat_id=chat_id)
-                if crof_result:
-                    return crof_result
-            except Exception as e:
-                logger.warning(f"Crof AI error: {e}")
-
-        # ==================================================
-        # 3. LOCAL LLM (OLLAMA OFFLINE FALLBACK)
-        # ==================================================
-        # Se chegou aqui, Cloud falhou ou não existe.
         try:
             local_response = self.local_llm.generate_chat_response(user_text)
             if local_response:
@@ -107,7 +84,7 @@ class Brain:
             logger.warning(f"⚠️ Erro no Local LLM: {e}")
 
         # ==================================================
-        # 4. FALLBACK FINAL
+        # 3. FALLBACK FINAL
         # ==================================================
         logger.info("[ROUTER] Fallback humano acionado (sem LLM).")
         return self._fallback(user_text)

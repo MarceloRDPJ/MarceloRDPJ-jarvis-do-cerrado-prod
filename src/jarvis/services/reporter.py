@@ -96,9 +96,9 @@ class ReporterService:
         msg += f"Internet: {net_info}\n\n"
 
         if tokens['calls'] > 0:
-            msg += f"IA: {tokens['calls']} chamadas | {tokens['total']} tokens | ${tokens['cost']:.6f}\n"
+            msg += f"IA externa: {tokens['calls']} chamadas | {tokens['total']} tokens | ${tokens['cost']:.6f}\n"
         else:
-            msg += "IA: Nenhuma chamada. Tudo local!\n"
+            msg += "IA: tudo local/gratuito. Nenhuma chamada externa.\n"
 
         if unknown:
             msg += f"{len(unknown)} consultas nao reconhecidas\n"
@@ -117,7 +117,7 @@ class ReporterService:
 
         msg = "Relatorio Semanal — Jarvis do Cerrado\n\n"
         msg += f"Semana: {datetime.now(Config.TZ).strftime('%d/%m/%Y')}\n\n"
-        msg += "IA\n"
+        msg += "IA local / gratuita\n"
         msg += f"* Chamadas hoje: {tokens['calls']}\n"
         msg += f"* Tokens hoje: {tokens['total']}\n"
         msg += f"* Custo hoje: ${tokens['cost']:.6f}\n\n"

@@ -1,48 +1,66 @@
 import requests
 import json
 import logging
+import os
+import subprocess
+from jarvis.config import Config
 
 logger = logging.getLogger(__name__)
 
 class LLMFallbackEngine:
     def __init__(self):
-        # Default to localhost, but allows for docker internal networking if needed
-        # In a real Docker setup, this might be "http://host.docker.internal:11434"
-        # or specific IP, but localhost covers the requirement for "validar Ollama rodando no host".
-        self.url = "http://localhost:11434/api/generate"
-        self.model = "tinyllama"
+        self.backend = Config.LOCAL_LLM_BACKEND
+        self.url = Config.LOCAL_LLM_URL
+        self.model = Config.LOCAL_LLM_MODEL
+        self.cli_path = Config.LOCAL_LLM_CLI_PATH
+        self.model_path = Config.LOCAL_LLM_MODEL_PATH
+        self.context_tokens = Config.LOCAL_LLM_CONTEXT_TOKENS
+        self.threads = Config.LOCAL_LLM_THREADS
+        self.timeout = Config.LOCAL_LLM_TIMEOUT_SECONDS
+        self.max_tokens = Config.LOCAL_LLM_MAX_TOKENS
 
     def is_available(self) -> bool:
-        """Checa se o Ollama está respondendo"""
+        """Checa se o backend local está respondendo."""
+        if self.backend == "disabled":
+            return False
+        if self.backend == "llamacpp_cli":
+            return bool(
+                self.cli_path
+                and self.model_path
+                and os.path.exists(self.cli_path)
+                and os.path.exists(self.model_path)
+            )
         try:
-            # Tenta endpoint raiz ou tags para verificar vida
-            requests.get("http://localhost:11434/", timeout=1)
+            base_url = self.url.rsplit("/", 1)[0]
+            requests.get(base_url, timeout=1)
             return True
-        except:
+        except Exception:
             return False
 
     def generate_chat_response(self, text: str) -> str:
         """Gera resposta de chat livre (não-JSON)"""
-        prompt = f"""
-        System: Você é Jarvis do Cerrado, um assistente útil e engraçado com sotaque goiano leve. Responda de forma curta.
-        User: {text}
-        Assistant:
-        """
+        if self.backend == "disabled":
+            return None
 
-        payload = {
-            "model": self.model,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"num_predict": 150, "temperature": 0.7}
-        }
+        prompt = (
+            "System: Você é Jarvis do Cerrado, assistente local do Marcelo. "
+            "Responda em português do Brasil, curto, direto e útil. "
+            "Não invente dados de sistema/rede; diga quando não souber.\n"
+            f"User: {text}\nAssistant:"
+        )
+
+        if self.backend == "llamacpp_cli":
+            return self._generate_with_cli(prompt)
+
+        payload = self._build_payload(prompt, temperature=0.7)
 
         try:
-            response = requests.post(self.url, json=payload, timeout=10)
+            response = requests.post(self.url, json=payload, timeout=self.timeout)
             response.raise_for_status()
             result = response.json()
-            return result.get("response", "").strip()
+            return self._extract_text(result).strip() or None
         except requests.exceptions.ConnectionError:
-            logger.debug("Ollama offline.")
+            logger.debug("LLM local offline.")
             return None
         except Exception as e:
             logger.error(f"Erro no LLMFallbackEngine (Chat): {e}")
@@ -57,20 +75,28 @@ class LLMFallbackEngine:
         Formato: {{"intent": "<valor>", "entities": {{}}}}
         """
 
-        payload = {
-            "model": self.model,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"num_predict": 120, "temperature": 0.1}
-        }
+        if self.backend == "disabled":
+            return None
+
+        if self.backend == "llamacpp_cli":
+            generated_text = self._generate_with_cli(prompt)
+            if not generated_text:
+                return None
+            try:
+                generated_text = generated_text.replace("```json", "").replace("```", "").strip()
+                return json.loads(generated_text)
+            except json.JSONDecodeError:
+                logger.warning(f"Falha ao decodificar JSON do LLM: {generated_text}")
+                return None
+
+        payload = self._build_payload(prompt, temperature=0.1)
 
         try:
-            response = requests.post(self.url, json=payload, timeout=15)
+            response = requests.post(self.url, json=payload, timeout=self.timeout)
             response.raise_for_status()
             result = response.json()
 
-            # Ollama returns the generated text in 'response' field
-            generated_text = result.get("response", "")
+            generated_text = self._extract_text(result)
 
             # Clean up potential markdown code blocks
             generated_text = generated_text.replace("```json", "").replace("```", "").strip()
@@ -78,8 +104,7 @@ class LLMFallbackEngine:
             return json.loads(generated_text)
 
         except requests.exceptions.ConnectionError:
-            # Log as debug to reduce noise, as Ollama might simply be offline
-            logger.debug("Ollama não está acessível (ConnectionError) - Ignorando fallback local.")
+            logger.debug("LLM local não está acessível (ConnectionError) - Ignorando fallback local.")
             return None
         except json.JSONDecodeError:
             logger.warning(f"Falha ao decodificar JSON do LLM: {generated_text}")
@@ -87,3 +112,87 @@ class LLMFallbackEngine:
         except Exception as e:
             logger.error(f"Erro no LLMFallbackEngine (Interpret): {e}")
             return None
+
+    def _build_payload(self, prompt: str, temperature: float) -> dict:
+        if self.backend == "ollama":
+            return {
+                "model": self.model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {"num_predict": self.max_tokens, "temperature": temperature},
+            }
+
+        return {
+            "prompt": prompt,
+            "n_predict": self.max_tokens,
+            "temperature": temperature,
+            "stop": ["User:", "System:"],
+        }
+
+    def _extract_text(self, result: dict) -> str:
+        if self.backend == "ollama":
+            return result.get("response", "")
+        return result.get("content") or result.get("response") or result.get("text") or ""
+
+    def _generate_with_cli(self, prompt: str) -> str:
+        if not self.cli_path or not self.model_path:
+            logger.debug("llama-cli sem caminho de binário/modelo configurado.")
+            return None
+
+        command = [
+            self.cli_path,
+            "-m", self.model_path,
+            "-p", prompt,
+            "-n", str(self.max_tokens),
+            "-c", str(self.context_tokens),
+            "-t", str(self.threads),
+            "--no-conversation",
+            "--no-display-prompt",
+        ]
+
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+                check=False,
+            )
+            if completed.returncode != 0:
+                logger.debug(f"llama-cli retornou {completed.returncode}: {completed.stderr.strip()}")
+                return None
+            return self._clean_cli_output(completed.stdout)
+        except FileNotFoundError:
+            logger.debug("llama-cli não encontrado.")
+            return None
+        except subprocess.TimeoutExpired:
+            logger.debug("llama-cli excedeu o timeout configurado.")
+            return None
+        except Exception as e:
+            logger.error(f"Erro no llama-cli: {e}")
+            return None
+
+    def _clean_cli_output(self, output: str) -> str:
+        ignored_prefixes = (
+            "build      :",
+            "model      :",
+            "modalities :",
+            "available commands:",
+            "/exit",
+            "/regen",
+            "/clear",
+            "/read",
+            "/glob",
+            "[ Prompt:",
+        )
+        lines = []
+        for line in output.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith(ignored_prefixes):
+                continue
+            if stripped in {"▄▄ ▄▄", "██ ██", "▀▀    ▀▀"}:
+                continue
+            if stripped.startswith(">"):
+                continue
+            lines.append(stripped)
+        return " ".join(lines).strip() or None

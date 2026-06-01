@@ -27,10 +27,17 @@ class Config:
     ALLOWED_USER_ID = int(raw_id) if raw_id.strip() else 0
 
     # ==================================================
-    # CROF AI (FALLBACK LLM - OPENAI COMPATIBLE)
+    # LOCAL AI (FREE FALLBACK - LLAMA.CPP)
     # ==================================================
-    CROF_API_KEY = os.getenv("CROF_API_KEY")
-    CROF_MODEL = os.getenv("CROF_MODEL", "qwen3.5-9b")
+    LOCAL_LLM_BACKEND = os.getenv("LOCAL_LLM_BACKEND", "llamacpp_cli").strip().lower()
+    LOCAL_LLM_URL = os.getenv("LOCAL_LLM_URL", "http://127.0.0.1:8081/completion")
+    LOCAL_LLM_MODEL = os.getenv("LOCAL_LLM_MODEL", "gemma-3-270m-it")
+    LOCAL_LLM_CLI_PATH = os.getenv("LOCAL_LLM_CLI_PATH", "/opt/bot/llama.cpp/build/bin/llama-cli")
+    LOCAL_LLM_MODEL_PATH = os.getenv("LOCAL_LLM_MODEL_PATH", "")
+    LOCAL_LLM_CONTEXT_TOKENS = int(os.getenv("LOCAL_LLM_CONTEXT_TOKENS", 256))
+    LOCAL_LLM_THREADS = int(os.getenv("LOCAL_LLM_THREADS", 2))
+    LOCAL_LLM_TIMEOUT_SECONDS = int(os.getenv("LOCAL_LLM_TIMEOUT_SECONDS", 8))
+    LOCAL_LLM_MAX_TOKENS = int(os.getenv("LOCAL_LLM_MAX_TOKENS", 96))
 
     # ==================================================
     # NETWORK / SYSTEM
@@ -77,9 +84,6 @@ class Config:
 
         if not Config.ALLOWED_USER_ID:
             missing.append("ALLOWED_USER_ID")
-
-        if not Config.CROF_API_KEY:
-            missing.append("CROF_API_KEY")
 
         if not Config.PC_MAC:
             missing.append("PC_MAC (necessário para Wake-on-LAN)")
