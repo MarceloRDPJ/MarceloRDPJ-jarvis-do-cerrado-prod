@@ -19,6 +19,7 @@ classifiers = [
 dependencies = [
     "python-telegram-bot==20.8",
     "python-dotenv",
+    "requests",
     "pyyaml",
     "psutil",
     "speedtest-cli",

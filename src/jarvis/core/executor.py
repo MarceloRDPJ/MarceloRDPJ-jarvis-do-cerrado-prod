@@ -483,7 +483,7 @@ class Executor:
 
         if intent == "system_status": return await SystemModule.get_status()
         if intent == "fan_control":
-            return await Executor._handle_fan_control(text, app)
+            return await self._handle_fan_control(params.get("text", ""), self.app)
         if intent == "system_reboot": return SystemModule.reboot_device()
         if intent == "system_restart_adguard": return SystemModule.restart_container("adguardhome")
 
@@ -583,6 +583,8 @@ class Executor:
             # Executa Wake-on-LAN
             try:
                 result = await NetworkModule.wake_on_lan(Config.PC_MAC)
+                if not result.get("success"):
+                    return f"❌ Erro ao enviar pacote WOL: {result.get('message', 'falha desconhecida')}"
 
                 return (
                     "🖥️ *Pacote WOL Enviado!*\n\n"

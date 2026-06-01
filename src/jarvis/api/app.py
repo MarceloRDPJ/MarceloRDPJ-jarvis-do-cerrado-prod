@@ -131,7 +131,17 @@ async def get_system_status():
 @app.get("/api/system/health")
 async def get_system_health():
     """Quick health check."""
-    return {"status": "ok", "timestamp": time.time()}
+    from jarvis.core.llm_fallback import LLMFallbackEngine
+    local_llm = LLMFallbackEngine()
+    return {
+        "status": "ok",
+        "timestamp": time.time(),
+        "local_llm": {
+            "backend": local_llm.backend,
+            "model": local_llm.model,
+            "available": local_llm.is_available(),
+        },
+    }
 
 
 @app.post("/api/system/reboot")
@@ -720,8 +730,14 @@ async def get_dashboard_data():
         "timezone": Config.TIMEZONE,
         "local_ai_provider": Config.LOCAL_LLM_BACKEND,
         "local_llm_model": Config.LOCAL_LLM_MODEL,
+        "local_llm_available": False,
         "user_id": Config.ALLOWED_USER_ID,
     }
+    try:
+        from jarvis.core.llm_fallback import LLMFallbackEngine
+        data["bot"]["local_llm_available"] = LLMFallbackEngine().is_available()
+    except Exception:
+        pass
 
     return JSONResponse(content=data)
 
@@ -739,6 +755,12 @@ async def get_config():
         "local_ai_provider": Config.LOCAL_LLM_BACKEND,
         "local_llm_url": Config.LOCAL_LLM_URL,
         "local_llm_model": Config.LOCAL_LLM_MODEL,
+        "local_llm_cli_path": Config.LOCAL_LLM_CLI_PATH,
+        "local_llm_model_path": Config.LOCAL_LLM_MODEL_PATH,
+        "local_llm_context_tokens": Config.LOCAL_LLM_CONTEXT_TOKENS,
+        "local_llm_threads": Config.LOCAL_LLM_THREADS,
+        "local_llm_timeout_seconds": Config.LOCAL_LLM_TIMEOUT_SECONDS,
+        "local_llm_max_tokens": Config.LOCAL_LLM_MAX_TOKENS,
         "intent_confidence": Config.INTENT_CONFIDENCE_THRESHOLD,
         "scheduler_interval": Config.SCHEDULER_INTERVAL_SECONDS,
         "hydration_interval": Config.HYDRATION_MIN_INTERVAL_MINUTES,

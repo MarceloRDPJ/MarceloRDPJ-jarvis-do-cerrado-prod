@@ -46,6 +46,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    executor: Executor = context.application.bot_data["executor"]
+    response = await executor.execute({"intent": "help", "action": "show", "params": {}}, chat_id)
+    if isinstance(response, dict):
+        await update.message.reply_text(
+            response.get("text", ""),
+            reply_markup=response.get("reply_markup"),
+            parse_mode="Markdown",
+        )
+    else:
+        await update.message.reply_text(response, parse_mode="Markdown")
+
+
 # =====================================================
 # MESSAGE HANDLER
 # =====================================================
@@ -340,6 +354,7 @@ def main():
 
     # Handlers
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CallbackQueryHandler(handle_callback))
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)

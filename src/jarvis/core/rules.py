@@ -95,6 +95,45 @@ def apply_rules(text: str) -> Optional[Dict]:
             "confidence": 1.0
         }
 
+    if t in ["help", "ajuda", "menu", "comandos", "opcoes", "opções"]:
+        return {"intent": "help", "action": "show", "entity": "system", "confidence": 1.0}
+
+    if "ajuda bloquear" in t:
+        return {
+            "intent": "chat",
+            "action": "reply",
+            "entity": "help",
+            "params": {"response": "🚫 Para bloquear: `bloquear 192.168.0.15` ou `bloquear site youtube.com`. Ação sensível pede confirmação."},
+            "confidence": 1.0,
+        }
+
+    if "ajuda renomear" in t:
+        return {
+            "intent": "chat",
+            "action": "reply",
+            "entity": "help",
+            "params": {"response": "✏️ Para renomear: `renomear 192.168.0.15 para TV Sala`."},
+            "confidence": 1.0,
+        }
+
+    if "ajuda reiniciar" in t:
+        return {
+            "intent": "chat",
+            "action": "reply",
+            "entity": "help",
+            "params": {"response": "🔄 Para reiniciar o Raspberry: `reiniciar sistema`. Para AdGuard: `reiniciar adguard`. Ambos pedem confirmação."},
+            "confidence": 1.0,
+        }
+
+    if t == "agora nao":
+        return {
+            "intent": "chat",
+            "action": "reply",
+            "entity": "hydration",
+            "params": {"response": "Beleza. Quando beber água, mande `bebi` ou `bebi 500ml`."},
+            "confidence": 1.0,
+        }
+
     # =====================================================
     # MENUS (ATALHOS & CALLBACKS) - PRIORIDADE SOBRE HELP/LEMBRETES
     # =====================================================
@@ -143,6 +182,18 @@ def apply_rules(text: str) -> Optional[Dict]:
         }
 
     # =====================================================
+    # RESTART ADGUARD (DNS / INTERNET)
+    # =====================================================
+    if re.search(r"\b(reiniciar|restart|reboot)\b.*\b(adguard|dns)\b", t):
+        return {
+            "intent": "system_restart_adguard",
+            "action": "request",
+            "entity": "container",
+            "requires_confirmation": True,
+            "confidence": 0.95,
+        }
+
+    # =====================================================
     # REBOOT (AÇÃO PERIGOSA → CONFIRMAÇÃO OBRIGATÓRIA)
     # =====================================================
     if re.search(r"\b(reiniciar|reboot|reinicia o sistema)\b", t):
@@ -150,18 +201,6 @@ def apply_rules(text: str) -> Optional[Dict]:
             "intent": "system_reboot",
             "action": "request",
             "entity": "system",
-            "requires_confirmation": True,
-            "confidence": 0.95,
-        }
-
-    # =====================================================
-    # RESTART ADGUARD (DNS / INTERNET)
-    # =====================================================
-    if "adguard" in t or "dns" in t or "internet" in t and "reiniciar" in t:
-        return {
-            "intent": "system_restart_adguard",
-            "action": "request",
-            "entity": "container",
             "requires_confirmation": True,
             "confidence": 0.95,
         }
@@ -285,26 +324,6 @@ def apply_rules(text: str) -> Optional[Dict]:
         }
 
     # =====================================================
-    # LEMBRETES (CRIAÇÃO BÁSICA)
-    # =====================================================
-    if "lembra" in t or "lembrete" in t:
-        return {
-            "intent": "reminder_set",
-            "action": "create",
-            "entity": "reminder",
-            "confidence": 0.8,
-        }
-
-    # Typos comuns (lmebra, lmembra, lembar)
-    if re.search(r"\b(l[ea]mbra|lmebra|lembar)\b", t):
-        return {
-            "intent": "reminder_set",
-            "action": "create",
-            "entity": "reminder",
-            "confidence": 0.7,
-        }
-
-    # =====================================================
     # HIDRATAÇÃO (SISTEMA CONSOLIDADO)
     # =====================================================
 
@@ -318,13 +337,16 @@ def apply_rules(text: str) -> Optional[Dict]:
         }
 
     # 2. Log de Consumo com Valor Específico
-    log_match = re.search(r"(?:bebi|tomei|mais)\s*(\d+)\s*(?:ml|l)?", t)
+    log_match = re.search(r"(?:bebi|tomei|mais)\s*(\d+)\s*(ml|l)?", t)
     if log_match:
+        amount = int(log_match.group(1))
+        if log_match.group(2) == "l":
+            amount *= 1000
         return {
             "intent": "hydration_log_explicit",
             "action": "log",
             "entity": "hydration",
-            "params": {"amount": int(log_match.group(1))},
+            "params": {"amount": amount},
             "confidence": 1.0,
         }
 
@@ -376,6 +398,38 @@ def apply_rules(text: str) -> Optional[Dict]:
         }
 
     # =====================================================
+    # FAN / VENTOINHA
+    # =====================================================
+    if re.search(r"\b(fan|ventoinha|cooler|ventilador)\b", t):
+        return {
+            "intent": "fan_control",
+            "action": "control",
+            "entity": "fan",
+            "params": {"text": t},
+            "confidence": 1.0,
+        }
+
+    # =====================================================
+    # LEMBRETES (CRIAÇÃO BÁSICA)
+    # =====================================================
+    if "lembra" in t or "lembrete" in t:
+        return {
+            "intent": "reminder_set",
+            "action": "create",
+            "entity": "reminder",
+            "confidence": 0.8,
+        }
+
+    # Typos comuns (lmebra, lmembra, lembar)
+    if re.search(r"\b(l[ea]mbra|lmebra|lembar)\b", t):
+        return {
+            "intent": "reminder_set",
+            "action": "create",
+            "entity": "reminder",
+            "confidence": 0.7,
+        }
+
+    # =====================================================
     # BLOQUEIO DE DISPOSITIVO (PREPARADO – PASSO 9)
     # =====================================================
     if re.search(r"\b(bloquear dispositivo|bloqueia esse dispositivo)\b", t):
@@ -390,11 +444,13 @@ def apply_rules(text: str) -> Optional[Dict]:
     # =====================================================
     # BLOQUEIO DE SITE (ADGUARD – FUTURO)
     # =====================================================
-    if re.search(r"\b(bloquear site|bloqueia site)\b", t):
+    site_match = re.search(r"\b(?:bloquear|bloqueia)\s+(?:site\s+)?([a-z0-9.-]+\.[a-z]{2,})\b", t)
+    if site_match:
         return {
             "intent": "network_block_site",
             "action": "request",
             "entity": "network",
+            "params": {"site": site_match.group(1)},
             "requires_confirmation": True,
             "confidence": 0.95,
         }
