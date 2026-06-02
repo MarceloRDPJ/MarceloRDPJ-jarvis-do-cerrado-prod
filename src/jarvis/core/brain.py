@@ -46,10 +46,11 @@ class Brain:
         """
         user_text = normalize_text(user_text)
 
-        # Tenta LocalBrain primeiro (rápido, sem LLM)
+        # LocalBrain: só aceita se for match quase exato (>= 95%)
+        # Evita falsos positivos tipo "o que e dns" → "voce e homem ou mulher"
         try:
             local_result = await self.local_brain.process(user_text)
-            if local_result and local_result.get("confidence", 0) >= 0.85:
+            if local_result and local_result.get("confidence", 0) >= 0.95:
                 return {
                     "type": "chat",
                     "intent": "chat",
@@ -112,11 +113,11 @@ class Brain:
         user_text = normalize_text(user_text)
 
         # ==================================================
-        # 1. LOCAL MINI-BRAIN (RÁPIDO)
+        # 1. LOCAL MINI-BRAIN (RÁPIDO - só com confiança alta)
         # ==================================================
         try:
             local_result = await self.local_brain.process(user_text)
-            if local_result:
+            if local_result and local_result.get("confidence", 0) >= 0.90:
                 return {
                     "intent": "chat",
                     "response": local_result["text"],

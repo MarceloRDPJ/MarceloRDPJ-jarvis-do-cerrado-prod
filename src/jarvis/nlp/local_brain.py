@@ -16,7 +16,7 @@ class LocalBrain:
         # Base de Conhecimento Estática (101+ entradas)
         self.static_kb = self._build_static_kb()
         self.kb_keys = list(self.static_kb.keys())
-        self.similarity_threshold = 80
+        self.similarity_threshold = 92
 
     def _build_static_kb(self) -> Dict[str, Any]:
         """
@@ -180,7 +180,20 @@ class LocalBrain:
             "uptime": "Rodando sem parar.",
             "log de erro": "Nenhum erro crítico recente.",
             "reiniciar": "Reinicialização requer confirmação.",
-            "ajuda": "Comandos disponíveis no menu /help."
+            "ajuda": "Comandos disponíveis no menu /help.",
+
+            # === TECNOLOGIA (10) ===
+            "o que e dns": "DNS (Domain Name System) é o sistema que traduz nomes de sites (ex: google.com) em endereços IP. Funciona como uma agenda telefônica da internet. Uso o AdGuard Home como servidor DNS na sua rede para bloquear anúncios e malwares.",
+            "o que e ip": "IP (Internet Protocol) é o endereço único de cada dispositivo na rede. Ex: 192.168.1.10. É como um CPF digital pra cada aparelho conectado.",
+            "o que e vpn": "VPN (Virtual Private Network) cria um túnel criptografado entre dispositivos. Uso Tailscale pra acessar o Jarvis de fora de casa com segurança.",
+            "o que e ping": "Ping é um comando que mede o tempo de resposta entre dois dispositivos na rede. Quanto menor, melhor. É usado pra diagnosticar lentidão.",
+            "o que e adguard": "AdGuard Home é um servidor DNS que filtra anúncios, rastreadores e sites maliciosos em toda a rede. É meu parceiro de segurança.",
+            "o que e raspberry pi": "Raspberry Pi é um computador do tamanho de um cartão de crédito. O meu é um Pi 3B com 1GB de RAM, 4 núcleos ARM e consumo de apenas 5W.",
+            "o que e docker": "Docker é uma plataforma que empacota aplicativos em containers isolados. Rodo dentro de um container pra facilitar manutenção e manter o sistema limpo.",
+            "o que e python": "Python é a linguagem que me escreveram. Versão 3.12, assíncrona, moderna e eficiente pra rodar em dispositivos pequenos.",
+            "o que e llm": "LLM (Large Language Model) é um modelo de inteligência artificial que entende e gera texto. Uso o llama.cpp com modelos pequenos rodando localmente no Pi.",
+            "o que e github": "GitHub é uma plataforma de hospedagem de código-fonte. Meu código fica em github.com/MarceloRDPJ.",
+            "o que e iot": "IoT (Internet das Coisas) são dispositivos conectados à internet como lâmpadas, sensores e câmeras. Posso ajudar a monitorar eles.",
         }
 
     async def process(self, text: str, chat_id: int = None) -> Optional[Dict[str, Any]]:
