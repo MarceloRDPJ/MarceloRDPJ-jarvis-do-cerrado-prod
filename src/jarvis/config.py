@@ -29,6 +29,8 @@ class Config:
     # ==================================================
     # LOCAL AI (FREE FALLBACK - LLAMA.CPP)
     # ==================================================
+    LOCAL_LLM_ENABLED = os.getenv("LOCAL_LLM_ENABLED", "true").strip().lower() == "true"
+    LOCAL_LLM_COMMAND = os.getenv("LOCAL_LLM_COMMAND", "llama-cli")
     LOCAL_LLM_BACKEND = os.getenv("LOCAL_LLM_BACKEND", "llamacpp_cli").strip().lower()
     LOCAL_LLM_URL = os.getenv("LOCAL_LLM_URL", "http://127.0.0.1:8081/completion")
     LOCAL_LLM_MODEL = os.getenv("LOCAL_LLM_MODEL", "gemma-3-270m-it")
@@ -38,6 +40,18 @@ class Config:
     LOCAL_LLM_THREADS = int(os.getenv("LOCAL_LLM_THREADS", 2))
     LOCAL_LLM_TIMEOUT_SECONDS = int(os.getenv("LOCAL_LLM_TIMEOUT_SECONDS", 15))
     LOCAL_LLM_MAX_TOKENS = int(os.getenv("LOCAL_LLM_MAX_TOKENS", 48))
+    LOCAL_LLM_TEMPERATURE = float(os.getenv("LOCAL_LLM_TEMPERATURE", 0.3))
+
+    # ==================================================
+    # LOCAL WEB TOOLS (FREE/PUBLIC SOURCES)
+    # ==================================================
+    LOCAL_WEB_TOOLS_ENABLED = os.getenv("LOCAL_WEB_TOOLS_ENABLED", "true").strip().lower() == "true"
+    WEB_FETCH_TIMEOUT_SECONDS = int(os.getenv("WEB_FETCH_TIMEOUT_SECONDS", 10))
+    WEB_FETCH_MAX_CHARS = int(os.getenv("WEB_FETCH_MAX_CHARS", 12000))
+    WEB_USER_AGENT = os.getenv("WEB_USER_AGENT", "JarvisDoCerrado/1.0")
+    RSS_FEEDS_ENABLED = os.getenv("RSS_FEEDS_ENABLED", "true").strip().lower() == "true"
+    RSS_FEEDS = [feed.strip() for feed in os.getenv("RSS_FEEDS", "").split(",") if feed.strip()]
+    CURRENT_INFO_BRASILEIRAO_URL = os.getenv("CURRENT_INFO_BRASILEIRAO_URL", "")
 
     # ==================================================
     # NETWORK / SYSTEM

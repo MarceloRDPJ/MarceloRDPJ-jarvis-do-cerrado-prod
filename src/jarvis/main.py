@@ -1,5 +1,7 @@
 import logging
 import asyncio
+import os
+import re
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -25,12 +27,64 @@ from jarvis.services.fan_control import FanControlService
 import uvicorn
 
 # =====================================================
-# LOGGING
+# LOGGING — SANITIZAÇÃO DE SEGREDOS
 # =====================================================
+_SANITIZE_PATTERNS = []
+_SENSITIVE_ENV_NAMES = ("TOKEN", "API_KEY", "SECRET", "PASSWORD", "PASS", "KEY")
+
+
+def _add_secret_pattern(value, label):
+    if value and isinstance(value, str) and len(value) >= 6:
+        _SANITIZE_PATTERNS.append((re.escape(value), label))
+
+
+token = getattr(Config, "TELEGRAM_TOKEN", None)
+_add_secret_pattern(token, "TELEGRAM_TOKEN")
+for env_name, env_value in os.environ.items():
+    upper_name = env_name.upper()
+    if any(marker in upper_name for marker in _SENSITIVE_ENV_NAMES):
+        _add_secret_pattern(env_value, upper_name)
+
+_TELEGRAM_BOT_URL_RE = re.compile(r"bot\d+:[A-Za-z0-9_\-]+")
+
+
+def sanitize_log_text(value: str) -> str:
+    if not isinstance(value, str):
+        return value
+    value = _TELEGRAM_BOT_URL_RE.sub("bot***TELEGRAM_TOKEN***", value)
+    for pattern, replacement in _SANITIZE_PATTERNS:
+        value = re.sub(pattern, f"***{replacement}***", value)
+    return value
+
+
+class SecretSanitizingFormatter(logging.Formatter):
+    def format(self, record):
+        return sanitize_log_text(super().format(record))
+
+class SecretSanitizer(logging.Filter):
+    """Mascara tokens e chaves de API em todas as mensagens de log."""
+    def filter(self, record):
+        if hasattr(record, "msg") and isinstance(record.msg, str):
+            record.msg = sanitize_log_text(record.msg)
+        if hasattr(record, "args") and record.args:
+            sanitized = []
+            for arg in record.args:
+                if isinstance(arg, str):
+                    arg = sanitize_log_text(arg)
+                sanitized.append(arg)
+            record.args = tuple(sanitized)
+        return True
+
 logging.basicConfig(
     format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
     level=logging.INFO,
 )
+for handler in logging.root.handlers:
+    handler.addFilter(SecretSanitizer())
+    handler.setFormatter(SecretSanitizingFormatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
+# Also sanitize httpx/urllib3 (Telegram API logs the full URL)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
 logger = logging.getLogger("Jarvis")
 
 

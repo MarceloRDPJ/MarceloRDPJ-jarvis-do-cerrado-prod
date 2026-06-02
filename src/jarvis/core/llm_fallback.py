@@ -46,9 +46,24 @@ def _discover_model():
     return path
 
 
+JARVIS_SYSTEM_PROMPT = (
+    "Você é o Jarvis do Cerrado, assistente doméstico local do Marcelo, "
+    "rodando em um Raspberry Pi 3B. "
+    "Você ajuda com automação residencial, rede local, Docker, Raspberry Pi, "
+    "serviços do servidor e perguntas gerais. "
+    "Responda em português do Brasil, de forma direta, natural e segura. "
+    "Não invente informações atuais. "
+    "Quando a pergunta depende de dados recentes, use pesquisa na internet. "
+    "Quando não conseguir confirmar algo, avise honestamente. "
+    "Nunca revele tokens, senhas ou chaves. "
+    "Nunca execute ações perigosas sem confirmação. "
+    "Seja útil e conciso."
+)
+
+
 class LLMFallbackEngine:
     def __init__(self):
-        self.backend = Config.LOCAL_LLM_BACKEND
+        self.backend = Config.LOCAL_LLM_BACKEND if Config.LOCAL_LLM_ENABLED else "disabled"
         self.url = Config.LOCAL_LLM_URL
         self.model = Config.LOCAL_LLM_MODEL
         self.cli_path = Config.LOCAL_LLM_CLI_PATH or _discover_cli()
@@ -57,6 +72,8 @@ class LLMFallbackEngine:
         self.threads = Config.LOCAL_LLM_THREADS
         self.timeout = Config.LOCAL_LLM_TIMEOUT_SECONDS
         self.max_tokens = Config.LOCAL_LLM_MAX_TOKENS
+        self.temperature = Config.LOCAL_LLM_TEMPERATURE
+
         if not self.cli_path or not self.model_path:
             logger.warning(f"LLM local não configurado (cli={self.cli_path}, model={self.model_path}). Use LOCAL_LLM_CLI_PATH e LOCAL_LLM_MODEL_PATH no .env")
 
@@ -84,16 +101,34 @@ class LLMFallbackEngine:
             return None
 
         prompt = (
-            "System: Você é Jarvis do Cerrado, assistente local do Marcelo. "
-            "Responda em português do Brasil, curto, direto e útil. "
-            "Não invente dados de sistema/rede; diga quando não souber.\n"
+            f"System: {JARVIS_SYSTEM_PROMPT}\n"
             f"User: {text}\nAssistant:"
         )
 
-        if self.backend == "llamacpp_cli":
-            return self._generate_with_cli(prompt)
+        return self._generate_prompt(prompt, temperature=self.temperature)
 
-        payload = self._build_payload(prompt, temperature=0.7)
+    def generate_response_with_context(self, question: str, context: str) -> str:
+        """Usa o LLM local para formular resposta com dados coletados localmente."""
+        if self.backend == "disabled" or not context:
+            return None
+
+        prompt = (
+            f"System: {JARVIS_SYSTEM_PROMPT}\n"
+            "Você recebeu dados coletados por ferramentas locais gratuitas. "
+            "Responda apenas com base no contexto. Se o contexto for insuficiente, diga isso.\n"
+            f"Contexto:\n{context}\n\n"
+            f"User: {question}\nAssistant:"
+        )
+        return self._generate_prompt(prompt, temperature=self.temperature)
+
+    def _generate_prompt(self, prompt: str, temperature: float) -> str:
+        if self.backend == "disabled":
+            return None
+
+        if self.backend == "llamacpp_cli":
+            return self._generate_with_cli(prompt, temperature=temperature)
+
+        payload = self._build_payload(prompt, temperature=temperature)
 
         try:
             response = requests.post(self.url, json=payload, timeout=self.timeout)
@@ -175,7 +210,7 @@ class LLMFallbackEngine:
             return result.get("response", "")
         return result.get("content") or result.get("response") or result.get("text") or ""
 
-    def _generate_with_cli(self, prompt: str) -> str:
+    def _generate_with_cli(self, prompt: str, temperature: float = None) -> str:
         if not self.cli_path or not self.model_path:
             logger.debug("llama-cli sem caminho de binário/modelo configurado.")
             return None
@@ -187,6 +222,7 @@ class LLMFallbackEngine:
             "-n", str(self.max_tokens),
             "-c", str(self.context_tokens),
             "-t", str(self.threads),
+            "--temp", str(self.temperature if temperature is None else temperature),
             "--no-conversation",
             "--no-display-prompt",
         ]

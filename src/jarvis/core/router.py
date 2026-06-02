@@ -39,6 +39,46 @@ def _extract_entities(text: str):
     return entities
 
 
+# Palavras que indicam pergunta/conversa (não comando)
+_QUESTION_WORDS = {
+    "o que", "como", "quando", "por que", "porque", "qual", "quais",
+    "quem", "onde", "para que", "que e", "que é", "o q",
+    "me explique", "me fale", "conte", "explique", "significa",
+    "o que significa", "o que e", "o que é",
+}
+
+# Palavras que indicam comando de sistema
+_COMMAND_WORDS = {
+    "status", "ligar", "desligar", "reiniciar", "ajuda", "help",
+    "lembrete", "lembrar", "bloquear", "desbloquear",
+    "ativar", "desativar", "pausar", "retomar", "cancelar",
+    "confirmar", "listar", "criar", "editar", "mudar", "alterar",
+    "apagar", "remover", "deletar", "velocidade", "scan",
+    "quem ta na rede", "diagnostico", "logs",
+}
+
+
+def _is_question(text: str) -> bool:
+    """Heurística: texto parece uma pergunta ou conversa?"""
+    t = text.lower().strip()
+    if any(t.startswith(w) for w in _QUESTION_WORDS):
+        return True
+    if t.endswith("?"):
+        return True
+    if len(t) < 4:
+        return False
+    return False
+
+
+def _is_command(text: str) -> bool:
+    """Heurística: texto parece um comando de sistema?"""
+    t = text.lower().strip()
+    for w in _COMMAND_WORDS:
+        if w in t:
+            return True
+    return False
+
+
 def _make_result(intent, action, entity, confidence, source, params=None, text=""):
     return {
         "intent": intent, "action": action, "entity": entity,
@@ -102,18 +142,14 @@ async def route(text: str, chat_id: int = None):
             )
 
     # ============================================================
-    # 4. CÉREBRO CENTRAL (LLM decide: comando ou conversa?)
+    # 4. CLASSIFICAÇÃO LEVE (sem LLM) — comando ou conversa?
     # ============================================================
-    classificacao = await brain.classify_intent(text)
-    if classificacao:
-        if classificacao["type"] == "chat":
-            logger.debug(f"Brain classificou como CONVERSA: '{text[:50]}'")
-            return await brain.process_intent(text, chat_id=chat_id)
-        elif classificacao["type"] == "command":
-            logger.debug(f"Brain classificou como COMANDO: '{text[:50]}' → NLP")
-            # cai no NLP abaixo
-    else:
-        logger.debug(f"Brain offline ou inseguro → fallback NLP: '{text[:50]}'")
+    if _is_question(text):
+        logger.debug(f"Classificado como CONVERSA (heurística): '{text[:50]}'")
+        return await brain.process_intent(text, chat_id=chat_id)
+    if _is_command(text):
+        logger.debug(f"Classificado como COMANDO (heurística): '{text[:50]}' → NLP")
+        # cai no NLP abaixo
 
     # ============================================================
     # 5. NLP LOCAL (Intent Engine fuzzy) com gate de confiança
