@@ -148,13 +148,28 @@ class Brain:
         # 3. FALLBACK FINAL
         # ==================================================
         logger.info("Fallback humano acionado (sem LLM).")
-        return self._fallback(user_text)
+        return await self._fallback(user_text)
 
-    def _fallback(self, user_text: str) -> Dict[str, Any]:
+    async def _fallback(self, user_text: str) -> Dict[str, Any]:
         try:
             Persistence.log_unknown_query(user_text, "final_fallback")
         except Exception:
             pass
+
+        # Fallback inteligente: tenta LocalBrain como última alternativa
+        try:
+            local_result = await self.local_brain.process(user_text)
+            if local_result and local_result.get("confidence", 0) >= 0.80:
+                return {
+                    "intent": "chat",
+                    "params": {"response": local_result["text"]},
+                    "text": user_text,
+                    "source": "local_brain_fallback",
+                    "confidence": local_result["confidence"],
+                }
+        except Exception:
+            pass
+
         return {
             "intent": "chat",
             "params": {"response": Personality.get_response("FALLBACK")},

@@ -3,21 +3,62 @@ import json
 import logging
 import os
 import subprocess
+import glob
 from jarvis.config import Config
 
 logger = logging.getLogger(__name__)
+
+# Caminhos comuns para auto-descoberta
+_COMMON_CLI_PATHS = [
+    "/opt/bot/llama.cpp/build/bin/llama-cli",
+    "/usr/local/bin/llama-cli",
+    "/usr/bin/llama-cli",
+]
+_COMMON_MODEL_DIRS = [
+    "/opt/bot/models",
+    "/models",
+    "/home/pi/models",
+    "/home/marcelo/models",
+]
+
+
+def _find_first_file(paths, pattern="*.gguf"):
+    for base in paths:
+        if os.path.isdir(base):
+            matches = sorted(glob.glob(os.path.join(base, pattern)))
+            if matches:
+                return matches[0]
+    return None
+
+
+def _discover_cli():
+    for p in _COMMON_CLI_PATHS:
+        if os.path.exists(p):
+            logger.info(f"Auto-descoberta: llama-cli em {p}")
+            return p
+    return None
+
+
+def _discover_model():
+    path = _find_first_file(_COMMON_MODEL_DIRS)
+    if path:
+        logger.info(f"Auto-descoberta: modelo em {path}")
+    return path
+
 
 class LLMFallbackEngine:
     def __init__(self):
         self.backend = Config.LOCAL_LLM_BACKEND
         self.url = Config.LOCAL_LLM_URL
         self.model = Config.LOCAL_LLM_MODEL
-        self.cli_path = Config.LOCAL_LLM_CLI_PATH
-        self.model_path = Config.LOCAL_LLM_MODEL_PATH
+        self.cli_path = Config.LOCAL_LLM_CLI_PATH or _discover_cli()
+        self.model_path = Config.LOCAL_LLM_MODEL_PATH or _discover_model()
         self.context_tokens = Config.LOCAL_LLM_CONTEXT_TOKENS
         self.threads = Config.LOCAL_LLM_THREADS
         self.timeout = Config.LOCAL_LLM_TIMEOUT_SECONDS
         self.max_tokens = Config.LOCAL_LLM_MAX_TOKENS
+        if not self.cli_path or not self.model_path:
+            logger.warning(f"LLM local não configurado (cli={self.cli_path}, model={self.model_path}). Use LOCAL_LLM_CLI_PATH e LOCAL_LLM_MODEL_PATH no .env")
 
     def is_available(self) -> bool:
         """Checa se o backend local está respondendo."""
