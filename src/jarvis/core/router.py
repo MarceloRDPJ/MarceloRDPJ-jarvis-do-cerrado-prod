@@ -4,128 +4,135 @@ from jarvis.core.brain import Brain
 from jarvis.core.context import ContextEngine
 from jarvis.nlp.normalizer import normalize_text
 from jarvis.config import Config
+from datetime import datetime, timezone
+import logging
 import re
+
+logger = logging.getLogger("core.router")
 
 brain = Brain()
 
+FLOW_TIMEOUT_MINUTES = 10
+
+# Intenções de gerenciamento que interrompem fluxos ativos
+MANAGEMENT_INTENTS = {
+    "reminder_list", "reminder_delete", "reminder_update",
+    "reminder_today", "reminder_overdue",
+    "hydration_control", "hydration_status", "hydration_update", "hydration_activate",
+    "hydration_log_explicit",
+    "token_usage", "daily_report", "unknown_queries",
+}
+
+
 def _extract_entities(text: str):
     entities = {}
-
-    # Listas básicas para suporte a contexto (expansível)
     locations = ["sala", "quarto", "cozinha", "banheiro", "escritorio", "varanda", "garagem"]
     devices = ["luz", "lampada", "ventilador", "ar", "tv", "televisao", "som"]
-
     for loc in locations:
         if re.search(rf"\b{loc}\b", text, re.IGNORECASE):
             entities["location"] = loc
             break
-
     for dev in devices:
         if re.search(rf"\b{dev}\b", text, re.IGNORECASE):
             entities["device"] = dev
             break
-
     return entities
 
+
+def _make_result(intent, action, entity, confidence, source, params=None, text=""):
+    return {
+        "intent": intent, "action": action, "entity": entity,
+        "confidence": confidence, "source": source,
+        "params": params or {}, "text": text,
+    }
+
+
+def _check_flow_timeout(chat_id: int, flow: dict, context: dict) -> bool:
+    flow_ts = flow.get("timestamp") or context.get("timestamp")
+    if not flow_ts:
+        return False
+    try:
+        elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(flow_ts)).total_seconds()
+        if elapsed > FLOW_TIMEOUT_MINUTES * 60:
+            ContextEngine.save_context(chat_id, {"flow": None})
+            return True
+    except Exception:
+        pass
+    return False
+
+
 async def route(text: str, chat_id: int = None):
-    # Normalize text first (remove accents, slang, typos)
     text = normalize_text(text)
 
-    # 1. Regras Determinísticas (Alta Prioridade & Interrupção de Fluxo)
+    # ============================================================
+    # 1. REGRAS DE SEGURANÇA & INTERRUPÇÃO DE FLUXO
+    # ============================================================
     rule = apply_rules(text)
 
-    # Se for um comando de gerenciamento, PRIORIZA sobre o fluxo (interrompe o fluxo)
-    management_intents = [
-        "reminder_list", "reminder_delete", "reminder_update",
-        "reminder_today", "reminder_overdue",
-        "hydration_control", "hydration_status", "hydration_update", "hydration_activate",
-        "hydration_log_explicit", # Note: hydration_log_implicit does NOT interrupt flows
-        "token_usage", "daily_report", "unknown_queries",
-    ]
-    if rule and rule["intent"] in management_intents:
+    if rule and rule["intent"] in MANAGEMENT_INTENTS:
         if chat_id:
-             # Mata o fluxo silenciosamente para permitir que o comando execute
-             ContextEngine.save_context(chat_id, {"flow": None})
+            ContextEngine.save_context(chat_id, {"flow": None})
+        return _make_result(
+            rule["intent"], rule["action"], rule["entity"],
+            1.0, "rule", rule.get("params", {}), text,
+        )
 
-        return {
-            "intent": rule["intent"],
-            "action": rule["action"],
-            "entity": rule["entity"],
-            "confidence": 1.0,
-            "source": "rule",
-            "params": rule.get("params", {}),
-            "text": text
-        }
-
-    # 0. Fluxo Ativo (Prioridade Máxima - salvo exceções acima) com timeout
-    FLOW_TIMEOUT_MINUTES = 10
+    # ============================================================
+    # 2. FLUXO ATIVO (com timeout)
+    # ============================================================
     if chat_id:
         context = ContextEngine.get_context(chat_id)
         flow = context.get("flow")
         if flow:
-            from datetime import datetime, timezone
-            flow_ts = flow.get("timestamp") or context.get("timestamp")
-            if flow_ts:
-                try:
-                    elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(flow_ts)).total_seconds()
-                    if elapsed > FLOW_TIMEOUT_MINUTES * 60:
-                        ContextEngine.save_context(chat_id, {"flow": None})
-                        flow = None
-                except Exception:
-                    pass
+            if _check_flow_timeout(chat_id, flow, context):
+                flow = None
         if flow:
-            return {
-                "intent": "flow_input",
-                "action": "handle_input",
-                "entity": None,
-                "confidence": 1.0,
-                "source": "flow",
-                "text": text,
-                "params": {"text": text}
-            }
+            return _make_result("flow_input", "handle_input", None, 1.0, "flow", {"text": text}, text)
 
-    # Processamento normal de Regras (se não for gerenciamento e não tiver fluxo)
+    # ============================================================
+    # 3. REGRAS DETERMINÍSTICAS (comandos claros)
+    # ============================================================
     if rule:
-        # Se a regra for um lembrete simples, deixamos o NLP lidar para extrair tempo
-        # A menos que seja um comando muito específico
-        if rule['intent'] == 'reminder_set' and rule.get('action') == 'create':
-            pass # Deixa passar para o NLP
+        if rule["intent"] == "reminder_set" and rule.get("action") == "create":
+            pass  # deixa o NLP/brain interpretar melhor
         else:
-            return {
-                "intent": rule["intent"],
-                "action": rule["action"],
-                "entity": rule["entity"],
-                "confidence": 1.0,
-                "source": "rule",
-                "params": rule.get("params", {}),
-                "text": text # Garante que o texto original seja passado
-            }
+            return _make_result(
+                rule["intent"], rule["action"], rule["entity"],
+                1.0, "rule", rule.get("params", {}), text,
+            )
 
-    # 2. NLP Local (Intent Engine)
+    # ============================================================
+    # 4. CÉREBRO CENTRAL (LLM decide: comando ou conversa?)
+    # ============================================================
+    classificacao = await brain.classify_intent(text)
+    if classificacao:
+        if classificacao["type"] == "chat":
+            logger.debug(f"Brain classificou como CONVERSA: '{text[:50]}'")
+            return await brain.process_intent(text, chat_id=chat_id)
+        elif classificacao["type"] == "command":
+            logger.debug(f"Brain classificou como COMANDO: '{text[:50]}' → NLP")
+            # cai no NLP abaixo
+    else:
+        logger.debug(f"Brain offline ou inseguro → fallback NLP: '{text[:50]}'")
+
+    # ============================================================
+    # 5. NLP LOCAL (Intent Engine fuzzy) com gate de confiança
+    # ============================================================
     nlp_intent = detect_intent(text)
-    if nlp_intent and nlp_intent.get('intent') not in ['chat', 'unknown']:
-        confidence = nlp_intent.get('confidence', 0)
-        # Gate de confiança: só aceita NLP se o score for alto o suficiente
+    if nlp_intent and nlp_intent.get("intent") not in ("chat", "unknown"):
+        confidence = nlp_intent.get("confidence", 0)
         if confidence >= Config.INTENT_CONFIDENCE_THRESHOLD:
-            # Phase 2: Context Enrichment
             if chat_id:
-                context = ContextEngine.get_context(chat_id)
-
-                # Simple Entity Extraction
-                current_entities = _extract_entities(text)
-
-                # Se encontrou entidades, usa elas.
-                # Se NÃO encontrou, tenta herdar do contexto.
-                if current_entities:
-                    nlp_intent["entities"] = current_entities
-                elif context.get("entities"):
-                    nlp_intent["entities"] = context["entities"]
+                ctx = ContextEngine.get_context(chat_id)
+                entities = _extract_entities(text)
+                nlp_intent["entities"] = entities or ctx.get("entities", {})
+                if not entities and ctx.get("entities"):
                     nlp_intent["context_inherited"] = True
-
             return nlp_intent
         else:
-            import logging
-            logging.getLogger("core.router").debug(f"NLP baixa confiança ({confidence:.2f}) para '{text[:40]}' — roteando para Brain")
+            logger.debug(f"NLP baixa confiança ({confidence:.2f}): '{text[:40]}' → Brain")
 
-    # 3. IA Generativa (Fallback Cognitivo)
+    # ============================================================
+    # 6. CÉREBRO (chat final)
+    # ============================================================
     return await brain.process_intent(text, chat_id=chat_id)

@@ -1,5 +1,6 @@
 import logging
-from typing import Dict, Any
+import json
+from typing import Dict, Any, Optional
 
 from jarvis.config import Config
 from jarvis.database.persistence import Persistence
@@ -10,17 +11,26 @@ from jarvis.nlp.normalizer import normalize_text
 
 logger = logging.getLogger("core.brain")
 
+# Intenções de comando que o Brain reconhece
+COMMAND_INTENTS = {
+    "network_scan", "network_speed", "network_status", "network_stats",
+    "network_block", "network_rename", "network_block_site",
+    "system_status", "system_logs", "system_reboot", "system_restart_adguard",
+    "fan_control",
+    "reminder_set", "reminder_list", "reminder_today", "reminder_overdue",
+    "reminder_delete", "reminder_update",
+    "hydration_activate", "hydration_log", "hydration_status",
+    "hydration_analytics", "hydration_control", "hydration_update",
+    "wake_pc", "pc_status", "help", "menu_rede", "menu_agenda",
+    "menu_automacoes", "menu_sistema", "automation_list", "automation_config",
+    "token_usage", "daily_report", "unknown_queries",
+}
+
 
 class Brain:
     """
-    Brain é o ÚLTIMO recurso.
-    Nunca executa ação.
-    Nunca decide fluxo crítico.
-
-    ARQUITETURA:
-    1. Local Mini-Brain (Retrieval-Based) - Prioridade Máxima (Rápido, Local, Free)
-    2. llama.cpp (Local LLM) - Fallback cognitivo 100% gratuito/local
-    3. Fallback Determinístico (Hardcoded) - Segurança Final
+    Cérebro central do Jarvis.
+    Participa ativamente da interpretação e decisão de roteamento.
     """
 
     def __init__(self):
@@ -28,10 +38,61 @@ class Brain:
         self.local_llm = LLMFallbackEngine()
         logger.info("Brain inicializado (100% local/free).")
 
+    async def classify_intent(self, user_text: str) -> Optional[Dict[str, Any]]:
+        """
+        Classifica se o texto é um COMANDO ou CONVERSA.
+        Usa o LLM local como cérebro para tomar a decisão.
+        Retorna None se não conseguir classificar (offline/erro).
+        """
+        user_text = normalize_text(user_text)
+
+        # Tenta LocalBrain primeiro (rápido, sem LLM)
+        try:
+            local_result = await self.local_brain.process(user_text)
+            if local_result and local_result.get("confidence", 0) >= 0.85:
+                return {
+                    "type": "chat",
+                    "intent": "chat",
+                    "response": local_result["text"],
+                    "confidence": local_result["confidence"],
+                    "source": "local_brain",
+                }
+        except Exception:
+            pass
+
+        # Se LLM estiver offline, retorna None (router decide)
+        if not self.local_llm.is_available():
+            return None
+
+        # Prompt curto pro LLM classificar
+        prompt = (
+            "Classifique o texto em: COMANDO ou CONVERSA.\n"
+            "COMANDO = pedido pra executar ação no sistema (rede, lembrete, sistema, hidratação, fan, ajuda).\n"
+            "CONVERSA = pergunta geral, papo, opinião, curiosidade, explicação.\n"
+            f"Texto: {user_text}\n"
+            "Responda apenas: COMANDO ou CONVERSA"
+        )
+
+        try:
+            resposta = self.local_llm.generate_chat_response(prompt)
+            if not resposta:
+                return None
+
+            classificacao = resposta.strip().upper()
+
+            if "COMANDO" in classificacao:
+                return {"type": "command", "confidence": 0.9, "source": "brain_llm"}
+            elif "CONVERSA" in classificacao:
+                return {"type": "chat", "confidence": 0.9, "source": "brain_llm"}
+            else:
+                return None
+        except Exception as e:
+            logger.warning(f"Erro no Brain.classify: {e}")
+            return None
+
     async def process_intent(self, user_text: str, chat_id: int = None) -> Dict[str, Any]:
         """
-        Chamado quando Rules e IntentEngine falham.
-        Tenta LocalBrain primeiro, depois LLM local opcional.
+        Gera resposta de conversa (chat) usando o LLM como cérebro principal.
         """
 
         # ==================================================
@@ -51,24 +112,23 @@ class Brain:
         user_text = normalize_text(user_text)
 
         # ==================================================
-        # 1. LOCAL MINI-BRAIN (RÁPIDO & FREE)
+        # 1. LOCAL MINI-BRAIN (RÁPIDO)
         # ==================================================
         try:
             local_result = await self.local_brain.process(user_text)
             if local_result:
-                # Normaliza para estrutura de intent
                 return {
                     "intent": "chat",
-                    "response": local_result["text"], # O Executor espera 'response' para chat
+                    "response": local_result["text"],
                     "text": user_text,
                     "source": "local_brain",
                     "confidence": local_result["confidence"]
                 }
         except Exception as e:
-            logger.warning(f"⚠️ Erro no LocalBrain: {e}")
+            logger.warning(f"Erro no LocalBrain: {e}")
 
         # ==================================================
-        # 2. LOCAL LLM (LLAMA.CPP / OFFLINE)
+        # 2. LLM LOCAL (CÉREBRO PRINCIPAL)
         # ==================================================
         try:
             local_response = self.local_llm.generate_chat_response(user_text)
@@ -78,21 +138,18 @@ class Brain:
                     "response": local_response,
                     "text": user_text,
                     "source": "local_llm",
-                    "confidence": 0.8
+                    "confidence": 0.85
                 }
         except Exception as e:
-            logger.warning(f"⚠️ Erro no Local LLM: {e}")
+            logger.warning(f"Erro no Local LLM: {e}")
 
         # ==================================================
         # 3. FALLBACK FINAL
         # ==================================================
-        logger.info("[ROUTER] Fallback humano acionado (sem LLM).")
+        logger.info("Fallback humano acionado (sem LLM).")
         return self._fallback(user_text)
 
     def _fallback(self, user_text: str) -> Dict[str, Any]:
-        """
-        Resposta padrão quando TUDO falha.
-        """
         try:
             Persistence.log_unknown_query(user_text, "final_fallback")
         except Exception:
