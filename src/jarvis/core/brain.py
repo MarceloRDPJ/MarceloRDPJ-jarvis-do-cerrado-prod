@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import json
 from typing import Dict, Any, Optional
@@ -6,7 +7,7 @@ from jarvis.config import Config
 from jarvis.database.persistence import Persistence
 from jarvis.core.personality import Personality
 from jarvis.nlp.local_brain import LocalBrain as LocalBrainEngine
-from jarvis.core.llm_fallback import LLMFallbackEngine
+from jarvis.core.llm_fallback import LLMFallbackEngine, LOCAL_LLM_TIMEOUT_MESSAGE
 from jarvis.nlp.normalizer import normalize_text
 from jarvis.tools.current_info import CurrentInfo, CURRENT_MARKERS
 
@@ -69,6 +70,9 @@ class Brain:
         # O router decide por heurística leve e segura quando o LocalBrain não sabe.
         return None
 
+    def get_llm_status_response(self) -> Dict[str, Any]:
+        return self._chat_response(self.local_llm.get_status_message(), "llm", "local_llm_status", 1.0)
+
     async def process_intent(self, user_text: str, chat_id: int = None) -> Dict[str, Any]:
         """
         Gera resposta de conversa (chat) usando o LLM como cérebro principal.
@@ -111,12 +115,16 @@ class Brain:
 
         is_current_question = self._is_current_question(user_text)
         if is_current_question:
-            current_result = self.current_info.collect(user_text)
+            current_result = await asyncio.to_thread(self.current_info.collect, user_text)
             if current_result.ok and current_result.answer:
                 return self._chat_response(current_result.answer, user_text, current_result.source, 0.95)
             if current_result.ok and current_result.context:
                 try:
-                    local_response = self.local_llm.generate_response_with_context(user_text, current_result.context)
+                    local_response = await asyncio.to_thread(
+                        self.local_llm.generate_response_with_context,
+                        user_text,
+                        current_result.context,
+                    )
                     if local_response:
                         return self._chat_response(local_response, user_text, f"local_llm_{current_result.source}", 0.90)
                 except Exception as e:
@@ -138,7 +146,7 @@ class Brain:
         # 2. LLM LOCAL (PERGUNTAS ABERTAS)
         # ==================================================
         try:
-            local_response = self.local_llm.generate_chat_response(user_text)
+            local_response = await asyncio.to_thread(self.local_llm.generate_chat_response, user_text)
             if local_response:
                 return self._chat_response(local_response, user_text, "local_llm", 0.85)
         except Exception as e:
@@ -147,7 +155,7 @@ class Brain:
         # ==================================================
         # 3. FALLBACK FINAL
         # ==================================================
-        logger.info("Fallback amigável acionado (LLM/web indisponível).")
+        logger.info("Fallback local acionado (LLM indisponível ou timeout).")
         return await self._fallback(user_text)
 
     def _is_current_question(self, user_text: str) -> bool:
@@ -194,7 +202,7 @@ class Brain:
 
         return {
             "intent": "chat",
-            "params": {"response": Personality.get_response("FALLBACK")},
+            "params": {"response": LOCAL_LLM_TIMEOUT_MESSAGE},
             "text": user_text,
             "confidence": 1.0,
         }

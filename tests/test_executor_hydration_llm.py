@@ -1,3 +1,4 @@
+import subprocess
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 from jarvis.core.executor import Executor
@@ -95,8 +96,9 @@ def test_llm_fallback_engine_cli_chat():
     engine.cli_path = "/opt/bot/llama.cpp/build/bin/llama-cli"
     engine.model_path = "/opt/bot/models/model.gguf"
 
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(
+    with patch.object(engine, "_run_command_with_timeout") as mock_run:
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[],
             returncode=0,
             stdout="""
 build      : test
@@ -112,3 +114,27 @@ model      : model.gguf
 
         assert response == "Oi, Marcelo."
         assert mock_run.called
+
+def test_llm_fallback_engine_cli_timeout_returns_none():
+    engine = LLMFallbackEngine()
+    engine.backend = "llamacpp_cli"
+    engine.cli_path = "/opt/bot/llama.cpp/build/bin/llama-cli"
+    engine.model_path = "/opt/bot/models/model.gguf"
+
+    with patch.object(engine, "_run_command_with_timeout", side_effect=subprocess.TimeoutExpired(cmd=[], timeout=15)):
+        assert engine.generate_chat_response("Hi") is None
+
+def test_llm_fallback_engine_status_message():
+    engine = LLMFallbackEngine()
+    engine.backend = "llamacpp_cli"
+    engine.timeout = 15
+    engine.max_tokens = 64
+    engine.threads = 1
+    engine.context_tokens = 512
+
+    status = engine.get_status_message()
+
+    assert "Timeout: 15s" in status
+    assert "Tokens: 64" in status
+    assert "Threads: 1" in status
+    assert "Contexto: 512" in status

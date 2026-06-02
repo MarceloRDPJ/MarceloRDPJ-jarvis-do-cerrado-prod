@@ -202,12 +202,27 @@ class LocalBrain:
         """
         text_clean = text.lower().strip()
 
+        if text_clean in self.static_kb:
+            response = self.static_kb[text_clean]
+            if isinstance(response, list):
+                response = random.choice(response)
+            logger.info(f"LocalBrain exact match '{text_clean}'")
+            return {
+                "text": response,
+                "confidence": 1.0,
+                "source": "local_static"
+            }
+
+        if not self._can_use_fuzzy(text_clean):
+            return None
+
         # Static KB (Fuzzy Matching)
+        threshold = self._threshold_for_text(text_clean)
         match = process.extractOne(
             text_clean,
             self.kb_keys,
             scorer=fuzz.WRatio,
-            score_cutoff=self.similarity_threshold
+            score_cutoff=threshold
         )
 
         if match:
@@ -226,3 +241,21 @@ class LocalBrain:
             }
 
         return None
+
+    def _can_use_fuzzy(self, text: str) -> bool:
+        if len(text) < 8:
+            return False
+        words = [word for word in re.split(r"\s+", text) if word]
+        if len(words) < 2:
+            return False
+        incomplete_questions = {"o que e", "o que é", "que e", "que é", "qual", "como", "quando", "onde", "quem"}
+        if text in incomplete_questions:
+            return False
+        return True
+
+    def _threshold_for_text(self, text: str) -> int:
+        if len(text) < 12:
+            return 99
+        if len(text.split()) <= 3:
+            return 96
+        return self.similarity_threshold

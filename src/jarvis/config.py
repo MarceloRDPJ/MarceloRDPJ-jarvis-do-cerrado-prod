@@ -36,10 +36,11 @@ class Config:
     LOCAL_LLM_MODEL = os.getenv("LOCAL_LLM_MODEL", "gemma-3-270m-it")
     LOCAL_LLM_CLI_PATH = os.getenv("LOCAL_LLM_CLI_PATH", "/opt/bot/llama.cpp/build/bin/llama-cli")
     LOCAL_LLM_MODEL_PATH = os.getenv("LOCAL_LLM_MODEL_PATH", "")
-    LOCAL_LLM_CONTEXT_TOKENS = int(os.getenv("LOCAL_LLM_CONTEXT_TOKENS", 256))
-    LOCAL_LLM_THREADS = int(os.getenv("LOCAL_LLM_THREADS", 2))
+    LOCAL_LLM_CONTEXT_SIZE = int(os.getenv("LOCAL_LLM_CONTEXT_SIZE", os.getenv("LOCAL_LLM_CONTEXT_TOKENS", 512)))
+    LOCAL_LLM_CONTEXT_TOKENS = LOCAL_LLM_CONTEXT_SIZE
+    LOCAL_LLM_THREADS = int(os.getenv("LOCAL_LLM_THREADS", 1))
     LOCAL_LLM_TIMEOUT_SECONDS = int(os.getenv("LOCAL_LLM_TIMEOUT_SECONDS", 15))
-    LOCAL_LLM_MAX_TOKENS = int(os.getenv("LOCAL_LLM_MAX_TOKENS", 48))
+    LOCAL_LLM_MAX_TOKENS = int(os.getenv("LOCAL_LLM_MAX_TOKENS", 64))
     LOCAL_LLM_TEMPERATURE = float(os.getenv("LOCAL_LLM_TEMPERATURE", 0.3))
 
     # ==================================================

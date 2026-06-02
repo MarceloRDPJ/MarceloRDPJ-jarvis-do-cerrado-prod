@@ -45,7 +45,7 @@ for env_name, env_value in os.environ.items():
     if any(marker in upper_name for marker in _SENSITIVE_ENV_NAMES):
         _add_secret_pattern(env_value, upper_name)
 
-_TELEGRAM_BOT_URL_RE = re.compile(r"bot\d+:[A-Za-z0-9_\-]+")
+_TELEGRAM_BOT_URL_RE = re.compile(r"bot\d+:[^/\s\"']+")
 
 
 def sanitize_log_text(value: str) -> str:
@@ -60,6 +60,21 @@ def sanitize_log_text(value: str) -> str:
 class SecretSanitizingFormatter(logging.Formatter):
     def format(self, record):
         return sanitize_log_text(super().format(record))
+
+
+_old_log_record_factory = logging.getLogRecordFactory()
+
+
+def _sanitizing_record_factory(*args, **kwargs):
+    record = _old_log_record_factory(*args, **kwargs)
+    if isinstance(record.msg, str):
+        record.msg = sanitize_log_text(record.msg)
+    if record.args:
+        record.args = tuple(sanitize_log_text(arg) if isinstance(arg, str) else arg for arg in record.args)
+    return record
+
+
+logging.setLogRecordFactory(_sanitizing_record_factory)
 
 class SecretSanitizer(logging.Filter):
     """Mascara tokens e chaves de API em todas as mensagens de log."""

@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from jarvis.core.brain import Brain
+from jarvis.core.llm_fallback import LOCAL_LLM_TIMEOUT_MESSAGE
 
 
 @pytest.mark.asyncio
@@ -61,3 +62,14 @@ async def test_brain_sends_collected_current_context_to_local_llm():
         "cotacao do dolar agora",
         "Cotação USD-BRL: Compra 5.10",
     )
+
+
+@pytest.mark.asyncio
+async def test_brain_returns_clear_fallback_when_local_llm_fails():
+    brain = Brain()
+    brain.local_brain.process = AsyncMock(return_value=None)
+    brain.local_llm.generate_chat_response = MagicMock(return_value=None)
+
+    result = await brain.process_intent("explique um assunto aleatorio")
+
+    assert result["params"]["response"] == LOCAL_LLM_TIMEOUT_MESSAGE

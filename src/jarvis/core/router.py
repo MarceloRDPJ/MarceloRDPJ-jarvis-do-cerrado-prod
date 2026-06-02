@@ -79,6 +79,11 @@ def _is_command(text: str) -> bool:
     return False
 
 
+def _is_llm_status(text: str) -> bool:
+    t = text.lower().strip()
+    return t in {"llm", "status llm", "llm status", "status da llm", "status do llm"}
+
+
 def _make_result(intent, action, entity, confidence, source, params=None, text=""):
     return {
         "intent": intent, "action": action, "entity": entity,
@@ -103,6 +108,9 @@ def _check_flow_timeout(chat_id: int, flow: dict, context: dict) -> bool:
 
 async def route(text: str, chat_id: int = None):
     text = normalize_text(text)
+
+    if _is_llm_status(text):
+        return brain.get_llm_status_response()
 
     # ============================================================
     # 1. REGRAS DE SEGURANÇA & INTERRUPÇÃO DE FLUXO

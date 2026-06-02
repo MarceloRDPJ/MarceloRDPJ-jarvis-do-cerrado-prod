@@ -1,5 +1,6 @@
 import unittest
 from jarvis.core.brain import Brain
+from jarvis.nlp.local_brain import LocalBrain
 import asyncio
 
 class TestBrainLocalFallback(unittest.IsolatedAsyncioTestCase):
@@ -23,6 +24,12 @@ class TestBrainLocalFallback(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result_unknown["intent"], "chat")
         # Should be fallback
         self.assertNotIn("Jarvis do Cerrado", result_unknown["params"]["response"])
+
+    async def test_short_incomplete_question_does_not_fuzzy_match_ip(self):
+        local_brain = LocalBrain()
+        result = await local_brain.process("o que e")
+
+        self.assertIsNone(result)
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,7 @@ import requests
 import json
 import logging
 import os
+import signal
 import subprocess
 import glob
 from jarvis.config import Config
@@ -60,6 +61,8 @@ JARVIS_SYSTEM_PROMPT = (
     "Seja útil e conciso."
 )
 
+LOCAL_LLM_TIMEOUT_MESSAGE = "A LLM local não respondeu dentro do limite. Tente uma pergunta menor."
+
 
 class LLMFallbackEngine:
     def __init__(self):
@@ -94,6 +97,22 @@ class LLMFallbackEngine:
             return True
         except Exception:
             return False
+
+    def get_status_message(self) -> str:
+        status = "disponível" if self.is_available() else "indisponível"
+        backend = self.backend
+        model = os.path.basename(self.model_path) if self.model_path else "não configurado"
+        cli = self.cli_path or "não configurado"
+        return (
+            f"LLM local: {status}\n"
+            f"Backend: {backend}\n"
+            f"Modelo: {model}\n"
+            f"CLI: {cli}\n"
+            f"Timeout: {self.timeout}s\n"
+            f"Tokens: {self.max_tokens}\n"
+            f"Threads: {self.threads}\n"
+            f"Contexto: {self.context_tokens}"
+        )
 
     def generate_chat_response(self, text: str) -> str:
         """Gera resposta de chat livre (não-JSON)"""
@@ -155,7 +174,7 @@ class LLMFallbackEngine:
             return None
 
         if self.backend == "llamacpp_cli":
-            generated_text = self._generate_with_cli(prompt)
+            generated_text = self._generate_with_cli(prompt, temperature=0.1)
             if not generated_text:
                 return None
             try:
@@ -228,26 +247,61 @@ class LLMFallbackEngine:
         ]
 
         try:
-            completed = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=self.timeout,
-                check=False,
-            )
+            completed = self._run_command_with_timeout(command)
+            stderr = (completed.stderr or "").strip()
+            stdout = completed.stdout or ""
             if completed.returncode != 0:
-                logger.debug(f"llama-cli retornou {completed.returncode}: {completed.stderr.strip()}")
+                logger.warning(f"llama-cli retornou {completed.returncode}: {stderr[:500]}")
                 return None
-            return self._clean_cli_output(completed.stdout)
+            if stderr:
+                logger.debug(f"llama-cli stderr: {stderr[:500]}")
+            cleaned = self._clean_cli_output(stdout)
+            if not cleaned:
+                logger.warning("llama-cli retornou stdout vazio.")
+                return None
+            return cleaned
         except FileNotFoundError:
             logger.debug("llama-cli não encontrado.")
             return None
         except subprocess.TimeoutExpired:
-            logger.debug("llama-cli excedeu o timeout configurado.")
+            logger.warning(f"llama-cli excedeu timeout de {self.timeout}s e foi finalizado.")
             return None
         except Exception as e:
             logger.error(f"Erro no llama-cli: {e}")
             return None
+
+    def _run_command_with_timeout(self, command: list) -> subprocess.CompletedProcess:
+        start_new_session = os.name != "nt"
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=start_new_session,
+        )
+        try:
+            stdout, stderr = process.communicate(timeout=self.timeout)
+            return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+        except subprocess.TimeoutExpired as exc:
+            self._kill_process(process)
+            try:
+                stdout, stderr = process.communicate(timeout=2)
+            except Exception:
+                stdout, stderr = "", ""
+            exc.output = stdout
+            exc.stderr = stderr
+            raise exc
+
+    def _kill_process(self, process: subprocess.Popen) -> None:
+        try:
+            if os.name != "nt":
+                os.killpg(process.pid, signal.SIGKILL)
+            else:
+                process.kill()
+        except ProcessLookupError:
+            return
+        except Exception as e:
+            logger.warning(f"Falha ao matar llama-cli: {e}")
 
     def _clean_cli_output(self, output: str) -> str:
         ignored_prefixes = (

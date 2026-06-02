@@ -1,4 +1,6 @@
-from jarvis.core.router import _is_command, _is_question
+import pytest
+
+from jarvis.core.router import _is_command, _is_llm_status, _is_question, route
 
 
 def test_router_question_heuristics():
@@ -13,3 +15,17 @@ def test_router_command_heuristics():
     assert _is_command("reiniciar sistema")
     assert _is_command("bloquear site youtube.com")
     assert _is_command("criar lembrete")
+
+
+def test_router_llm_status_heuristic():
+    assert _is_llm_status("llm")
+    assert _is_llm_status("status da llm")
+
+
+@pytest.mark.asyncio
+async def test_router_llm_status_does_not_generate():
+    result = await route("Llm")
+
+    assert result["intent"] == "chat"
+    assert result["source"] == "local_llm_status"
+    assert "LLM local" in result["params"]["response"]
