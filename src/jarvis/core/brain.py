@@ -120,7 +120,7 @@ class Brain:
             if local_result and local_result.get("confidence", 0) >= 0.90:
                 return {
                     "intent": "chat",
-                    "response": local_result["text"],
+                    "params": {"response": local_result["text"]},
                     "text": user_text,
                     "source": "local_brain",
                     "confidence": local_result["confidence"]
@@ -136,7 +136,7 @@ class Brain:
             if local_response:
                 return {
                     "intent": "chat",
-                    "response": local_response,
+                    "params": {"response": local_response},
                     "text": user_text,
                     "source": "local_llm",
                     "confidence": 0.85
@@ -157,7 +157,7 @@ class Brain:
             pass
         return {
             "intent": "chat",
-            "response": Personality.get_response("FALLBACK"),
+            "params": {"response": Personality.get_response("FALLBACK")},
             "text": user_text,
             "confidence": 1.0,
         }

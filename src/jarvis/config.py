@@ -36,8 +36,8 @@ class Config:
     LOCAL_LLM_MODEL_PATH = os.getenv("LOCAL_LLM_MODEL_PATH", "")
     LOCAL_LLM_CONTEXT_TOKENS = int(os.getenv("LOCAL_LLM_CONTEXT_TOKENS", 256))
     LOCAL_LLM_THREADS = int(os.getenv("LOCAL_LLM_THREADS", 2))
-    LOCAL_LLM_TIMEOUT_SECONDS = int(os.getenv("LOCAL_LLM_TIMEOUT_SECONDS", 8))
-    LOCAL_LLM_MAX_TOKENS = int(os.getenv("LOCAL_LLM_MAX_TOKENS", 96))
+    LOCAL_LLM_TIMEOUT_SECONDS = int(os.getenv("LOCAL_LLM_TIMEOUT_SECONDS", 15))
+    LOCAL_LLM_MAX_TOKENS = int(os.getenv("LOCAL_LLM_MAX_TOKENS", 48))
 
     # ==================================================
     # NETWORK / SYSTEM

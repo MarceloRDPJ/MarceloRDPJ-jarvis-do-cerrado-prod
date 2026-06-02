@@ -56,7 +56,7 @@ async def test_brain_llm_fallback():
 
     # Verify
     assert result["intent"] == "chat"
-    assert result["response"] == "Local LLM Response"
+    assert result["params"]["response"] == "Local LLM Response"
     assert result["source"] == "local_llm"
 
 def test_llm_fallback_engine_chat():
