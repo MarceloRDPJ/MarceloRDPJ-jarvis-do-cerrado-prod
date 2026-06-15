@@ -48,7 +48,6 @@ class ReporterService:
             await self.app.bot.send_message(
                 chat_id=Config.ALLOWED_USER_ID,
                 text=report,
-                parse_mode="Markdown"
             )
             logger.info("Relatorio diario enviado com sucesso")
         except Exception as e:
@@ -60,7 +59,6 @@ class ReporterService:
             await self.app.bot.send_message(
                 chat_id=Config.ALLOWED_USER_ID,
                 text=report,
-                parse_mode="Markdown"
             )
             logger.info("Relatorio semanal enviado com sucesso")
         except Exception as e:

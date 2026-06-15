@@ -139,6 +139,7 @@ async def get_system_health():
         "local_llm": {
             "backend": local_llm.backend,
             "model": local_llm.model,
+            "server_url": local_llm.server_url,
             "available": local_llm.is_available(),
         },
     }
@@ -355,6 +356,7 @@ async def get_bot_settings():
         "timezone": Config.TIMEZONE,
         "allowed_user_id": Config.ALLOWED_USER_ID,
         "local_ai_provider": Config.LOCAL_LLM_BACKEND,
+        "local_llm_server_url": Config.LOCAL_LLM_SERVER_URL,
         "local_llm_model": Config.LOCAL_LLM_MODEL,
         "intent_confidence": Config.INTENT_CONFIDENCE_THRESHOLD,
     }
@@ -753,11 +755,13 @@ async def get_config():
     return {
         "timezone": Config.TIMEZONE,
         "local_ai_provider": Config.LOCAL_LLM_BACKEND,
+        "local_llm_server_url": Config.LOCAL_LLM_SERVER_URL,
         "local_llm_url": Config.LOCAL_LLM_URL,
         "local_llm_model": Config.LOCAL_LLM_MODEL,
         "local_llm_cli_path": Config.LOCAL_LLM_CLI_PATH,
         "local_llm_model_path": Config.LOCAL_LLM_MODEL_PATH,
         "local_llm_context_tokens": Config.LOCAL_LLM_CONTEXT_TOKENS,
+        "local_llm_context_size": Config.LOCAL_LLM_CONTEXT_SIZE,
         "local_llm_threads": Config.LOCAL_LLM_THREADS,
         "local_llm_timeout_seconds": Config.LOCAL_LLM_TIMEOUT_SECONDS,
         "local_llm_max_tokens": Config.LOCAL_LLM_MAX_TOKENS,

@@ -10,6 +10,29 @@ from jarvis.config import Config
 
 logger = logging.getLogger("services.scheduler")
 
+
+def _build_reminder_markup(task_id: int):
+    try:
+        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Feito", callback_data=f"rem_done_{task_id}"),
+                InlineKeyboardButton("⏰ +10min", callback_data=f"rem_snooze_{task_id}_10"),
+            ],
+            [
+                InlineKeyboardButton("⏰ +1h", callback_data=f"rem_snooze_{task_id}_60"),
+                InlineKeyboardButton("📅 Remarcar", callback_data=f"rem_reschedule_{task_id}"),
+            ],
+            [
+                InlineKeyboardButton("❌ Cancelar", callback_data=f"rem_cancel_{task_id}"),
+            ]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+    except Exception as e:
+        logger.warning(f"Botões de lembrete indisponíveis; enviando texto simples: {e}")
+        return None
+
 class SchedulerService:
     """
     SchedulerService — Coração do sistema de lembretes.
@@ -74,27 +97,10 @@ class SchedulerService:
             # === 2. Envio da Mensagem (Genérico) ===
             message = get_reminder_message(task, now)
             try:
-                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-
-                # Criar botões de ação
-                keyboard = [
-                    [
-                        InlineKeyboardButton("✅ Feito", callback_data=f"rem_done_{task_id}"),
-                        InlineKeyboardButton("⏰ +10min", callback_data=f"rem_snooze_{task_id}_10"),
-                    ],
-                    [
-                        InlineKeyboardButton("⏰ +1h", callback_data=f"rem_snooze_{task_id}_60"),
-                        InlineKeyboardButton("📅 Remarcar", callback_data=f"rem_reschedule_{task_id}"),
-                    ],
-                    [
-                        InlineKeyboardButton("❌ Cancelar", callback_data=f"rem_cancel_{task_id}"),
-                    ]
-                ]
-
                 await self.app.bot.send_message(
                     chat_id=chat_id,
                     text=message,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
+                    reply_markup=_build_reminder_markup(task_id)
                 )
             except Exception as e:
                 logger.error(f"Falha ao enviar lembrete {task_id}: {e}")

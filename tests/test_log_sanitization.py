@@ -1,4 +1,4 @@
-from jarvis.main import sanitize_log_text
+from jarvis.core.log_sanitizer import sanitize_log_text
 
 
 def test_sanitize_telegram_bot_url_pattern():

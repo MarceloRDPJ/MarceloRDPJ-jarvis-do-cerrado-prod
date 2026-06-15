@@ -3,6 +3,7 @@ import asyncio
 import os
 import re
 from telegram import Update
+from telegram.error import BadRequest, TelegramError
 from telegram.ext import (
     ApplicationBuilder,
     ContextTypes,
@@ -99,19 +100,61 @@ for handler in logging.root.handlers:
     handler.setFormatter(SecretSanitizingFormatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
 # Also sanitize httpx/urllib3 (Telegram API logs the full URL)
 logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("telegram").setLevel(logging.WARNING)
+logging.getLogger("telegram.ext").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 logger = logging.getLogger("Jarvis")
+
+TELEGRAM_TEXT_LIMIT = 3900
+
+
+def _message_chunks(text: str, limit: int = TELEGRAM_TEXT_LIMIT):
+    text = str(text or "")
+    if len(text) <= limit:
+        return [text]
+    chunks = []
+    while text:
+        cut = text.rfind("\n", 0, limit)
+        if cut <= 0:
+            cut = limit
+        chunks.append(text[:cut].strip())
+        text = text[cut:].strip()
+    return chunks or [""]
+
+
+def _plain_retry_text(text: str) -> str:
+    return re.sub(r"[`*_\[\]()~>#=|{}.!-]", "", str(text or ""))
+
+
+async def safe_reply_text(message, text, reply_markup=None, parse_mode=None):
+    """Envia texto ao Telegram sem Markdown por padrão e nunca derruba o handler."""
+    for index, chunk in enumerate(_message_chunks(text)):
+        kwargs = {"reply_markup": reply_markup if index == 0 else None}
+        if parse_mode:
+            kwargs["parse_mode"] = parse_mode
+        try:
+            await message.reply_text(chunk, **kwargs)
+        except BadRequest as e:
+            logger.warning(f"Falha ao enviar com parse_mode; retry texto puro: {e}")
+            try:
+                kwargs.pop("parse_mode", None)
+                await message.reply_text(_plain_retry_text(chunk), **kwargs)
+            except TelegramError as retry_error:
+                logger.error(f"Falha ao enviar mensagem Telegram após retry: {retry_error}")
+        except TelegramError as e:
+            logger.error(f"Falha ao enviar mensagem Telegram: {e}")
 
 
 # =====================================================
 # COMMANDS
 # =====================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+    await safe_reply_text(
+        update.message,
         "🟢 *Jarvis do Cerrado online.*\n"
         "Guardião da casa ativado.\n\n"
         "Fala o trem aí 👊",
-        parse_mode="Markdown",
     )
 
 
@@ -120,13 +163,13 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     executor: Executor = context.application.bot_data["executor"]
     response = await executor.execute({"intent": "help", "action": "show", "params": {}}, chat_id)
     if isinstance(response, dict):
-        await update.message.reply_text(
+        await safe_reply_text(
+            update.message,
             response.get("text", ""),
             reply_markup=response.get("reply_markup"),
-            parse_mode="Markdown",
         )
     else:
-        await update.message.reply_text(response, parse_mode="Markdown")
+        await safe_reply_text(update.message, response)
 
 
 # =====================================================
@@ -161,18 +204,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             response = "🤖 Não entendi direito ainda, uai. (Debug: Resposta vazia do executor)"
 
         if isinstance(response, dict):
-            await update.message.reply_text(
+            await safe_reply_text(
+                update.message,
                 response.get("text", ""),
                 reply_markup=response.get("reply_markup"),
-                parse_mode="Markdown"
             )
         else:
-            await update.message.reply_text(response, parse_mode="Markdown")
+            await safe_reply_text(update.message, response)
 
     except Exception as e:
         logger.exception("Erro crítico no handle_message")
-        error_msg = f"❌ Deu ruim aqui.\n\n`{str(e)}`"
-        await update.message.reply_text(error_msg, parse_mode="Markdown")
+        error_msg = f"❌ Deu ruim aqui.\n\n{str(e)}"
+        await safe_reply_text(update.message, error_msg)
 
 
 # =====================================================
@@ -198,7 +241,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parts = text.split("_")
             if len(parts) < 3:
                 logger.warning(f"Callback rem_ malformatado: {text}")
-                await query.message.reply_text("❌ Callback inválido.")
+                await safe_reply_text(query.message, "❌ Callback inválido.")
                 return
             action = parts[1]
             task_id = int(parts[2])
@@ -209,7 +252,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             elif action == "snooze":
                 if len(parts) < 4:
-                    await query.message.reply_text("❌ Callback snooze inválido (sem minutos).")
+                    await safe_reply_text(query.message, "❌ Callback snooze inválido (sem minutos).")
                     return
                 minutes = int(parts[3])
                 await ReminderCallbacks.handle_snooze(task_id, chat_id, minutes, query)
@@ -224,11 +267,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             else:
                 logger.warning(f"Ação de callback desconhecida: {action}")
-                await query.message.reply_text("❌ Ação de callback desconhecida.")
+                await safe_reply_text(query.message, "❌ Ação de callback desconhecida.")
                 return
         except (ValueError, IndexError) as e:
             logger.warning(f"Erro ao parsear callback rem_: {e}")
-            await query.message.reply_text("❌ Erro ao processar callback.")
+            await safe_reply_text(query.message, "❌ Erro ao processar callback.")
             return
 
     # Detecta snooze de hidratação
@@ -259,21 +302,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Responde como nova mensagem (padrão chatbot)
         if isinstance(response, dict):
-             await query.message.reply_text(
-                 response.get("text", ""),
-                 reply_markup=response.get("reply_markup"),
-                 parse_mode="Markdown"
-             )
+             await safe_reply_text(
+                  query.message,
+                  response.get("text", ""),
+                  reply_markup=response.get("reply_markup"),
+              )
         else:
-             await query.message.reply_text(response, parse_mode="Markdown")
+             await safe_reply_text(query.message, response)
 
     except Exception as e:
         logger.exception("Erro crítico no handle_callback")
-        error_msg = f"❌ Deu ruim aqui.\n\n`{str(e)}`"
-        try:
-            await query.message.reply_text(error_msg, parse_mode="Markdown")
-        except:
-            pass
+        error_msg = f"❌ Deu ruim aqui.\n\n{str(e)}"
+        await safe_reply_text(query.message, error_msg)
 
 
 # =====================================================

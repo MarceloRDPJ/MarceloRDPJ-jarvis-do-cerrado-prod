@@ -133,7 +133,6 @@ class Executor:
             status_msg = await self.app.bot.send_message(
                 chat_id=chat_id,
                 text="⏳ Iniciando varredura profunda da rede...",
-                parse_mode="Markdown"
             )
 
             # 2. Callback for Updates
@@ -146,7 +145,6 @@ class Executor:
                             chat_id=chat_id,
                             message_id=status_msg.message_id,
                             text=text,
-                            parse_mode="Markdown"
                         )
                         last_text = text
                     except Exception as e:
@@ -201,7 +199,6 @@ class Executor:
                         message_id=status_msg.message_id,
                         text=final_text,
                         reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode="Markdown"
                     )
                     return None # Already sent response via edit
                 except:

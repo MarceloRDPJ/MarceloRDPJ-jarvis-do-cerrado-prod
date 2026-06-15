@@ -176,7 +176,6 @@ class AutomationEngine:
                     chat_id=chat_id,
                     text=message,
                     reply_markup=reply_markup,
-                    parse_mode="Markdown"
                 )
                 logger.info(f"Automação executada: {message[:50]}...")
             except Exception as e:

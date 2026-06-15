@@ -138,3 +138,33 @@ def test_llm_fallback_engine_status_message():
     assert "Tokens: 64" in status
     assert "Threads: 1" in status
     assert "Contexto: 512" in status
+
+def test_llm_fallback_engine_server_chat():
+    engine = LLMFallbackEngine()
+    engine.backend = "server"
+    engine.server_url = "http://127.0.0.1:8081"
+    engine.timeout = 12
+    engine.max_tokens = 48
+
+    with patch("requests.post") as mock_post:
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"content": "Resposta local"}
+        mock_post.return_value = mock_response
+
+        response = engine.generate_chat_response("O que é USB?")
+
+    assert response == "Resposta local"
+    mock_post.assert_called_once()
+    assert mock_post.call_args.args[0] == "http://127.0.0.1:8081/completion"
+    assert mock_post.call_args.kwargs["timeout"] == 12
+
+def test_llm_fallback_engine_server_health():
+    engine = LLMFallbackEngine()
+    engine.backend = "server"
+    engine.server_url = "http://127.0.0.1:8081"
+
+    with patch("requests.get") as mock_get:
+        mock_get.return_value = MagicMock(status_code=200)
+
+        assert engine.is_available()
+        mock_get.assert_called_once_with("http://127.0.0.1:8081/health", timeout=1)

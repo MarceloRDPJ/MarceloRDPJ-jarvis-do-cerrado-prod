@@ -207,7 +207,7 @@ class GuardianService:
 
     async def send_message(self, text: str) -> bool:
         try:
-            await self.app.bot.send_message(chat_id=self.chat_id, text=text, parse_mode="Markdown")
+            await self.app.bot.send_message(chat_id=self.chat_id, text=text)
             return True
         except Exception:
             return False

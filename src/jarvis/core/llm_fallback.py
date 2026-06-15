@@ -67,6 +67,7 @@ LOCAL_LLM_TIMEOUT_MESSAGE = "A LLM local não respondeu dentro do limite. Tente 
 class LLMFallbackEngine:
     def __init__(self):
         self.backend = Config.LOCAL_LLM_BACKEND if Config.LOCAL_LLM_ENABLED else "disabled"
+        self.server_url = Config.LOCAL_LLM_SERVER_URL
         self.url = Config.LOCAL_LLM_URL
         self.model = Config.LOCAL_LLM_MODEL
         self.cli_path = Config.LOCAL_LLM_CLI_PATH or _discover_cli()
@@ -77,13 +78,19 @@ class LLMFallbackEngine:
         self.max_tokens = Config.LOCAL_LLM_MAX_TOKENS
         self.temperature = Config.LOCAL_LLM_TEMPERATURE
 
-        if not self.cli_path or not self.model_path:
+        if self.backend == "llamacpp_cli" and (not self.cli_path or not self.model_path):
             logger.warning(f"LLM local não configurado (cli={self.cli_path}, model={self.model_path}). Use LOCAL_LLM_CLI_PATH e LOCAL_LLM_MODEL_PATH no .env")
 
     def is_available(self) -> bool:
         """Checa se o backend local está respondendo."""
         if self.backend == "disabled":
             return False
+        if self.backend == "server":
+            try:
+                response = requests.get(f"{self.server_url}/health", timeout=1)
+                return response.status_code < 500
+            except Exception:
+                return False
         if self.backend == "llamacpp_cli":
             return bool(
                 self.cli_path
@@ -102,12 +109,12 @@ class LLMFallbackEngine:
         status = "disponível" if self.is_available() else "indisponível"
         backend = self.backend
         model = os.path.basename(self.model_path) if self.model_path else "não configurado"
-        cli = self.cli_path or "não configurado"
+        endpoint = self.server_url if self.backend == "server" else (self.cli_path or "não configurado")
         return (
             f"LLM local: {status}\n"
             f"Backend: {backend}\n"
             f"Modelo: {model}\n"
-            f"CLI: {cli}\n"
+            f"Endpoint/CLI: {endpoint}\n"
             f"Timeout: {self.timeout}s\n"
             f"Tokens: {self.max_tokens}\n"
             f"Threads: {self.threads}\n"
@@ -146,6 +153,8 @@ class LLMFallbackEngine:
 
         if self.backend == "llamacpp_cli":
             return self._generate_with_cli(prompt, temperature=temperature)
+        if self.backend == "server":
+            return self._generate_with_server(prompt, temperature=temperature)
 
         payload = self._build_payload(prompt, temperature=temperature)
 
@@ -224,10 +233,45 @@ class LLMFallbackEngine:
             "stop": ["User:", "System:"],
         }
 
+    def _server_payload(self, prompt: str, temperature: float) -> dict:
+        return {
+            "prompt": prompt,
+            "n_predict": self.max_tokens,
+            "temperature": temperature,
+            "stop": ["User:", "System:"],
+            "cache_prompt": True,
+        }
+
     def _extract_text(self, result: dict) -> str:
         if self.backend == "ollama":
             return result.get("response", "")
         return result.get("content") or result.get("response") or result.get("text") or ""
+
+    def _generate_with_server(self, prompt: str, temperature: float = None) -> str:
+        try:
+            response = requests.post(
+                f"{self.server_url}/completion",
+                json=self._server_payload(prompt, self.temperature if temperature is None else temperature),
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            text = self._extract_text(response.json()).strip()
+            if not text:
+                logger.warning("llama-server retornou resposta vazia.")
+                return None
+            return text
+        except requests.exceptions.Timeout:
+            logger.warning(f"llama-server excedeu timeout de {self.timeout}s.")
+            return None
+        except requests.exceptions.ConnectionError:
+            logger.warning("llama-server offline ou inacessível.")
+            return None
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Erro HTTP no llama-server: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Erro no llama-server: {e}")
+            return None
 
     def _generate_with_cli(self, prompt: str, temperature: float = None) -> str:
         if not self.cli_path or not self.model_path:

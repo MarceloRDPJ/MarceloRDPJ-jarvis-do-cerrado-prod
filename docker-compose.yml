@@ -1,4 +1,37 @@
 services:
+  jarvis_llm:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    container_name: jarvis_llm
+    restart: unless-stopped
+    command:
+      - "-m"
+      - "/models/SmolLM2-135M-Instruct-Q4_K_M.gguf"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8081"
+      - "-c"
+      - "384"
+      - "-t"
+      - "1"
+    volumes:
+      - ./models:/models:ro
+    ports:
+      - "127.0.0.1:8081:8081"
+    mem_limit: 384m
+    mem_reservation: 192m
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:8081/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   homebot:
     build: .
     container_name: jarvis_cerrado
@@ -13,6 +46,8 @@ services:
       - /opt/bot/models:/opt/bot/models:ro
     environment:
       - TZ=America/Sao_Paulo
+      - LOCAL_LLM_BACKEND=server
+      - LOCAL_LLM_SERVER_URL=http://127.0.0.1:8081
     mem_limit: 512m
     mem_reservation: 256m
     cpus: 2.0
