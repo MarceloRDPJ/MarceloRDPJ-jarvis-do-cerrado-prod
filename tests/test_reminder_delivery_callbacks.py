@@ -32,6 +32,29 @@ async def test_unique_reminder_is_delivered_not_completed():
 
 
 @pytest.mark.asyncio
+async def test_reminder_delivery_continues_when_markup_is_unavailable(monkeypatch):
+    chat_id = 123
+    task_id = Persistence.add_task(
+        chat_id=chat_id,
+        text="Enviar documento",
+        next_run=datetime.now(timezone.utc) - timedelta(minutes=1),
+    )
+    send_message = AsyncMock()
+    app = SimpleNamespace(bot=SimpleNamespace(send_message=send_message))
+    scheduler = SchedulerService(app, interval_seconds=30)
+
+    from jarvis.services import scheduler as scheduler_module
+    monkeypatch.setattr(scheduler_module, "_build_reminder_markup", lambda task_id: None)
+
+    await scheduler.process_task(Persistence.get_task(task_id), datetime.now(timezone.utc))
+
+    updated = Persistence.get_task(task_id)
+    assert updated["status"] == "delivered"
+    send_message.assert_awaited_once()
+    assert send_message.call_args.kwargs["reply_markup"] is None
+
+
+@pytest.mark.asyncio
 async def test_snooze_reactivates_delivered_reminder():
     chat_id = 123
     task_id = Persistence.add_task(

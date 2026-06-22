@@ -29,3 +29,12 @@ async def test_router_llm_status_does_not_generate():
     assert result["intent"] == "chat"
     assert result["source"] == "local_llm_status"
     assert "LLM local" in result["params"]["response"]
+
+
+@pytest.mark.asyncio
+async def test_router_routes_natural_reminder_without_llm():
+    result = await route("Me lembra teste 2 min")
+
+    assert result["intent"] == "reminder_set"
+    assert result["params"]["text"] == "teste"
+    assert result["params"]["minutes"] == 2

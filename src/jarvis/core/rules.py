@@ -412,7 +412,7 @@ def apply_rules(text: str) -> Optional[Dict]:
     # =====================================================
     # LEMBRETES (CRIAÇÃO BÁSICA)
     # =====================================================
-    if "lembra" in t or "lembrete" in t:
+    if "lembra" in t or "lembrete" in t or "lbrete" in t or "lbrte" in t:
         return {
             "intent": "reminder_set",
             "action": "create",

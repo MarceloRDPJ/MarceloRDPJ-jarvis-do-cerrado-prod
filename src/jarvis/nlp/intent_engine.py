@@ -337,6 +337,10 @@ def detect_intent(text: str) -> Dict:
     Detecta intenção usando similaridade (RapidFuzz).
     Mantém compatibilidade com chamadas existentes.
     """
+    normalized = normalize_text(text)
+    if _looks_like_reminder_request(normalized):
+        return _parse_reminder(text)
+
     result = engine.identify_intent(text)
     intent = result["intent"]
 
@@ -418,6 +422,14 @@ def detect_intent(text: str) -> Dict:
         return {"intent": "unknown_queries"}
 
     return result
+
+
+def _looks_like_reminder_request(text: str) -> bool:
+    return bool(re.search(
+        r"\b(?:me\s+)?(?:lembra|lembre|lembrar|lembrete|lbrete|lbrte|lmebra|lembar|avisa|avisar)\b",
+        text,
+        re.IGNORECASE,
+    ))
 
 # =============================================================================
 # PARSERS ESPECÍFICOS
@@ -530,8 +542,9 @@ def _parse_reminder(text: str) -> Dict:
     reminder_text = re.sub(r"\b(hoje|amanha|amanhã)\b", "", reminder_text, flags=re.IGNORECASE)
     reminder_text = re.sub(r"\b(mais tarde|depois|mais de noite|mais a noite|mais à noite)\b", "", reminder_text, flags=re.IGNORECASE)
     reminder_text = re.sub(r"\bdaqui a pouco\b", "", reminder_text, flags=re.IGNORECASE)
-    reminder_text = re.sub(r"\bdaqui (?:a )?[\d]+ (?:minutos|min|horas|h)\b", "", reminder_text, flags=re.IGNORECASE)
-    reminder_text = re.sub(r"\ba cada\s+\d+\s*(?:minutos|min|horas|h)\b", "", reminder_text, flags=re.IGNORECASE)
+    reminder_text = re.sub(r"\bdaqui (?:a )?[\d]+ (?:minuto|minutos|min|hora|horas|h)\b", "", reminder_text, flags=re.IGNORECASE)
+    reminder_text = re.sub(r"\ba cada\s+\d+\s*(?:minuto|minutos|min|hora|horas|h)\b", "", reminder_text, flags=re.IGNORECASE)
+    reminder_text = re.sub(r"\b\d+\s*(?:minuto|minutos|min|hora|horas|h)\b", "", reminder_text, flags=re.IGNORECASE)
 
     # Horários (às 14h, 12:30, etc)
     reminder_text = re.sub(r"\b(?:as|às|ás)\s+\d{1,2}(?:[:h]\d{2})?h?\b", "", reminder_text, flags=re.IGNORECASE)
@@ -556,6 +569,7 @@ def _parse_reminder(text: str) -> Dict:
     return {
         "intent": "reminder_set",
         "action": "create_request",
+        "confidence": 1.0,
         "text": reminder_text if reminder_text else "Lembrete",
         "params": {
             "text": reminder_text if reminder_text else "Lembrete",

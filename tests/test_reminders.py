@@ -43,6 +43,19 @@ class TestReminders(unittest.TestCase):
         self.assertEqual(result["params"]["text"], "enviar a tarefa do ipog")
         self.assertIsNone(result["params"]["target_date"])
 
+    def test_short_natural_reminder_does_not_fall_to_llm(self):
+        result = detect_intent("Me lembra teste 2 min")
+
+        self.assertEqual(result["intent"], "reminder_set")
+        self.assertEqual(result["params"]["text"], "teste")
+        self.assertEqual(result["params"]["minutes"], 2)
+        self.assertIsNotNone(result["params"]["target_date"])
+
+    def test_common_reminder_typo_is_still_reminder(self):
+        result = apply_rules("Lbrete")
+
+        self.assertEqual(result["intent"], "reminder_set")
+
     def test_reminder_extracts_priority_nagging_category(self):
         result = detect_intent("lembrete urgente me cobra de tomar remédio hoje às 20h")
 
