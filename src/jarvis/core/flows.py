@@ -290,7 +290,7 @@ class RemindersFlow:
         ContextEngine.save_context(chat_id, {"flow": None})
 
         # Formatação Final
-        time_display = format_pt_br(next_run)
+        time_display = format_pt_br(next_run.astimezone(Config.TZ))
 
         if action_type == "hydration":
             return f"Hidratação configurada! Meta: {meta['meta_ml']}ml."

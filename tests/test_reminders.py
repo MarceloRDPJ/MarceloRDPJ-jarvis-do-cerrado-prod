@@ -91,6 +91,25 @@ class TestReminders(unittest.TestCase):
         res = parse_time_command("daqui a 10 minutos")
         self.assertEqual(res["minutes"], 10)
         self.assertIsNotNone(res["target_date"])
+        self.assertIsNotNone(res["target_date"].tzinfo)
+        delta = res["target_date"] - datetime.now(Config.TZ)
+        self.assertLess(abs(delta.total_seconds() - 600), 5)
+
+    def test_finalize_relative_reminder_preserves_relative_time_in_utc(self):
+        chat_id = 2001
+        ContextEngine.save_context(chat_id, {"flow": None})
+        time_data = parse_time_command("daqui 2 minutos")
+
+        RemindersFlow.finalize_creation(chat_id, {
+            "text": "Levantar",
+            "target_date": time_data["target_date"],
+            "minutes": time_data["minutes"],
+        })
+
+        task = Persistence.get_active_tasks(chat_id)[-1]
+        next_run = datetime.fromisoformat(task["next_run"])
+        delta = next_run - datetime.now(next_run.tzinfo)
+        self.assertLess(abs(delta.total_seconds() - 120), 5)
 
     def test_flow_happy_path(self):
         chat_id = 1001

@@ -1,6 +1,7 @@
 import re
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
+from jarvis.config import Config
 
 WEEKDAYS = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 
@@ -35,7 +36,7 @@ def parse_time_command(text: str) -> Dict[str, Any]:
     }
 
     text = text.lower()
-    now = datetime.now()
+    now = datetime.now(Config.TZ)
 
     # Recorrência explícita
     if "todo dia" in text or "todos os dias" in text or "diariamente" in text:
