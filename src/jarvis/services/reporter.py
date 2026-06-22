@@ -71,32 +71,41 @@ class ReporterService:
 
         sys_info = "N/A"
         uptime = "N/A"
+        system_error = None
         try:
             raw = await SystemModule.get_raw_status()
             t = f"{raw['temperature_c']}C" if raw.get('temperature_c') else "N/A"
             uptime = str(timedelta(seconds=raw['uptime_seconds']))
             sys_info = f"CPU: {raw['cpu_percent']}% | RAM: {raw['memory']['percent']}% | Temp: {t}"
-        except:
-            pass
+        except Exception as e:
+            system_error = str(e)
+            logger.exception("Falha ao coletar dados de sistema para relatório")
 
         net_info = "N/A"
+        network_error = None
         try:
             ping = await NetworkModule.get_ping_metrics()
             s = "Online" if ping.get('success') else "Offline"
             l = ping.get('latency_ms', 'N/A')
             net_info = f"{s} ({l}ms)"
-        except:
-            pass
+        except Exception as e:
+            network_error = str(e)
+            logger.exception("Falha ao coletar dados de rede para relatório")
 
         msg = "Bom dia! Relatorio Diario — Jarvis do Cerrado\n\n"
         msg += f"Sistema: {sys_info}\n"
         msg += f"Uptime: {uptime}\n"
         msg += f"Internet: {net_info}\n\n"
 
+        if system_error:
+            msg += f"Aviso sistema: dados indisponiveis ({system_error[:80]})\n"
+        if network_error:
+            msg += f"Aviso rede: dados indisponiveis ({network_error[:80]})\n"
+
         if tokens['calls'] > 0:
-            msg += f"IA externa: {tokens['calls']} chamadas | {tokens['total']} tokens | ${tokens['cost']:.6f}\n"
+            msg += f"IA registrada: {tokens['calls']} chamadas | {tokens['total']} tokens | ${tokens['cost']:.6f}\n"
         else:
-            msg += "IA: tudo local/gratuito. Nenhuma chamada externa.\n"
+            msg += "IA: nenhuma chamada externa registrada hoje. Isso depende da instrumentacao atual.\n"
 
         if unknown:
             msg += f"{len(unknown)} consultas nao reconhecidas\n"
@@ -124,10 +133,10 @@ class ReporterService:
             msg += f"Melhoria continua: {unknown_7d} consultas nao reconhecidas nos ultimos 7 dias.\n"
             msg += "Me pergunte 'o que nao sabe' para ver a lista.\n\n"
 
-        msg += "Estatisticas:\n"
-        msg += "* Relatorio 100% local — zero tokens gastos\n"
-        msg += "* Funciona 24/7 com ou sem internet\n"
-        msg += "* Backup automatico do banco de dados\n"
+        msg += "Estatisticas verificaveis:\n"
+        msg += "* Relatorio gerado localmente\n"
+        msg += "* Telegram exige internet para entregar mensagens\n"
+        msg += "* Backup automatico: nao verificado por este relatorio\n"
 
         return msg
 

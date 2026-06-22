@@ -283,7 +283,8 @@ class HydrationModule:
         explicit=True: Comando claro ("bebi"). False: Implícito ("ok").
         """
         state = HydrationModule._load_state(chat_id)
-        HydrationModule._check_daily_reset(state)
+        if HydrationModule._check_daily_reset(state):
+            HydrationModule._save_state(chat_id, state)
 
         if not state["active"]:
              return "Hidratação não está ativa. Diz 'ativar hidratação' pra começar."

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from jarvis.modules.hydration import HydrationModule
 from jarvis.core.context import ContextEngine
+from jarvis.database.persistence import Persistence
 
 class TestHydrationModule(unittest.TestCase):
 
@@ -134,6 +135,18 @@ class TestHydrationModule(unittest.TestCase):
         self.assertEqual(state['daily_goal_ml'], 5000)
         mock_persistence.set_state.assert_called()
         self.assertIn("5000ml", response)
+
+    def test_today_stats_use_hydration_log_without_task(self):
+        Persistence.log_hydration_intake(
+            chat_id=self.chat_id,
+            amount_ml=300,
+            goal_ml=2500,
+            consumed_so_far_ml=300,
+            manual=True,
+        )
+
+        self.assertEqual(Persistence.get_hydration_count_today(self.chat_id), 1)
+        self.assertEqual(Persistence.get_hydration_volume_today(self.chat_id), 300)
 
 if __name__ == "__main__":
     unittest.main()

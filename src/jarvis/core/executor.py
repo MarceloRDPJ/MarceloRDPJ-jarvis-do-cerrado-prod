@@ -617,7 +617,7 @@ class Executor:
             text = RemindersFlow.list_reminders(chat_id)
             try:
                 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-                keyboard = [[InlineKeyboardButton("➕ Novo Lembrete", callback_data="criar lembrete"), InlineKeyboardButton("🗑️ Apagar Lembrete", callback_data="cancelar lembrete")]]
+                keyboard = [[InlineKeyboardButton("➕ Novo Lembrete", callback_data="criar lembrete"), InlineKeyboardButton("🗑️ Apagar Lembrete", callback_data="reminder_delete_menu")]]
                 return {"text": text, "reply_markup": InlineKeyboardMarkup(keyboard)}
             except: return text
 
@@ -822,9 +822,14 @@ class Executor:
 
         if action == "block":
             ip = parts[2]
-            # Calls internal intent
-            msg = await self._execute_intent("network_block_device", "block", {"ip": ip}, chat_id)
-            await query.edit_message_text(msg)
+            self.pending_actions[chat_id] = {
+                "intent": "network_block_device",
+                "action": "block",
+                "params": {"ip": ip, "confirmed": True},
+            }
+            await query.edit_message_text(
+                f"Bloquear o dispositivo {ip} no AdGuard?\n\nDigite confirmar para executar ou cancelar para abortar."
+            )
             return
 
         if action == "reg":

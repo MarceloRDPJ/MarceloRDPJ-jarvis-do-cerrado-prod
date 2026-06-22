@@ -521,22 +521,14 @@ class Persistence:
     @staticmethod
     def get_hydration_count_today(chat_id: int) -> int:
         """
-        Conta quantas interações de 'confirm' para tarefas do tipo 'hydration' ocorreram hoje.
+        Conta registros reais de consumo de água salvos no histórico hoje.
         """
-        start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        from jarvis.config import Config
+        local_now = datetime.now(timezone.utc).astimezone(Config.TZ)
+        start_of_day = local_now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).isoformat()
         with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
-
-            # Join tasks and task_interactions
-            query = """
-                SELECT COUNT(*)
-                FROM task_interactions i
-                JOIN tasks t ON i.task_id = t.id
-                WHERE t.chat_id = ?
-                  AND t.action = 'hydration'
-                  AND i.interaction_type = 'confirm'
-                  AND i.timestamp >= ?
-            """
+            query = "SELECT COUNT(*) FROM hydration_log WHERE chat_id = ? AND timestamp >= ?"
             c.execute(query, (chat_id, start_of_day))
             row = c.fetchone()
             return row[0] if row else 0
@@ -544,23 +536,14 @@ class Persistence:
     @staticmethod
     def get_hydration_volume_today(chat_id: int) -> int:
         """
-        Soma o volume (ml) de interações 'confirm' para tarefas 'hydration' hoje.
+        Soma o volume real salvo no histórico de hidratação hoje.
         """
-        start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        from jarvis.config import Config
+        local_now = datetime.now(timezone.utc).astimezone(Config.TZ)
+        start_of_day = local_now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).isoformat()
         with closing(sqlite3.connect(_get_db_path())) as conn:
             c = conn.cursor()
-
-            # Join tasks and task_interactions
-            # value é TEXT, precisamos converter
-            query = """
-                SELECT SUM(CAST(value AS INTEGER))
-                FROM task_interactions i
-                JOIN tasks t ON i.task_id = t.id
-                WHERE t.chat_id = ?
-                  AND t.action = 'hydration'
-                  AND i.interaction_type = 'confirm'
-                  AND i.timestamp >= ?
-            """
+            query = "SELECT SUM(amount_ml) FROM hydration_log WHERE chat_id = ? AND timestamp >= ?"
             c.execute(query, (chat_id, start_of_day))
             row = c.fetchone()
             # row[0] pode ser None se não houver registros

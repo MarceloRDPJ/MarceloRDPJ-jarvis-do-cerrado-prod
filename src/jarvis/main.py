@@ -150,9 +150,13 @@ async def safe_reply_text(message, text, reply_markup=None, parse_mode=None):
 # COMMANDS
 # =====================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != Config.ALLOWED_USER_ID:
+        logger.warning("/start bloqueado (usuário não autorizado)")
+        return
+
     await safe_reply_text(
         update.message,
-        "🟢 *Jarvis do Cerrado online.*\n"
+        "Jarvis do Cerrado online.\n"
         "Guardião da casa ativado.\n\n"
         "Fala o trem aí 👊",
     )
@@ -284,6 +288,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text.startswith("net_"):
         executor: Executor = context.application.bot_data["executor"]
         await executor.handle_network_callback(chat_id, text, query)
+        return
+
+    if text == "reminder_delete_menu":
+        await safe_reply_text(query.message, "Qual lembrete quer apagar? Use: cancelar lembrete 1\n\nDica: toque em 'listar lembretes' para ver os números.")
         return
 
     try:

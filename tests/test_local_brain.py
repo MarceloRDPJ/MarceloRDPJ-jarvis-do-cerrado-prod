@@ -31,5 +31,13 @@ class TestBrainLocalFallback(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(result)
 
+    async def test_local_brain_does_not_claim_gemini_fallback(self):
+        local_brain = LocalBrain()
+        result = await local_brain.process("como voce aprende")
+
+        self.assertIsNotNone(result)
+        self.assertNotIn("Gemini", result["text"])
+        self.assertIn("LLM local", result["text"])
+
 if __name__ == "__main__":
     unittest.main()

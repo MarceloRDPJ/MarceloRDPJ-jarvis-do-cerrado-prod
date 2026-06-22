@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import MagicMock, patch, AsyncMock
 import sys
 import os
+import types
 
 # Add src to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
@@ -60,6 +61,31 @@ class TestHomeAssistantBot(unittest.IsolatedAsyncioTestCase):
         tasks = Persistence.get_active_tasks(123)
         found = any(t["text"] == "Teste DB" for t in tasks)
         self.assertTrue(found)
+
+    async def test_reminder_list_delete_button_uses_explicit_callback(self):
+        telegram_module = types.ModuleType("telegram")
+
+        class InlineKeyboardButton:
+            def __init__(self, text, callback_data):
+                self.text = text
+                self.callback_data = callback_data
+
+        class InlineKeyboardMarkup:
+            def __init__(self, inline_keyboard):
+                self.inline_keyboard = inline_keyboard
+
+        telegram_module.InlineKeyboardButton = InlineKeyboardButton
+        telegram_module.InlineKeyboardMarkup = InlineKeyboardMarkup
+
+        executor = Executor(MagicMock())
+        with patch.dict(sys.modules, {"telegram": telegram_module}):
+            response = await executor.execute({"intent": "reminder_list", "action": "list", "params": {}}, Config.ALLOWED_USER_ID)
+
+        self.assertIsInstance(response, dict)
+        keyboard = response["reply_markup"].inline_keyboard
+        callbacks = [button.callback_data for row in keyboard for button in row]
+        self.assertIn("reminder_delete_menu", callbacks)
+        self.assertNotIn("cancelar lembrete", callbacks)
 
     async def test_persistence_event_log(self):
         event = Event(type="test.event", source="test", payload={"foo": "bar"})
