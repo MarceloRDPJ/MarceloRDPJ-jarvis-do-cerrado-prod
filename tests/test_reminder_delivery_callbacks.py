@@ -12,7 +12,7 @@ from jarvis.services.scheduler import SchedulerService
 
 
 @pytest.mark.asyncio
-async def test_unique_reminder_is_delivered_not_completed():
+async def test_unique_reminder_realerts_until_user_action():
     chat_id = 123
     task_id = Persistence.add_task(
         chat_id=chat_id,
@@ -27,7 +27,8 @@ async def test_unique_reminder_is_delivered_not_completed():
     await scheduler.process_task(task, datetime.now(timezone.utc))
 
     updated = Persistence.get_task(task_id)
-    assert updated["status"] == "delivered"
+    assert updated["status"] == "active"
+    assert datetime.fromisoformat(updated["next_run"]) > datetime.now(timezone.utc)
     assert Persistence.get_active_tasks_due(datetime.now(timezone.utc)) == []
 
 
@@ -49,9 +50,10 @@ async def test_reminder_delivery_continues_when_markup_is_unavailable(monkeypatc
     await scheduler.process_task(Persistence.get_task(task_id), datetime.now(timezone.utc))
 
     updated = Persistence.get_task(task_id)
-    assert updated["status"] == "delivered"
+    assert updated["status"] == "active"
     send_message.assert_awaited_once()
     assert send_message.call_args.kwargs["reply_markup"] is None
+    assert send_message.call_args.kwargs["disable_notification"] is False
 
 
 @pytest.mark.asyncio

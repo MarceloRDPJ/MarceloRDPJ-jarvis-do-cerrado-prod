@@ -91,8 +91,8 @@ class RemindersFlow:
             lines.append("⚠️ Prioridade: urgente" if data.get("priority") == "urgent" else "⚠️ Prioridade: alta")
         if data.get("category"):
             lines.append(f"🏷️ Categoria: {data['category']}")
-        if data.get("nag"):
-            lines.append(f"🔁 Vou cobrar a cada {data.get('nag_interval_minutes', 15)} min até você concluir")
+        if data.get("nag", True) and not data.get("repeat"):
+            lines.append(f"🔁 Vou cobrar a cada {data.get('nag_interval_minutes', 1)} min até você concluir")
         if data.get("repeat"):
             lines.append("🔄 Recorrente")
         return "\n".join(lines)
@@ -156,7 +156,8 @@ class RemindersFlow:
                 return (
                     f"Beleza, vê se tá certo:\n\n"
                     f"📅 {time_display}\n"
-                    f"📝 {data.get('text')}\n\n"
+                    f"📝 {data.get('text')}\n"
+                    f"{RemindersFlow._confirmation_extra(data)}\n"
                     f"Confirma?"
                 )
             else:
@@ -182,7 +183,8 @@ class RemindersFlow:
             return (
                 f"Beleza, vê se tá certo:\n\n"
                 f"📅 {time_display}\n"
-                f"📝 {text}\n\n"
+                f"📝 {text}\n"
+                f"{RemindersFlow._confirmation_extra(data)}\n"
                 f"Confirma?"
             )
 
@@ -246,8 +248,8 @@ class RemindersFlow:
         # Meta dados
         meta = {}
         meta["priority"] = data.get("priority", "normal")
-        meta["nag"] = bool(data.get("nag"))
-        meta["nag_interval_minutes"] = int(data.get("nag_interval_minutes") or 15)
+        meta["nag"] = bool(data.get("nag", True)) and not repeat
+        meta["nag_interval_minutes"] = int(data.get("nag_interval_minutes") or 1)
         meta["category"] = data.get("category")
         meta["raw_text"] = data.get("raw_text")
         meta["recurrence"] = data.get("recurrence", "none")

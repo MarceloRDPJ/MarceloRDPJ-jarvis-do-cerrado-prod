@@ -287,7 +287,7 @@ class Persistence:
                         event.id,
                         event.type,
                         event.source,
-                        json.dumps(event.payload),
+                        json.dumps(event.payload, default=str),
                         event.timestamp,
                     ),
                 )

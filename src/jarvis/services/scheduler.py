@@ -100,7 +100,8 @@ class SchedulerService:
                 await self.app.bot.send_message(
                     chat_id=chat_id,
                     text=message,
-                    reply_markup=_build_reminder_markup(task_id)
+                    reply_markup=_build_reminder_markup(task_id),
+                    disable_notification=False,
                 )
             except Exception as e:
                 logger.error(f"Falha ao enviar lembrete {task_id}: {e}")
@@ -125,8 +126,8 @@ class SchedulerService:
             logger.info(f"Tarefa {task_id} reagendada para {next_run}")
         else:
             meta = json.loads(task.get('meta') or '{}')
-            if meta.get('nag'):
-                interval = int(meta.get('nag_interval_minutes') or 15)
+            if meta.get('nag', True):
+                interval = int(meta.get('nag_interval_minutes') or 1)
                 next_run = now + timedelta(minutes=interval)
                 Persistence.update_task_next_run_and_status(task_id, next_run, 'active')
                 Persistence.log_interaction(task_id, 'nag_sent', str(interval))

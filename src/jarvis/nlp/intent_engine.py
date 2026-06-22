@@ -500,8 +500,8 @@ def _parse_reminder(text: str) -> Dict:
     elif re.search(r"\b(baixa prioridade|sem pressa)\b", reminder_text, re.IGNORECASE):
         priority = "low"
 
-    nag = bool(re.search(r"\b(insiste|me cobra|fica me lembrando|nao deixa eu esquecer|não deixa eu esquecer|ate eu confirmar|até eu confirmar|ate eu responder|até eu responder)\b", reminder_text, re.IGNORECASE))
-    nag_interval_minutes = 15
+    nag = True
+    nag_interval_minutes = 1
     nag_match = re.search(r"(?:me cobra|insiste|fica me lembrando).*?(?:a cada|de)\s*(\d+)\s*(minutos|min|horas|h)", reminder_text, re.IGNORECASE)
     if nag_match:
         nag_interval_minutes = int(nag_match.group(1)) * (60 if nag_match.group(2).lower().startswith(("h", "hora")) else 1)
