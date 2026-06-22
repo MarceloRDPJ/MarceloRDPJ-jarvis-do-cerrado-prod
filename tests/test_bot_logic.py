@@ -87,6 +87,27 @@ class TestHomeAssistantBot(unittest.IsolatedAsyncioTestCase):
         self.assertIn("reminder_delete_menu", callbacks)
         self.assertNotIn("cancelar lembrete", callbacks)
 
+    async def test_automation_list_uses_loaded_engine_rules(self):
+        app = MagicMock()
+        app.bot_data = {
+            "automation": MagicMock(rules=[
+                {"id": "r1", "name": "Regra Real", "enabled": True, "trigger": {"type": "time", "time": "08:00"}},
+            ])
+        }
+        executor = Executor(app)
+
+        response = await executor.execute({"intent": "automation_list", "action": "list", "params": {}}, Config.ALLOWED_USER_ID)
+
+        self.assertIn("Regra Real", response)
+        self.assertNotIn("Modo Noturno (22h - 08h)", response)
+
+    async def test_automation_create_does_not_fake_registration(self):
+        executor = Executor(MagicMock())
+        response = await executor.execute({"intent": "automation_create", "action": "create", "params": {}}, Config.ALLOWED_USER_ID)
+
+        self.assertIn("não consigo criar", response)
+        self.assertNotIn("registrada", response.lower())
+
     async def test_persistence_event_log(self):
         event = Event(type="test.event", source="test", payload={"foo": "bar"})
         Persistence.log_event(event)

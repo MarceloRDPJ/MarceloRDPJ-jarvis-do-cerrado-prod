@@ -1,7 +1,8 @@
 import psutil
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from jarvis.database.persistence import Persistence
+from jarvis.core.events import Event
 
 # -*- coding: utf-8 -*-
 
@@ -40,15 +41,13 @@ class EnergyService:
         Ideal rodar a cada 5 ou 10 minutos via job.
         """
         watts = EnergyService._estimate_current_watts()
-        timestamp = datetime.now().isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
 
         Persistence.log_event(
-            type="energy.sample",
-            source="energy",
-            payload={
+            Event(type="energy.sample", source="energy", payload={
                 "watts": watts,
                 "timestamp": timestamp
-            }
+            })
         )
 
     @staticmethod
@@ -56,7 +55,8 @@ class EnergyService:
         """
         Retorna consumo estimado do dia.
         """
-        events = Persistence.get_events_by_type("energy.sample", limit=500)
+        since = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        events = Persistence.get_events_by_type("energy.sample", limit=500, since=since)
 
         if not events:
             return "? Ainda não tenho dados suficientes de energia hoje."
@@ -77,7 +77,9 @@ class EnergyService:
         """
         Retorna consumo estimado mensal.
         """
-        events = Persistence.get_events_by_type("energy.sample", limit=5000)
+        now = datetime.now(timezone.utc)
+        since = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        events = Persistence.get_events_by_type("energy.sample", limit=5000, since=since)
 
         if not events:
             return "? Ainda não tenho dados suficientes este mês."

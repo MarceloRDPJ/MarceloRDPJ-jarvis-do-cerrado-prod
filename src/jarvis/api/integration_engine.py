@@ -1,10 +1,10 @@
 """
 Integration Engine — Jarvis do Cerrado
 =======================================
-Motor de integrações simulando n8n (workflows) e Typebot (chatbots).
+Motor local simples para workflows e chatbots básicos.
 
-Permite criar automações visuais e chatbots diretamente pelo dashboard.
-Arquitetura simplificada para Raspberry Pi, mas com conceitos profissionais.
+Não é substituto completo de n8n/Typebot; valida configurações para evitar
+salvar fluxos que parecem ativos mas não executam.
 """
 
 import logging
@@ -21,10 +21,7 @@ class IntegrationEngine:
     """
     Motor de Integrações do Jarvis.
     
-    Suporta:
-    - Workflows (n8n-like): sequências de steps condicionais
-    - Chatbots (Typebot-like): fluxos de conversa interativos
-    - Integrações customizadas: webhooks, schedules, actions
+    Suporta workflows e chatbots básicos com validação explícita.
     """
 
     def __init__(self, app_state):
@@ -54,6 +51,10 @@ class IntegrationEngine:
 
     def register_integration(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Register a new integration."""
+        errors = self.validate_config(config)
+        if errors:
+            raise ValueError("; ".join(errors))
+
         integration_id = config.get("id", str(uuid.uuid4()))
         
         integration = {
@@ -84,6 +85,58 @@ class IntegrationEngine:
 
         logger.info(f"Integration registered: {integration['name']} ({integration_id}) [{integration['type']}]")
         return integration
+
+    def validate_config(self, config: Dict[str, Any]) -> List[str]:
+        """Return validation errors for configs that cannot execute."""
+        errors = []
+        integration_type = config.get("type", "custom")
+        cfg = config.get("config") or {}
+
+        if integration_type == "workflow":
+            steps = cfg.get("steps")
+            if not isinstance(steps, list) or not steps:
+                return ["workflow precisa de config.steps com ao menos um step"]
+            supported = {"schedule", "notification", "action", "condition", "trigger"}
+            for index, step in enumerate(steps):
+                step_type = step.get("type")
+                step_config = step.get("config") or {}
+                if step_type not in supported:
+                    errors.append(f"step {index}: tipo '{step_type}' não suportado")
+                    continue
+                if step_type == "schedule" and not (step_config.get("time") or step_config.get("interval")):
+                    errors.append(f"step {index}: schedule precisa de time ou interval")
+                elif step_type == "notification" and not step_config.get("message"):
+                    errors.append(f"step {index}: notification precisa de message")
+                elif step_type == "action" and not step_config.get("action"):
+                    errors.append(f"step {index}: action precisa de action")
+                elif step_type == "condition" and not step_config.get("field"):
+                    errors.append(f"step {index}: condition precisa de field")
+                elif step_type == "trigger" and not step_config.get("event"):
+                    errors.append(f"step {index}: trigger precisa de event")
+
+        elif integration_type == "chatbot":
+            flows = cfg.get("flows")
+            if not isinstance(flows, list) or not flows:
+                return ["chatbot precisa de config.flows com ao menos um fluxo"]
+            for index, flow in enumerate(flows):
+                if not flow.get("trigger"):
+                    errors.append(f"flow {index}: trigger obrigatório")
+                responses = flow.get("responses")
+                actions = flow.get("actions")
+                fallback = flow.get("fallback")
+                if not responses and not actions and not fallback:
+                    errors.append(f"flow {index}: informe responses, actions ou fallback")
+                if responses is not None and not isinstance(responses, list):
+                    errors.append(f"flow {index}: responses deve ser lista")
+
+        elif integration_type == "webhook":
+            if not cfg.get("endpoint"):
+                errors.append("webhook precisa de config.endpoint")
+
+        else:
+            errors.append(f"tipo de integração '{integration_type}' não suportado")
+
+        return errors
 
     def unregister_integration(self, integration_id: str):
         """Remove an integration."""

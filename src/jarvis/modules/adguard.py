@@ -1,6 +1,7 @@
 import aiohttp
 import base64
 import logging
+import re
 from typing import Dict, Any, List, Optional
 from jarvis.config import Config
 
@@ -21,45 +22,17 @@ class AdGuardClient:
         return {"Authorization": f"Basic {encoded}"}
 
     @classmethod
-    async def block_client(cls, ip: str, name: str = None) -> Dict[str, Any]:
-        """
-        Bloqueia um cliente específico no AdGuard.
-
-        Args:
-            ip: Endereço IP do cliente
-            name: Nome descritivo (opcional)
-
-        Returns:
-            {"success": bool, "message": str}
-        """
+    async def _add_filter_rule(cls, rule: str, name: str) -> Dict[str, Any]:
         url = f"{cls.BASE_URL}/control/filtering/add_url"
         headers = cls._get_auth_header()
         headers["Content-Type"] = "application/json"
-
-        payload = {
-            "name": name or f"Block {ip}",
-            "url": f"||{ip}^",
-            "whitelist": False
-        }
-
-        # Note: The prompt suggested "||{ip}/*". However, AdGuard syntax usually is "||example.org^".
-        # For IP blocking, "||192.168.1.50^" blocks everything.
-        # The prompt said: "url": f"||{ip}/*"
-        # I will use the prompt's suggestion but without the * if it causes issues,
-        # but typically adguard syntax uses ^ as separator or nothing.
-        # "||1.2.3.4^" is standard for blocking a domain/IP.
-        # Let's stick to the prompt's visual format but maybe standard AdGuard syntax is better?
-        # Prompt: "||{ip}/*"
-        # I will use "||{ip}^" which is standard for "block this domain/ip and subdomains".
-        # Wait, the prompt explicitly said: "Payload: {"name": name, "url": f"||{ip}/*", "whitelist": false}"
-        # I will follow the prompt exactly.
-        payload["url"] = f"||{ip}/*"
+        payload = {"name": name, "url": rule, "whitelist": False}
 
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, json=payload, headers=headers) as response:
                     if response.status == 200:
-                        return {"success": True, "message": f"Cliente {ip} bloqueado com sucesso."}
+                        return {"success": True, "message": f"Regra adicionada ao AdGuard: {rule}"}
                     else:
                         text = await response.text()
                         logger.error(f"AdGuard block failed: {response.status} - {text}")
@@ -67,6 +40,29 @@ class AdGuardClient:
         except Exception as e:
             logger.exception("AdGuard block exception")
             return {"success": False, "message": f"Erro de conexão: {str(e)}"}
+
+    @staticmethod
+    def _is_ip(value: str) -> bool:
+        return bool(re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", value or "")) and all(0 <= int(part) <= 255 for part in value.split("."))
+
+    @staticmethod
+    def _is_domain(value: str) -> bool:
+        return bool(re.fullmatch(r"[A-Za-z0-9.-]+\.[A-Za-z]{2,}", value or ""))
+
+    @classmethod
+    async def block_client(cls, ip: str, name: str = None) -> Dict[str, Any]:
+        """Bloqueia um IP específico via regra de filtro do AdGuard."""
+        if not cls._is_ip(ip):
+            return {"success": False, "message": f"IP inválido para bloqueio de cliente: {ip}"}
+        return await cls._add_filter_rule(f"||{ip}^", name or f"Block client {ip}")
+
+    @classmethod
+    async def block_domain(cls, domain: str, name: str = None) -> Dict[str, Any]:
+        """Bloqueia domínio via regra de filtro do AdGuard."""
+        domain = (domain or "").strip().lower().removeprefix("http://").removeprefix("https://").split("/")[0]
+        if not cls._is_domain(domain):
+            return {"success": False, "message": f"Domínio inválido: {domain}"}
+        return await cls._add_filter_rule(f"||{domain}^", name or f"Block domain {domain}")
 
     @classmethod
     async def unblock_client(cls, ip: str) -> Dict[str, Any]:
@@ -76,7 +72,7 @@ class AdGuardClient:
         headers["Content-Type"] = "application/json"
 
         payload = {
-            "url": f"||{ip}/*",
+            "url": f"||{ip}^",
             "whitelist": False
         }
 

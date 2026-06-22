@@ -405,30 +405,12 @@ class Executor:
 
             return {
                 "text": (
-                    "🤖 **AUTOMAÇÕES & INTELIGÊNCIA**\n\n"
-                    "_Jarvis proativo. Executa ações sem você pedir._\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                    "**🔥 Automações Ativas:**\n\n"
-                    "🌙 **Modo Noturno (22h)**\n"
-                    "→ Silencia lembretes automaticamente\n"
-                    "→ Notifica ativação\n\n"
-                    "☀️ **Bom Dia Automático (7h)**\n"
-                    "→ Mensagem motivacional\n"
-                    "→ Dica de hidratação\n\n"
-                    "🚨 **Alerta Internet Down**\n"
-                    "→ Detecta queda de conexão\n"
-                    "→ Notifica imediatamente\n\n"
-                    "🛡️ **Detecção de Invasores**\n"
-                    "→ Monitora devices desconhecidos\n"
-                    "→ Oferece bloqueio automático\n\n"
-                    "💧 **Alerta Meta Perdida**\n"
-                    "→ Se não bateu meta de água\n"
-                    "→ Mensagem de incentivo\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                    "**🎯 Como funciona:**\n"
-                    "Sistema If-This-Then-That (IFTTT) rodando 24/7.\n"
-                    "Eventos disparam ações automaticamente.\n\n"
-                    "_Em breve: criação de automações customizadas._"
+                    "🤖 Automações & Inteligência\n\n"
+                    "Regras locais verificáveis. Sem fingir integração que não existe.\n\n"
+                    "Toque em Ver Automações para eu listar o que o motor carregou de verdade.\n\n"
+                    "Como funciona:\n"
+                    "Sistema local de regras simples. Algumas ações dependem de serviços configurados.\n\n"
+                    "Criação/edição pelo Telegram ainda não está pronta."
                 ),
                 "reply_markup": reply_markup
             }
@@ -486,11 +468,25 @@ class Executor:
 
         # --- NEW HANDLERS FOR SUBMENU ITEMS ---
         if intent == "automation_list":
-            # Stub for automation list
-            return "🤖 **Automações Ativas:**\n\n• Modo Noturno (22h - 08h)\n• Bom Dia (07h)\n• Alerta Internet Down\n• Detecção de Invasores\n• Meta Hidratação\n\n_Configuração avançada em breve._"
+            automation = getattr(self.app, "bot_data", {}).get("automation") if self.app else None
+            if not automation:
+                return "🤖 Automações\n\nMotor de automações não está disponível agora. Nenhuma automação confirmada."
+            rules = getattr(automation, "rules", []) or []
+            if not rules:
+                return "🤖 Automações\n\nNenhuma regra carregada."
+            lines = []
+            for rule in rules:
+                status = "ativa" if rule.get("enabled") else "pausada"
+                trigger = rule.get("trigger", {})
+                if trigger.get("type") == "time":
+                    trigger_desc = f"horário {trigger.get('time')}"
+                else:
+                    trigger_desc = f"evento {trigger.get('event_type', 'desconhecido')}"
+                lines.append(f"• {rule.get('name', rule.get('id'))}: {status} ({trigger_desc})")
+            return "🤖 Automações carregadas\n\n" + "\n".join(lines) + "\n\nAções dependentes de integrações externas só executam se o serviço estiver configurado."
 
         if intent == "automation_config":
-            return "⚙️ **Configuração de Automações**\n\nFuncionalidade em desenvolvimento. Edite o arquivo `config.yaml` para alterações avançadas."
+            return "⚙️ Configuração de Automações\n\nCriação/edição pelo Telegram ainda não está implementada. Hoje eu apenas listo e executo as regras locais carregadas no código/configuração."
 
         if intent == "system_logs":
             try:
@@ -542,7 +538,7 @@ class Executor:
             if not site:
                 return "❌ Qual site? Ex: bloquear youtube.com"
 
-            result = await AdGuardClient.block_client(site, name=f"Bloqueio {site}")
+            result = await AdGuardClient.block_domain(site, name=f"Bloqueio {site}")
             if result["success"]:
                 return f"🚫 Site {site} bloqueado."
             else:
@@ -660,7 +656,7 @@ class Executor:
         if intent == "hydration_status": return HydrationModule.get_status_message(chat_id)
         if intent == "hydration_control": return HydrationModule.control_hydration(chat_id, params.get("command", ""))
         if intent == "hydration_update": return HydrationModule.update_config(chat_id, params)
-        if intent == "automation_create": return "🤖 Automação registrada. Vou observar."
+        if intent == "automation_create": return "🤖 Ainda não consigo criar automações novas pelo chat com segurança. Posso listar as regras carregadas e executar as existentes."
 
         if intent == "token_usage":
             return await Executor._get_token_usage_report()

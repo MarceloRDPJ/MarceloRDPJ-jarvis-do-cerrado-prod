@@ -296,7 +296,7 @@ class MCPHandler:
             domain = parameters.get("domain", "")
             if not domain:
                 return {"error": "Domain required"}
-            result = await AdGuardClient.block_client(domain, name=f"Blocked: {domain}")
+            result = await AdGuardClient.block_domain(domain, name=f"Blocked: {domain}")
             return result
 
         elif tool_name == "run_speedtest":
@@ -379,7 +379,7 @@ class MCPHandler:
 
         elif uri == "jarvis://system/logs":
             from jarvis.database.persistence import Persistence
-            logs = Persistence.get_recent_snapshots(1440, limit=50)
+            logs = Persistence.get_recent_events(50)
             return {"uri": uri, "data": {"logs": logs}}
 
         return None

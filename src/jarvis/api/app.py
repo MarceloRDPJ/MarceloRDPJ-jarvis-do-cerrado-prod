@@ -132,15 +132,28 @@ async def get_system_status():
 async def get_system_health():
     """Quick health check."""
     from jarvis.core.llm_fallback import LLMFallbackEngine
+    from jarvis.database.persistence import Persistence
     local_llm = LLMFallbackEngine()
+    checks = {}
+    try:
+        Persistence.get_recent_events(1)
+        checks["database"] = {"ok": True}
+    except Exception as e:
+        checks["database"] = {"ok": False, "error": str(e)}
+    llm_available = local_llm.is_available()
+    checks["local_llm"] = {"ok": llm_available, "required": False}
+    status = "ok" if checks["database"]["ok"] else "critical"
+    if status == "ok" and not llm_available:
+        status = "degraded"
     return {
-        "status": "ok",
+        "status": status,
         "timestamp": time.time(),
+        "checks": checks,
         "local_llm": {
             "backend": local_llm.backend,
             "model": local_llm.model,
             "server_url": local_llm.server_url,
-            "available": local_llm.is_available(),
+            "available": llm_available,
         },
     }
 
@@ -185,7 +198,7 @@ async def get_system_logs(lines: int = Query(50, le=200)):
     """Get recent system events from persistence."""
     from jarvis.database.persistence import Persistence
     try:
-        events = Persistence.get_recent_snapshots(1440, limit=lines)
+        events = Persistence.get_recent_events(lines)
         return {"logs": events}
     except Exception as e:
         return {"logs": [], "error": str(e)}
@@ -202,12 +215,15 @@ async def get_fan_status():
     if not fan_service:
         return JSONResponse(content={
             "available": False,
+            "hardware_status": "unavailable",
             "message": "FanControlService not initialized"
         })
 
     state = "on" if fan_service.fan and fan_service.fan.is_active else "off"
+    hardware_status = "ok" if fan_service.fan is not None else "simulated"
     return JSONResponse(content={
         "available": fan_service.fan is not None,
+        "hardware_status": hardware_status,
         "state": state,
         "mode": "pwm" if hasattr(fan_service, 'pwm_mode') and fan_service.pwm_mode else "onoff",
         "speed_percent": getattr(fan_service, 'speed_percent', 100 if state == "on" else 0),
@@ -594,7 +610,10 @@ async def list_integrations():
 async def create_integration(config: IntegrationConfig):
     """Register a new integration."""
     engine = service_required("integration_engine")
-    integration = engine.register_integration(config.dict())
+    try:
+        integration = engine.register_integration(config.dict())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"status": "success", "integration": integration}
 
 
@@ -610,7 +629,11 @@ async def delete_integration(integration_id: str):
 async def test_integration(request: Request):
     """Test an integration configuration."""
     body = await request.json()
-    return {"status": "success", "message": "Integration test completed", "data": body}
+    engine = service_required("integration_engine")
+    errors = engine.validate_config(body)
+    if errors:
+        return {"status": "invalid", "errors": errors, "data": body}
+    return {"status": "valid", "message": "Integration config is executable by the local engine", "data": body}
 
 
 @app.get("/api/integrations/templates")
@@ -644,9 +667,8 @@ async def list_integration_templates():
                 "name": "Mensagem de Boas-Vindas",
                 "description": "Envia mensagem personalizada ao detectar novo dispositivo",
                 "type": "chatbot",
-                "steps": [
-                    {"type": "trigger", "config": {"event": "network.new_device"}},
-                    {"type": "action", "config": {"action": "send_message", "message": "🆕 Novo dispositivo detectado na rede!"}}
+                "flows": [
+                    {"trigger": "novo dispositivo", "responses": ["Novo dispositivo detectado na rede."]}
                 ]
             },
             {
@@ -735,6 +757,16 @@ async def get_dashboard_data():
         "local_llm_available": False,
         "user_id": Config.ALLOWED_USER_ID,
     }
+
+
+@app.get("/api/mcp/resource")
+async def get_mcp_resource(uri: str = Query(...)):
+    """Read a single MCP resource by URI."""
+    handler = service_required("mcp_handler")
+    data = await handler.get_resource(uri)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"Resource not found: {uri}")
+    return data
     try:
         from jarvis.core.llm_fallback import LLMFallbackEngine
         data["bot"]["local_llm_available"] = LLMFallbackEngine().is_available()
@@ -786,8 +818,8 @@ async def get_recent_events(limit: int = Query(20, le=100)):
     """Get recent system events."""
     from jarvis.database.persistence import Persistence
     try:
-        snapshots = Persistence.get_recent_snapshots(60, limit=limit)
-        return {"events": snapshots}
+        events = Persistence.get_recent_events(limit)
+        return {"events": events}
     except Exception as e:
         return {"events": [], "error": str(e)}
 

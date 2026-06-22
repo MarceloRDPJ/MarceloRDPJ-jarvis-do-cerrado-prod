@@ -27,6 +27,15 @@ class Persistence:
 
     _db_path = None
 
+    @staticmethod
+    def _add_column_if_missing(cursor, table: str, column_sql: str):
+        try:
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column_sql}")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" in str(e).lower():
+                return
+            raise
+
     @classmethod
     def set_db_path(cls, path):
         global _db_path_override
@@ -84,26 +93,13 @@ class Persistence:
             )
             """)
 
-            # Migração simples: adicionar colunas se não existirem
-            # (Em produção real usaria alembic/migrações, aqui fazemos check manual)
-            try:
-                c.execute("ALTER TABLE tasks ADD COLUMN action TEXT")
-            except sqlite3.OperationalError: pass
-            try:
-                c.execute("ALTER TABLE tasks ADD COLUMN type TEXT")
-            except sqlite3.OperationalError: pass
-            try:
-                c.execute("ALTER TABLE tasks ADD COLUMN next_run TEXT")
-            except sqlite3.OperationalError: pass
-            try:
-                c.execute("ALTER TABLE tasks ADD COLUMN status TEXT")
-            except sqlite3.OperationalError: pass
-            try:
-                c.execute("ALTER TABLE tasks ADD COLUMN meta TEXT")
-            except sqlite3.OperationalError: pass
-            try:
-                c.execute("ALTER TABLE tasks ADD COLUMN created_at TEXT")
-            except sqlite3.OperationalError: pass
+            # Migração simples: ignora apenas coluna duplicada; outros erros são reais.
+            Persistence._add_column_if_missing(c, "tasks", "action TEXT")
+            Persistence._add_column_if_missing(c, "tasks", "type TEXT")
+            Persistence._add_column_if_missing(c, "tasks", "next_run TEXT")
+            Persistence._add_column_if_missing(c, "tasks", "status TEXT")
+            Persistence._add_column_if_missing(c, "tasks", "meta TEXT")
+            Persistence._add_column_if_missing(c, "tasks", "created_at TEXT")
 
 
             c.execute("""
@@ -468,6 +464,33 @@ class Persistence:
             )
             rows = c.fetchall()
             return [dict(row) for row in rows]
+
+    @staticmethod
+    def get_events_by_type(event_type: str, limit: int = 100, since: Optional[datetime] = None) -> List[Dict[str, Any]]:
+        with closing(sqlite3.connect(_get_db_path())) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            params = [event_type]
+            where = "WHERE type = ?"
+            if since is not None:
+                if since.tzinfo is None:
+                    since = since.replace(tzinfo=timezone.utc)
+                params.append(since.astimezone(timezone.utc).isoformat())
+                where += " AND timestamp >= ?"
+            params.append(limit)
+            c.execute(
+                f"SELECT * FROM events {where} ORDER BY timestamp DESC LIMIT ?",
+                tuple(params),
+            )
+            events = []
+            for row in c.fetchall():
+                item = dict(row)
+                try:
+                    item["payload"] = json.loads(item.get("payload") or "{}")
+                except json.JSONDecodeError:
+                    item["payload"] = {}
+                events.append(item)
+            return events
 
     @staticmethod
     def get_tasks_between(chat_id: int, start: datetime, end: datetime):

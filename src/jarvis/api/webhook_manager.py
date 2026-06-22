@@ -146,6 +146,7 @@ class WebhookManager:
             "event": event_type,
             "timestamp": datetime.now().isoformat(),
             "status": status,
+            "success": 200 <= status < 300,
             "response": body_text[:500],
         }
         self.execution_logs.append(log_entry)
