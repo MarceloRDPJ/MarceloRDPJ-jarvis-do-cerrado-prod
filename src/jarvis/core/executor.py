@@ -264,7 +264,7 @@ class Executor:
                         InlineKeyboardButton("⏰ Agenda & Vida", callback_data="menu_agenda")
                     ],
                     [
-                        InlineKeyboardButton("🤖 Automações & IA", callback_data="menu_automacoes"),
+                        InlineKeyboardButton("⚙️ Automações", callback_data="menu_automacoes"),
                         InlineKeyboardButton("🖥️ Sistema & Controle", callback_data="menu_sistema")
                     ],
                     [
@@ -284,7 +284,7 @@ class Executor:
                     "Clique em uma categoria abaixo ou digite sua dúvida naturalmente:\n\n"
                     "🌐 **Rede & Segurança** → Scan, bloqueio, stats\n"
                     "⏰ **Agenda & Vida** → Lembretes, hidratação\n"
-                    "🤖 **Automações & IA** → Regras inteligentes\n"
+                    "⚙️ **Automações** → Regras locais e alertas\n"
                     "🖥️ **Sistema** → Monitoramento, controle\n\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                     "_Dica: Você pode falar comigo naturalmente._\n"
@@ -323,17 +323,16 @@ class Executor:
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                     "**🔍 Varredura & Monitoramento**\n"
                     "• `Quem tá na rede?` → Lista TODOS os dispositivos conectados\n"
-                    "• `Estatísticas de rede` → Top consumidores de banda\n"
+                    "• `Estatísticas de rede` → Consultas e bloqueios do AdGuard\n"
                     "• `Status da internet` → Ping check em tempo real\n"
                     "• `Velocidade da internet` → Speedtest completo\n\n"
                     "**🚫 Bloqueio & Segurança (AdGuard)**\n"
                     "• `Bloquear 192.168.0.X` → Bloqueia dispositivo específico\n"
                     "• `Bloquear youtube.com` → Bloqueia site/domínio\n"
-                    "• `Desbloquear tudo` → Remove todos os bloqueios\n"
-                    "• `Modo criança` → Ativa filtros de conteúdo\n\n"
+                    "• Bloqueios alteram regras do AdGuard e pedem confirmação\n\n"
                     "**✏️ Organização**\n"
                     "• `Renomear 192.168.0.15 para TV Sala` → Dá nome aos devices\n"
-                    "• `Listar dispositivos salvos` → Ver nomes customizados\n\n"
+                    "• Nomes cadastrados aparecem nas próximas varreduras\n\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                     "_Tudo integrado com AdGuard Home pra máxima proteção._"
                 ),
@@ -382,7 +381,7 @@ class Executor:
                     "• Detecção de horários de pico\n"
                     "• Identificação de dias fracos\n"
                     "• Streak contador (dias consecutivos)\n"
-                    "• Sugestões adaptativas\n\n"
+                    "• Resumo baseado no histórico salvo\n\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                     "_Sistema completo de bem-estar integrado._"
                 ),

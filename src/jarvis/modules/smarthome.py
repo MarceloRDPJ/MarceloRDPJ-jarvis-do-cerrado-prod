@@ -13,12 +13,6 @@ class BaseProvider:
     async def execute(cls, device: Dict[str, Any], action: str, **kwargs) -> Dict[str, Any]:
         raise NotImplementedError("Provider deve implementar execute()")
 
-class TuyaProvider(BaseProvider):
-    """Integração futura com Tuya (Local ou Cloud)"""
-    @classmethod
-    async def execute(cls, device: Dict[str, Any], action: str, **kwargs) -> Dict[str, Any]:
-        return {"status": "not_configured", "message": "Tuya Provider não configurado."}
-
 class TasmotaProvider(BaseProvider):
     """Integração via MQTT/HTTP para dispositivos Tasmota"""
     @classmethod
@@ -44,11 +38,10 @@ class BroadlinkProvider(BaseProvider):
 class SmartHomeModule:
     """
     Módulo central de Smart Home.
-    Abstrai a comunicação com diferentes provedores (Tuya, Tasmota, etc).
+    Abstrai a comunicação com provedores locais opcionais.
     """
 
     PROVIDERS = {
-        'tuya': TuyaProvider,
         'tasmota': TasmotaProvider,
         'shelly': ShellyProvider,
         'broadlink': BroadlinkProvider

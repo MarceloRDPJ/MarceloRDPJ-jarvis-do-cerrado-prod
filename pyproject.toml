@@ -27,7 +27,6 @@ dependencies = [
     "mac-vendor-lookup",
     "scapy",
     "bleak",
-    "tinytuya",
     "rapidfuzz",
     "aiohttp",
     "gpiozero",

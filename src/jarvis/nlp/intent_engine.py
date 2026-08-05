@@ -65,7 +65,9 @@ class HybridIntentEngine:
                 "conexao ta boa", "rede online"
             ],
             "network_speed": [
-                "velocidade da internet", "speedtest", "teste de velocidade",
+                "velocidade da internet", "speed", "speedtest", "teste de velocidade",
+                "speed test", "speed teste", "sped teste", "sped treste",
+                "teste da velocidade da internet", "teste velocidade internet",
                 "internet ta lenta", "medir velocidade", "taxa de download",
                 "testar velocidade", "velocidade da net", "net ta lenta",
                 "download ta quanto", "upload ta quanto"
@@ -117,6 +119,9 @@ class HybridIntentEngine:
             "system_status": [
                 "status da cpu", "uso da cpu", "memoria",
                 "ram", "status do sistema", "como ta o sistema", "status",
+                "status do pi", "status do raspi", "status raspberry",
+                "statu do pi", "stauts do raspi", "temperatura do pi",
+                "tempratura do pi", "como ta o pi", "como esta o raspberry",
                 "tudo bem", "como você está", "saúde do sistema",
                 "como ta o rasp", "diagnostico", "saude do sistema",
                 "healthcheck", "desempenho", "como esta o sistema", "performance"
@@ -343,6 +348,13 @@ def detect_intent(text: str) -> Dict:
 
     result = engine.identify_intent(text)
     intent = result["intent"]
+    confidence = result.get("confidence", 0.0)
+
+    def recognized(payload: Dict) -> Dict:
+        """Preserva a confiança do fuzzy matcher para o gate do roteador."""
+        payload.setdefault("confidence", confidence)
+        payload.setdefault("source", "intent_engine")
+        return payload
 
     if intent == "unknown":
         return _fallback()
@@ -351,37 +363,37 @@ def detect_intent(text: str) -> Dict:
         return _parse_reminder(text)
 
     if intent == "energy_status":
-        return {
+        return recognized({
             "intent": "energy_status",
             "period": _extract_period(text.lower())
-        }
+        })
 
     if intent == "network_rename":
         return _parse_rename(text)
 
     if intent == "hydration_log":
-        return {"intent": "hydration_log"}
+        return recognized({"intent": "hydration_log"})
 
     if intent == "hydration_analytics":
-        return {"intent": "hydration_analytics"}
+        return recognized({"intent": "hydration_analytics"})
 
     if intent == "reminder_list":
-        return {"intent": "reminder_list"}
+        return recognized({"intent": "reminder_list"})
 
     if intent == "reminder_today":
-        return {"intent": "reminder_today"}
+        return recognized({"intent": "reminder_today"})
 
     if intent == "reminder_overdue":
-        return {"intent": "reminder_overdue"}
+        return recognized({"intent": "reminder_overdue"})
 
     if intent == "network_status":
-        return {"intent": "network_status", "action": "check", "entity": "network"}
+        return recognized({"intent": "network_status", "action": "check", "entity": "network"})
 
     if intent == "network_speed":
-        return {"intent": "network_speed", "action": "check", "entity": "network"}
+        return recognized({"intent": "network_speed", "action": "check", "entity": "network"})
 
     if intent == "network_stats":
-        return {"intent": "network_stats"}
+        return recognized({"intent": "network_stats"})
 
     if intent == "network_block_device":
         # Extract IP
@@ -410,18 +422,18 @@ def detect_intent(text: str) -> Dict:
         }
 
     if intent == "command_list":
-        return {"intent": "command_list"}
+        return recognized({"intent": "command_list"})
 
     if intent == "token_usage":
-        return {"intent": "token_usage"}
+        return recognized({"intent": "token_usage"})
 
     if intent == "daily_report":
-        return {"intent": "daily_report"}
+        return recognized({"intent": "daily_report"})
 
     if intent == "unknown_queries":
-        return {"intent": "unknown_queries"}
+        return recognized({"intent": "unknown_queries"})
 
-    return result
+    return recognized(result)
 
 
 def _looks_like_reminder_request(text: str) -> bool:

@@ -308,13 +308,19 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
              logger.warning(f"Executor callback returned empty response for: {text}")
              response = "🤖 Não entendi direito ainda, uai. (Debug: Callback vazio)"
 
-        # Responde como nova mensagem (padrão chatbot)
+        # Menus navegam na mesma mensagem para não poluir a conversa.
         if isinstance(response, dict):
-             await safe_reply_text(
-                  query.message,
-                  response.get("text", ""),
-                  reply_markup=response.get("reply_markup"),
-              )
+             try:
+                  await query.edit_message_text(
+                       text=response.get("text", ""),
+                       reply_markup=response.get("reply_markup"),
+                  )
+             except BadRequest:
+                  await safe_reply_text(
+                       query.message,
+                       response.get("text", ""),
+                       reply_markup=response.get("reply_markup"),
+                  )
         else:
              await safe_reply_text(query.message, response)
 

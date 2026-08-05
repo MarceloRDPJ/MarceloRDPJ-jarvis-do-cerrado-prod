@@ -200,7 +200,7 @@ class NetworkModule:
         if 53 in ports: return "Roteador/DNS"
 
         # Vendor Heuristic
-        if "espressif" in vendor or "tuya" in vendor: return "Smart Plug/Lâmpada (IoT)"
+        if "espressif" in vendor: return "Smart Plug/Lâmpada (IoT)"
         if "intel" in vendor: return "PC/Laptop"
         if "raspberry" in vendor: return "Raspberry Pi"
 

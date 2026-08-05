@@ -23,6 +23,16 @@ MANAGEMENT_INTENTS = {
     "token_usage", "daily_report", "unknown_queries",
 }
 
+# Consultas sem efeito colateral podem aceitar mais variação ortográfica.
+# Ações que alteram estado continuam usando o threshold global mais rígido.
+TYPO_TOLERANT_INTENTS = {
+    "system_status", "network_status", "network_speed", "network_stats",
+    "network_scan", "reminder_list", "reminder_today", "reminder_overdue",
+    "hydration_status", "hydration_analytics", "help", "command_list",
+    "menu_rede", "menu_agenda", "menu_automacoes", "menu_sistema",
+    "daily_report", "energy_status",
+}
+
 
 def _extract_entities(text: str):
     entities = {}
@@ -150,11 +160,8 @@ async def route(text: str, chat_id: int = None):
             )
 
     # ============================================================
-    # 4. CLASSIFICAÇÃO LEVE (sem LLM) — comando ou conversa?
+    # 4. CLASSIFICAÇÃO LEVE (sem LLM) — sinaliza comandos explícitos
     # ============================================================
-    if _is_question(text):
-        logger.debug(f"Classificado como CONVERSA (heurística): '{text[:50]}'")
-        return await brain.process_intent(text, chat_id=chat_id)
     if _is_command(text):
         logger.debug(f"Classificado como COMANDO (heurística): '{text[:50]}' → NLP")
         # cai no NLP abaixo
@@ -165,7 +172,11 @@ async def route(text: str, chat_id: int = None):
     nlp_intent = detect_intent(text)
     if nlp_intent and nlp_intent.get("intent") not in ("chat", "unknown"):
         confidence = nlp_intent.get("confidence", 0)
-        if confidence >= Config.INTENT_CONFIDENCE_THRESHOLD:
+        required_confidence = (
+            0.72 if nlp_intent.get("intent") in TYPO_TOLERANT_INTENTS
+            else Config.INTENT_CONFIDENCE_THRESHOLD
+        )
+        if confidence >= required_confidence:
             if chat_id:
                 ctx = ContextEngine.get_context(chat_id)
                 entities = _extract_entities(text)
@@ -177,6 +188,8 @@ async def route(text: str, chat_id: int = None):
             logger.debug(f"NLP baixa confiança ({confidence:.2f}): '{text[:40]}' → Brain")
 
     # ============================================================
-    # 6. CÉREBRO (chat final)
+    # 6. CÉREBRO (somente quando nenhuma skill local reconheceu a frase)
     # ============================================================
+    if _is_question(text):
+        logger.debug(f"Classificado como CONVERSA (heurística): '{text[:50]}'")
     return await brain.process_intent(text, chat_id=chat_id)

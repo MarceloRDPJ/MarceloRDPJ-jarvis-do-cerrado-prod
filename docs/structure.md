@@ -42,7 +42,7 @@ O cérebro do sistema.
 Ações concretas e integrações.
 - **system.py**: Monitoramento de hardware (CPU, RAM, Temp).
 - **network.py**: Escaneamento de rede e Wake-on-LAN.
-- **smarthome.py**: Integração com dispositivos Tuya.
+- **smarthome.py**: Estrutura opcional para futuros dispositivos locais.
 - **reminders.py**: Gestão de agendamentos no Telegram.
 
 ### `services/`

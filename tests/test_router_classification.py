@@ -38,3 +38,29 @@ async def test_router_routes_natural_reminder_without_llm():
     assert result["intent"] == "reminder_set"
     assert result["params"]["text"] == "teste"
     assert result["params"]["minutes"] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text",
+    [
+        "speed",
+        "SPEED",
+        "speed teste",
+        "sped",
+        "sped treste",
+        "qual a velocidade da net",
+        "teste velocdade internet",
+    ],
+)
+async def test_router_tolerates_speedtest_typos(text):
+    result = await route(text)
+
+    assert result["intent"] == "network_speed"
+
+
+@pytest.mark.asyncio
+async def test_router_keeps_state_changing_actions_strict():
+    result = await route("bluqear sit")
+
+    assert result["intent"] != "network_block_site"
