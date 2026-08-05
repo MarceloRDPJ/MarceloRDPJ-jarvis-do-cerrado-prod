@@ -27,11 +27,11 @@ class Config:
     ALLOWED_USER_ID = int(raw_id) if raw_id.strip() else 0
 
     # ==================================================
-    # LOCAL AI (FREE FALLBACK - LLAMA.CPP)
+    # LEGACY LOCAL LLM (DISABLED IN PRODUCTION)
     # ==================================================
-    LOCAL_LLM_ENABLED = os.getenv("LOCAL_LLM_ENABLED", "true").strip().lower() == "true"
+    LOCAL_LLM_ENABLED = os.getenv("LOCAL_LLM_ENABLED", "false").strip().lower() == "true"
     LOCAL_LLM_COMMAND = os.getenv("LOCAL_LLM_COMMAND", "llama-cli")
-    LOCAL_LLM_BACKEND = os.getenv("LOCAL_LLM_BACKEND", "server").strip().lower()
+    LOCAL_LLM_BACKEND = os.getenv("LOCAL_LLM_BACKEND", "disabled").strip().lower()
     LOCAL_LLM_SERVER_URL = os.getenv("LOCAL_LLM_SERVER_URL", "http://127.0.0.1:8081").rstrip("/")
     LOCAL_LLM_URL = os.getenv("LOCAL_LLM_URL", f"{LOCAL_LLM_SERVER_URL}/completion")
     LOCAL_LLM_MODEL = os.getenv("LOCAL_LLM_MODEL", "gemma-3-270m-it")

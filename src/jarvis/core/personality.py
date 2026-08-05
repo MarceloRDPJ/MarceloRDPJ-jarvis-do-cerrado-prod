@@ -178,20 +178,10 @@ class Personality:
 
     # Respostas de Fallback (Quando não sabe o que fazer)
     FALLBACK = [
-        "Ainda não sei fazer isso, mas já registrei aqui nos meus logs pro meu criador me ensinar. 📝",
-        "Comando desconhecido, capitão. Anotei a solicitação para análise futura. 🚀",
-        "Uai, essa eu não conheço ainda. Mas tá anotado pra eu aprender logo, logo.",
-        "Sistema não reconheceu o comando. Solicitando update ao desenvolvedor... (brincadeira, mas anotei).",
-        "Hmm, comando não mapeado. Meu cérebro de Pi deu um tilt. Já registrei pra aprender.",
-        "Essa função ainda não foi habilitada. Mas o Marcelo já vai saber que você pediu.",
-        "Infelizmente essa skill não está no meu chip. Mas vou estudar o manual.",
-        "Pois é... meu treinamento ainda não cobriu isso. Mas o log já foi salvo.",
-        "Comando estranho. Não tô nos meus domínios. Anotado pra versão futura.",
-        "Sei não, hein. Minha base de conhecimento não alcança esse assunto. Mas já gravei.",
-        "Ainda não manjo dessa parada. Mas trust the process — um dia eu aprendo.",
-        "Meu repertório não inclui esse comando ainda. Mas já entrei em modo de aprendizado.",
-        "Opa, essa é nova pra mim. Vou esperar o Marcelo me atualizar.",
-        "Missão impossível... por enquanto. Anotei o requerimento pra próxima release."
+        "Não peguei bem. Você quer consultar o Pi, a rede ou seus lembretes?",
+        "Essa eu não consigo responder com segurança. Posso verificar sistema, rede, AdGuard ou lembretes.",
+        "Uai, faltou contexto pra mim. Me diga se o assunto é Pi, internet, AdGuard ou agenda.",
+        "Não reconheci uma skill para isso. Tente dizer o que quer consultar ou abra o menu."
     ]
 
     # Respostas de Agradecimento

@@ -1,43 +1,106 @@
-# Processo de Deploy
+# Deploy e operação no Raspberry Pi
 
-O Jarvis do Cerrado utiliza uma infraestrutura de deploy imutável baseada em Docker, garantindo que o ambiente de produção seja sempre consistente e previsível.
+## Ambiente de produção
 
-## Arquitetura de Deploy
+- Repositório: `/opt/bot/jarvis-do-cerrado`
+- Remote: `https://github.com/MarceloRDPJ/MarceloRDPJ-jarvis-do-cerrado-prod.git`
+- Branch: `main`
+- Compose: `/opt/bot/jarvis-do-cerrado/docker-compose.yml`
+- Contêiner: `jarvis_cerrado`
+- Log do deploy: `/var/log/jarvis_deploy.log`
 
-O ciclo de vida do deploy segue o fluxo:
+O diretório `/opt/bot/home_assistant_bot` é outro checkout e não deve ser usado para publicar o Jarvis do Cerrado.
 
-```text
-GitHub (Main) -> Raspberry Pi (Cron/Script) -> Docker Compose -> Container (Produção)
+## Deploy manual seguro
+
+Execute no Pi:
+
+```bash
+cd /opt/bot/jarvis-do-cerrado
+git status --short
+git fetch origin main
+git merge --ff-only origin/main
+docker compose config --quiet
+docker compose build homebot
+docker compose up -d --no-deps --remove-orphans homebot
 ```
 
-### Componentes
+Depois valide antes de remover qualquer recurso antigo:
 
-1.  **Dockerfile**: Define a imagem base do ambiente.
-    - Base: `python:3.12-slim`
-    - Instala dependências de sistema (tcpdump, speedtest, etc.).
-    - Instala o pacote `jarvis-do-cerrado` via `pip install -e .`.
-    - Define o ponto de entrada: `python -m jarvis.main`.
+```bash
+docker compose ps
+curl -sS --max-time 10 http://127.0.0.1:8000/api/system/health
+docker logs --tail 100 jarvis_cerrado
+```
 
-2.  **Docker Compose**: Orquestra a execução.
-    - Mapeia volumes para persistência (`database`, `storage`, `config`).
-    - Define reinício automático (`restart: unless-stopped`).
-    - Utiliza rede `host` para acesso direto a interfaces de rede (necessário para scanner e WoL).
+Resposta esperada do healthcheck: `status` igual a `ok`, banco `ok` e `assistant.mode` igual a `local_skills`.
 
-## Procedimento de Deploy Manual
+## Retirada definitiva dos contêineres de teste do LLM
 
-Em caso de necessidade de intervenção manual no servidor:
+O Compose novo não cria LLM. `--remove-orphans` deve retirar o antigo `jarvis_llm` pertencente ao projeto. Contêineres de teste criados manualmente podem precisar de remoção explícita, somente depois de o Jarvis saudável ser confirmado:
 
-1.  Acesse o servidor via SSH (se permitido pela política de rede).
-2.  Navegue até o diretório do projeto.
-3.  Atualize o código:
-    ```bash
-    git pull origin main
-    ```
-4.  Recrie os containers:
-    ```bash
-    docker compose up -d --build --remove-orphans
-    ```
+```bash
+docker ps -a --format '{{.Names}}' | grep -E '^jarvis_llm($|_)'
+docker rm -f jarvis_llm jarvis_llm_tucano_test jarvis_llm_gemma_test 2>/dev/null || true
+```
 
-## Automação (Referência)
+Isso remove contêineres, não apaga os arquivos GGUF do SSD. Os modelos podem ser limpos posteriormente em manutenção separada.
 
-O sistema foi projetado para suportar auto-update via script agendado (Cron), que executa os passos de pull e rebuild periodicamente, garantindo que o bot esteja sempre na última versão estável da branch principal.
+## Logs
+
+```bash
+docker logs -f jarvis_cerrado
+docker logs --tail 200 jarvis_cerrado
+tail -f /var/log/jarvis_deploy.log
+```
+
+Sair de `docker logs -f` com `Ctrl+C` não para o contêiner.
+
+## Script `/usr/local/bin/deploy_jarvis.sh`
+
+O script deve:
+
+1. usar `set -euo pipefail`;
+2. entrar em `/opt/bot/jarvis-do-cerrado`;
+3. buscar `origin/main`;
+4. aplicar somente fast-forward;
+5. validar o Compose;
+6. construir `homebot` antes da recriação;
+7. subir com `--remove-orphans`;
+8. verificar healthcheck e registrar falhas.
+
+Evitar `git reset --hard`, porque ele apaga alterações locais. Evitar `docker compose down` antes do build, porque aumenta indisponibilidade e derruba uma versão ainda funcional se a compilação falhar.
+
+## Verificação funcional após deploy
+
+Enviar pelo Telegram:
+
+```text
+status
+tempratura do pi
+speed
+sped treste
+menu
+menu rede
+meus lembretes
+batata com banana?
+```
+
+As primeiras mensagens devem cair nas skills corretas. A pergunta desconhecida deve receber esclarecimento imediato, sem log de `llama-server`, espera de 12 segundos ou resposta inventada.
+
+## Git e dados locais
+
+Antes de atualizar, `git status --short` deve ser inspecionado. Diretórios `env`, `es`, `models/`, bancos e storage do Pi podem ser dados locais; não apagar ou incluir no Git automaticamente.
+
+## Recuperação
+
+Se o novo contêiner não ficar saudável:
+
+```bash
+docker compose ps
+docker logs --tail 200 jarvis_cerrado
+curl -v --max-time 10 http://127.0.0.1:8000/api/system/health
+git log -3 --oneline
+```
+
+Não executar reset destrutivo como reação automática. Identificar primeiro se a falha é código, `.env`, volume, rede, permissão ou healthcheck.

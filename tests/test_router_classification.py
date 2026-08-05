@@ -27,8 +27,8 @@ async def test_router_llm_status_does_not_generate():
     result = await route("Llm")
 
     assert result["intent"] == "chat"
-    assert result["source"] == "local_llm_status"
-    assert "LLM local" in result["params"]["response"]
+    assert result["source"] == "local_mode_status"
+    assert "desativada" in result["params"]["response"]
 
 
 @pytest.mark.asyncio

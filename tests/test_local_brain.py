@@ -37,7 +37,8 @@ class TestBrainLocalFallback(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNotNone(result)
         self.assertNotIn("Gemini", result["text"])
-        self.assertIn("LLM local", result["text"])
+        self.assertNotIn("LLM", result["text"])
+        self.assertIn("skills locais", result["text"])
 
 if __name__ == "__main__":
     unittest.main()

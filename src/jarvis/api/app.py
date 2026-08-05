@@ -131,30 +131,19 @@ async def get_system_status():
 @app.get("/api/system/health")
 async def get_system_health():
     """Quick health check."""
-    from jarvis.core.llm_fallback import LLMFallbackEngine
     from jarvis.database.persistence import Persistence
-    local_llm = LLMFallbackEngine()
     checks = {}
     try:
         Persistence.get_recent_events(1)
         checks["database"] = {"ok": True}
     except Exception as e:
         checks["database"] = {"ok": False, "error": str(e)}
-    llm_available = local_llm.is_available()
-    checks["local_llm"] = {"ok": llm_available, "required": False}
     status = "ok" if checks["database"]["ok"] else "critical"
-    if status == "ok" and not llm_available:
-        status = "degraded"
     return {
         "status": status,
         "timestamp": time.time(),
         "checks": checks,
-        "local_llm": {
-            "backend": local_llm.backend,
-            "model": local_llm.model,
-            "server_url": local_llm.server_url,
-            "available": llm_available,
-        },
+        "assistant": {"mode": "local_skills", "generative_ai": False},
     }
 
 
@@ -371,9 +360,7 @@ async def get_bot_settings():
         "notification_level": "normal",
         "timezone": Config.TIMEZONE,
         "allowed_user_id": Config.ALLOWED_USER_ID,
-        "local_ai_provider": Config.LOCAL_LLM_BACKEND,
-        "local_llm_server_url": Config.LOCAL_LLM_SERVER_URL,
-        "local_llm_model": Config.LOCAL_LLM_MODEL,
+        "assistant_mode": "local_skills",
         "intent_confidence": Config.INTENT_CONFIDENCE_THRESHOLD,
     }
 
@@ -752,11 +739,12 @@ async def get_dashboard_data():
     # Bot Info
     data["bot"] = {
         "timezone": Config.TIMEZONE,
-        "local_ai_provider": Config.LOCAL_LLM_BACKEND,
-        "local_llm_model": Config.LOCAL_LLM_MODEL,
-        "local_llm_available": False,
+        "assistant_mode": "local_skills",
+        "generative_ai": False,
         "user_id": Config.ALLOWED_USER_ID,
     }
+
+    return JSONResponse(content=data)
 
 
 @app.get("/api/mcp/resource")
@@ -767,13 +755,6 @@ async def get_mcp_resource(uri: str = Query(...)):
     if data is None:
         raise HTTPException(status_code=404, detail=f"Resource not found: {uri}")
     return data
-    try:
-        from jarvis.core.llm_fallback import LLMFallbackEngine
-        data["bot"]["local_llm_available"] = LLMFallbackEngine().is_available()
-    except Exception:
-        pass
-
-    return JSONResponse(content=data)
 
 
 # ===================================================================
@@ -786,17 +767,8 @@ async def get_config():
     from jarvis.config import Config
     return {
         "timezone": Config.TIMEZONE,
-        "local_ai_provider": Config.LOCAL_LLM_BACKEND,
-        "local_llm_server_url": Config.LOCAL_LLM_SERVER_URL,
-        "local_llm_url": Config.LOCAL_LLM_URL,
-        "local_llm_model": Config.LOCAL_LLM_MODEL,
-        "local_llm_cli_path": Config.LOCAL_LLM_CLI_PATH,
-        "local_llm_model_path": Config.LOCAL_LLM_MODEL_PATH,
-        "local_llm_context_tokens": Config.LOCAL_LLM_CONTEXT_TOKENS,
-        "local_llm_context_size": Config.LOCAL_LLM_CONTEXT_SIZE,
-        "local_llm_threads": Config.LOCAL_LLM_THREADS,
-        "local_llm_timeout_seconds": Config.LOCAL_LLM_TIMEOUT_SECONDS,
-        "local_llm_max_tokens": Config.LOCAL_LLM_MAX_TOKENS,
+        "assistant_mode": "local_skills",
+        "generative_ai": False,
         "intent_confidence": Config.INTENT_CONFIDENCE_THRESHOLD,
         "scheduler_interval": Config.SCHEDULER_INTERVAL_SECONDS,
         "hydration_interval": Config.HYDRATION_MIN_INTERVAL_MINUTES,

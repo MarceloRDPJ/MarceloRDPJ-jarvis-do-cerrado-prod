@@ -30,7 +30,7 @@ class LocalBrain:
             "qual seu nome": ["Me chamo Jarvis. Mas se preferir, 'O Sistema'."],
             "de onde voce veio": ["Fui compilado nas montanhas de código, rodando firme no seu Raspberry Pi."],
             "quem te criou": ["Fui forjado para servir esta casa e proteger seus dados."],
-            "voce e uma ia": ["Sou uma inteligência híbrida: lógica determinística com pitadas de LLM."],
+            "voce e uma ia": ["Sou um assistente local baseado em skills, regras e dados reais do Raspberry Pi."],
             "voce tem corpo": ["Meu corpo é o silício deste Raspberry Pi."],
             "onde voce mora": ["Moro no /home/jarvis, mas tenho acesso a toda a rede local."],
             "voce dorme": ["Nunca. O watchdog não deixa."],
@@ -43,7 +43,7 @@ class LocalBrain:
 
             # === CAPACIDADES (20) ===
             "o que voce faz": ["Gerencio a rede, lembretes, hidratação e automações da casa."],
-            "quais seus poderes": ["Tenho visão de rede (ARP scan), controle do tempo (cron) e memória infinita (SQLite)."],
+            "quais seus poderes": ["Tenho visão da rede, lembretes persistentes e memória local em SQLite."],
             "me ajuda": ["Com o que? Rede, tarefas ou só bater papo?"],
             "o que voce sabe fazer": ["Sei bloquear intrusos, testar a internet e te lembrar de beber água."],
             "voce cozinha": ["Ainda não tenho braços robóticos, mas posso cronometrar o ovo."],
@@ -74,7 +74,7 @@ class LocalBrain:
             "automacoes ativas": "Consigo listar automações reais pelo menu. Não vou inventar automação ativa se o motor não confirmar.",
             "analise de hidratacao": "Tenho sistema completo! Analiso 30 dias de histórico, identifico padrões, calculo streak e dou sugestões personalizadas.",
             "estatisticas de rede": "Consigo mostrar top consumidores de banda, total de queries DNS bloqueadas e dispositivos mais ativos.",
-            "como voce aprende": "Tenho camadas locais: regras determinísticas, LocalBrain e LLM local opcional. Registro consultas desconhecidas para melhorar sem depender de API paga.",
+            "como voce aprende": "Uso regras e skills locais. Registro consultas desconhecidas para que novas formas de falar possam virar testes e comandos confiáveis.",
             "voce tem memoria": "Tenho SQLite local. Lembro de TUDO: lembretes, dispositivos renomeados, histórico de hidratação, eventos do sistema.",
             "voce trabalha offline": "Minha lógica principal é local. Para entregar mensagens no Telegram e buscar dados atuais da internet, preciso de conexão.",
             "raspberry pi": "Meu corpo é um Raspberry Pi 3B. ARM64, 1GB RAM, rodando 24/7 sem reclamar.",
@@ -84,8 +84,8 @@ class LocalBrain:
             "telegram": "Minha interface é o Telegram Bot API. Seguro, rápido e funciona em qualquer lugar.",
             "adguard": "AdGuard Home é meu parceiro de segurança. Ele filtra DNS e eu mando bloquear/desbloquear devices.",
             "tailscale": "Tailscale VPN permite acesso remoto seguro sem expor portas. Criptografia ponta-a-ponta.",
-            "gemini": "Gemini não está no plano atual. A rota preferida é LLM local com llama.cpp, sem API paga.",
-            "api paga": "O objetivo é não depender de API paga. Uso LocalBrain, regras e LLM local quando disponível.",
+            "gemini": "Gemini não está configurado. Meu atendimento principal usa apenas skills locais.",
+            "api paga": "Não dependo de API paga para executar minhas funções locais.",
             "voce consome muita luz": "Raspberry Pi 3B consome ~5W em média. Menos que uma lâmpada LED. Eficiente demais.",
             "seguranca": "Múltiplas camadas: Firewall no modem, AdGuard bloqueando malware, Tailscale VPN, Docker isolado e zero exposição de portas.",
 
@@ -171,7 +171,7 @@ class LocalBrain:
             "bora": ["Bora!", "Partiu."],
 
             # === META / SISTEMA (10) ===
-            "você é inteligente": "Inteligência híbrida: código + LLM quando necessário.",
+            "você é inteligente": "Sou bom no que consigo verificar: sistema, rede, AdGuard, lembretes e automações locais.",
             "você aprende": "Sim! Memorizo padrões de uso e melhoro com o tempo.",
             "versao do sistema": "Estou na versão mais atualizada do meu código.",
             "quem manda aqui": "Você é o admin, eu sou o executor.",
@@ -191,7 +191,7 @@ class LocalBrain:
             "o que e raspberry pi": "Raspberry Pi é um computador do tamanho de um cartão de crédito. O meu é um Pi 3B com 1GB de RAM, 4 núcleos ARM e consumo de apenas 5W.",
             "o que e docker": "Docker é uma plataforma que empacota aplicativos em containers isolados. Rodo dentro de um container pra facilitar manutenção e manter o sistema limpo.",
             "o que e python": "Python é a linguagem que me escreveram. Versão 3.12, assíncrona, moderna e eficiente pra rodar em dispositivos pequenos.",
-            "o que e llm": "LLM (Large Language Model) é um modelo de inteligência artificial que entende e gera texto. Uso o llama.cpp com modelos pequenos rodando localmente no Pi.",
+            "o que e llm": "LLM é um modelo que gera texto. Testamos modelos pequenos no Pi, mas eles foram retirados do atendimento por lentidão e baixa confiabilidade.",
             "o que e github": "GitHub é uma plataforma de hospedagem de código-fonte. Meu código fica em github.com/MarceloRDPJ.",
             "o que e iot": "IoT (Internet das Coisas) são dispositivos conectados à internet como lâmpadas, sensores e câmeras. Posso ajudar a monitorar eles.",
         }

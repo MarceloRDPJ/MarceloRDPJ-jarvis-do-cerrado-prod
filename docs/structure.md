@@ -1,60 +1,85 @@
-# Estrutura do Projeto
-
-O projeto segue um layout `src` padrão para aplicações Python robustas.
-
-## Visão Geral
+# Estrutura do projeto
 
 ```text
-.
-├── Dockerfile              # Definição de imagem para deploy
-├── LICENSE                 # Licença do projeto
-├── README.md               # Ponto de entrada da documentação
-├── docker-compose.yml      # Orquestração de containers
-├── docs/                   # Documentação detalhada
-├── pyproject.toml          # Metadados do projeto e build
-├── requirements.txt        # Dependências (referência)
-├── scripts/                # Scripts utilitários (ex: ble_scan.py)
-├── setup.py                # Script de instalação legado/compatibilidade
-├── src/
-│   └── jarvis/             # Pacote principal da aplicação
-│       ├── config.py       # Configuração centralizada
-│       ├── main.py         # Entry point (Orquestrador)
-│       ├── core/           # Núcleo cognitivo e decisório
-│       ├── modules/        # Módulos de execução (Hardware/API)
-│       ├── services/       # Serviços de background (Guardian, Collector)
-│       ├── database/       # Persistência de dados
-│       ├── storage/        # Estado volátil
-│       └── nlp/            # Processamento de linguagem natural local
-└── tests/                  # Testes automatizados
+jarvis/
+|-- AGENTS.md                     # manual para futuros agentes
+|-- Dockerfile                    # imagem Python do bot/API
+|-- docker-compose.yml            # único serviço: homebot/jarvis_cerrado
+|-- .dockerignore                 # evita segredos e dados no build
+|-- .env.example                  # variáveis sem credenciais reais
+|-- README.md
+|-- docs/
+|   |-- architecture/
+|   |   `-- technical_architecture.md
+|   |-- deployment.md
+|   |-- structure.md
+|   |-- user_guide.md
+|   `-- specifications/
+|       `-- reminders_system.md
+|-- scripts/
+|   |-- backup_db.py
+|   `-- ble_scan.py
+|-- src/jarvis/
+|   |-- main.py                   # Telegram, callbacks, serviços e FastAPI
+|   |-- config.py                 # ambiente e configuração central
+|   |-- config.yaml
+|   |-- api/
+|   |   |-- app.py                # dashboard e endpoints REST
+|   |   |-- integration_engine.py
+|   |   |-- mcp_handler.py
+|   |   |-- webhook_manager.py
+|   |   `-- static/index.html
+|   |-- core/
+|   |   |-- router.py             # pipeline de decisão
+|   |   |-- rules.py              # comandos exatos e sensíveis
+|   |   |-- brain.py              # conhecimento/consultas/fallback local
+|   |   |-- executor.py           # executa intents e confirma ações
+|   |   |-- context.py            # contexto curto e ações pendentes
+|   |   |-- personality.py        # frases programadas
+|   |   |-- telegram_safe.py      # envio robusto
+|   |   `-- events.py             # eventos observáveis
+|   |-- nlp/
+|   |   |-- normalizer.py         # caixa, acentos e limpeza
+|   |   |-- intent_engine.py      # RapidFuzz e extração de parâmetros
+|   |   |-- local_brain.py        # conhecimento local programado
+|   |   `-- time_parser.py        # datas e horários em português
+|   |-- modules/
+|   |   |-- system.py             # CPU, RAM, disco, temperatura, reboot
+|   |   |-- network.py            # ping, scan, speedtest, WOL
+|   |   |-- adguard.py            # DNS e bloqueios
+|   |   |-- reminders.py          # agenda persistente
+|   |   |-- hydration.py
+|   |   `-- hydration_analytics.py
+|   |-- services/
+|   |   |-- guardian.py           # monitoramento e alertas
+|   |   |-- scheduler.py          # entrega de lembretes
+|   |   |-- collector.py          # snapshots
+|   |   |-- energy.py             # estimativa/eventos de energia
+|   |   |-- automations.py
+|   |   `-- reporter.py
+|   |-- tools/
+|   |   |-- current_info.py       # dados atuais de fontes explícitas
+|   |   |-- rss_reader.py
+|   |   `-- web_fetch.py
+|   |-- database/
+|   |   `-- persistence.py        # SQLite e migrações
+|   `-- storage/                   # estado persistido pelo volume
+`-- tests/                         # suíte automatizada
 ```
 
-## Detalhes dos Pacotes (`src/jarvis`)
+## Contratos importantes
 
-### `core/`
-O cérebro do sistema.
-- **brain.py**: Interface com IA (Gemini) para fallback cognitivo.
-- **router.py**: Roteamento de intenções (Regras vs IA).
-- **executor.py**: Execução segura de ações.
-- **rules.py**: Regras determinísticas de alta prioridade.
-- **context.py**: Gerenciamento de contexto de conversação.
+- `main.py` recebe Telegram e inicializa processos; lógica nova deve ir para as camadas próprias.
+- `router.py` decide, mas não executa efeitos.
+- `rules.py` protege comandos exatos e perigosos.
+- `intent_engine.py` tolera erros em consultas seguras.
+- `executor.py` é a fronteira para efeitos e confirmação.
+- módulos não devem depender de Telegram para sua lógica central.
+- persistência crítica deve usar `Persistence`, não arquivos soltos.
+- respostas desconhecidas não podem chamar LLM nem fingir capacidade.
 
-### `modules/`
-Ações concretas e integrações.
-- **system.py**: Monitoramento de hardware (CPU, RAM, Temp).
-- **network.py**: Escaneamento de rede e Wake-on-LAN.
-- **smarthome.py**: Estrutura opcional para futuros dispositivos locais.
-- **reminders.py**: Gestão de agendamentos no Telegram.
+## Arquivos legados
 
-### `services/`
-Processos que rodam independentemente da interação do usuário.
-- **guardian.py**: Monitoramento proativo de anomalias.
-- **collector.py**: Coleta periódica de métricas.
+`src/jarvis/core/llm_fallback.py` e seus testes permanecem como código histórico compatível. Eles não fazem parte do caminho de atendimento nem do Compose. Não reativar sem decisão arquitetural explícita e testes no hardware real.
 
-### `nlp/`
-Processamento local de texto.
-- **intent_engine.py**: Motor de regras de intenção.
-- **normalizer.py**: Limpeza e normalização de strings.
-
-### `database/`
-Persistência de longo prazo.
-- **persistence.py**: Abstração do SQLite.
+`.coverage`, `test_repro.db`, `teste` e dados em `storage/` podem ser artefatos existentes do ambiente. Nunca incluí-los automaticamente em commits ou apagá-los sem verificar propriedade e necessidade.

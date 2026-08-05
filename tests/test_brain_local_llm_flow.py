@@ -3,32 +3,27 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from jarvis.core.brain import Brain
-from jarvis.core.llm_fallback import LOCAL_LLM_TIMEOUT_MESSAGE
-
-
 @pytest.mark.asyncio
-async def test_brain_uses_local_llm_for_open_question():
+async def test_brain_uses_local_clarification_for_open_question():
     brain = Brain()
     brain.local_brain.process = AsyncMock(return_value=None)
-    brain.local_llm.generate_chat_response = MagicMock(return_value="USB é um padrão de conexão.")
 
-    result = await brain.process_intent("o que e usb")
+    result = await brain.process_intent("explique um assunto aleatorio")
 
-    assert result["source"] == "local_llm"
-    assert result["params"]["response"] == "USB é um padrão de conexão."
+    assert result["source"] == "local_clarification"
+    assert result["params"]["response"]
+    assert not hasattr(brain, "local_llm")
 
 
 @pytest.mark.asyncio
 async def test_brain_does_not_invent_realtime_data_without_external_access():
     brain = Brain()
     brain.local_brain.process = AsyncMock(return_value=None)
-    brain.local_llm.generate_chat_response = MagicMock(return_value="Tabela inventada")
 
     result = await brain.process_intent("tabela do brasileirao")
 
     assert result["source"] == "brasileirao_config"
     assert "fonte local gratuita" in result["params"]["response"].lower()
-    brain.local_llm.generate_chat_response.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -43,7 +38,7 @@ async def test_brain_answers_mothers_day_with_local_calendar_rule():
 
 
 @pytest.mark.asyncio
-async def test_brain_sends_collected_current_context_to_local_llm():
+async def test_brain_returns_collected_current_context_directly():
     brain = Brain()
     brain.local_brain.process = AsyncMock(return_value=None)
     brain.current_info.collect = MagicMock(return_value=MagicMock(
@@ -53,23 +48,17 @@ async def test_brain_sends_collected_current_context_to_local_llm():
         source="awesomeapi",
         error="",
     ))
-    brain.local_llm.generate_response_with_context = MagicMock(return_value="O dólar está em torno de R$ 5,10.")
-
     result = await brain.process_intent("cotacao do dolar agora")
 
-    assert result["source"] == "local_llm_awesomeapi"
-    brain.local_llm.generate_response_with_context.assert_called_once_with(
-        "cotacao do dolar agora",
-        "Cotação USD-BRL: Compra 5.10",
-    )
+    assert result["source"] == "awesomeapi"
+    assert result["params"]["response"] == "Cotação USD-BRL: Compra 5.10"
 
 
 @pytest.mark.asyncio
-async def test_brain_returns_clear_fallback_when_local_llm_fails():
+async def test_brain_returns_clear_local_fallback():
     brain = Brain()
     brain.local_brain.process = AsyncMock(return_value=None)
-    brain.local_llm.generate_chat_response = MagicMock(return_value=None)
-
     result = await brain.process_intent("explique um assunto aleatorio")
 
-    assert result["params"]["response"] == LOCAL_LLM_TIMEOUT_MESSAGE
+    assert result["source"] == "local_clarification"
+    assert "timeout" not in result["params"]["response"].lower()

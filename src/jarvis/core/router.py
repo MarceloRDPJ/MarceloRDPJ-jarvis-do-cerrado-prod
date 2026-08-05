@@ -180,8 +180,9 @@ async def route(text: str, chat_id: int = None):
             if chat_id:
                 ctx = ContextEngine.get_context(chat_id)
                 entities = _extract_entities(text)
-                nlp_intent["entities"] = entities or ctx.get("entities", {})
-                if not entities and ctx.get("entities"):
+                recent_entities = ctx.get("entities", {}) if ContextEngine.has_recent_activity(chat_id) else {}
+                nlp_intent["entities"] = entities or recent_entities
+                if not entities and recent_entities:
                     nlp_intent["context_inherited"] = True
             return nlp_intent
         else:

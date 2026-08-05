@@ -61,17 +61,31 @@ async def test_api_recent_events_reads_events_not_snapshots():
 
 
 @pytest.mark.asyncio
-async def test_health_reports_degraded_when_optional_llm_unavailable(monkeypatch):
+async def test_health_reports_local_skills_mode_without_llm_probe():
     from jarvis.api import app as api_app
-    from jarvis.core.llm_fallback import LLMFallbackEngine
-
-    monkeypatch.setattr(LLMFallbackEngine, "is_available", lambda self: False)
 
     response = await api_app.get_system_health()
 
     assert response["checks"]["database"]["ok"] is True
-    assert response["checks"]["local_llm"]["required"] is False
-    assert response["status"] == "degraded"
+    assert "local_llm" not in response["checks"]
+    assert response["assistant"] == {"mode": "local_skills", "generative_ai": False}
+    assert response["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_dashboard_endpoint_returns_payload(monkeypatch):
+    from jarvis.api import app as api_app
+    from jarvis.modules.system import SystemModule
+
+    async def raw_status():
+        return {"cpu": {"percent": 12}, "memory": {"percent": 43}, "temperature": 48}
+
+    monkeypatch.setattr(SystemModule, "get_raw_status", raw_status)
+
+    response = await api_app.get_dashboard_data()
+
+    assert response is not None
+    assert response.status_code == 200
 
 
 @pytest.mark.asyncio

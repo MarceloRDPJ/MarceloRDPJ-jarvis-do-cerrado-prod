@@ -41,24 +41,21 @@ async def test_executor_routes_hydration_setup():
             assert response == "Setup Handled"
 
 @pytest.mark.asyncio
-async def test_brain_llm_fallback():
+async def test_brain_local_clarification_fallback():
     # Setup
     brain = Brain()
 
     # Mock LocalBrain to return None (miss)
     brain.local_brain.process = AsyncMock(return_value=None)
 
-    # Mock Local LLM
-    brain.local_llm = MagicMock()
-    brain.local_llm.generate_chat_response.return_value = "Local LLM Response"
-
     # Execute
     result = await brain.process_intent("some random text")
 
     # Verify
     assert result["intent"] == "chat"
-    assert result["params"]["response"] == "Local LLM Response"
-    assert result["source"] == "local_llm"
+    assert result["params"]["response"]
+    assert result["source"] == "local_clarification"
+    assert not hasattr(brain, "local_llm")
 
 def test_llm_fallback_engine_chat():
     engine = LLMFallbackEngine()

@@ -1,13 +1,10 @@
 import asyncio
 import logging
-import json
 from typing import Dict, Any, Optional
 
-from jarvis.config import Config
 from jarvis.database.persistence import Persistence
 from jarvis.core.personality import Personality
 from jarvis.nlp.local_brain import LocalBrain as LocalBrainEngine
-from jarvis.core.llm_fallback import LLMFallbackEngine, LOCAL_LLM_TIMEOUT_MESSAGE
 from jarvis.nlp.normalizer import normalize_text
 from jarvis.tools.current_info import CurrentInfo, CURRENT_MARKERS
 
@@ -39,9 +36,8 @@ class Brain:
 
     def __init__(self):
         self.local_brain = LocalBrainEngine()
-        self.local_llm = LLMFallbackEngine()
         self.current_info = CurrentInfo()
-        logger.info("Brain inicializado (LocalBrain + LLM local + ferramentas web locais).")
+        logger.info("Brain inicializado (LocalBrain + skills e fontes locais).")
 
     async def classify_intent(self, user_text: str) -> Optional[Dict[str, Any]]:
         """
@@ -71,11 +67,16 @@ class Brain:
         return None
 
     def get_llm_status_response(self) -> Dict[str, Any]:
-        return self._chat_response(self.local_llm.get_status_message(), "llm", "local_llm_status", 1.0)
+        return self._chat_response(
+            "A IA generativa está desativada. Estou operando com skills locais, dados reais e respostas rápidas.",
+            "llm",
+            "local_mode_status",
+            1.0,
+        )
 
     async def process_intent(self, user_text: str, chat_id: int = None) -> Dict[str, Any]:
         """
-        Gera resposta de conversa (chat) usando o LLM como cérebro principal.
+        Gera resposta local sem depender de IA generativa.
         """
 
         # ==================================================
@@ -119,21 +120,11 @@ class Brain:
             if current_result.ok and current_result.answer:
                 return self._chat_response(current_result.answer, user_text, current_result.source, 0.95)
             if current_result.ok and current_result.context:
-                try:
-                    local_response = await asyncio.to_thread(
-                        self.local_llm.generate_response_with_context,
-                        user_text,
-                        current_result.context,
-                    )
-                    if local_response:
-                        return self._chat_response(local_response, user_text, f"local_llm_{current_result.source}", 0.90)
-                except Exception as e:
-                    logger.warning(f"Erro no LLM local com contexto atual: {e}")
                 return self._chat_response(
-                    "Consegui coletar dados atuais, mas o LLM local não respondeu a tempo para formular a resposta.",
+                    current_result.context,
                     user_text,
-                    "local_llm_context_failed",
-                    0.70,
+                    current_result.source,
+                    0.95,
                 )
             return self._chat_response(
                 f"Não consegui consultar uma fonte local gratuita para isso agora. Motivo: {current_result.error}",
@@ -142,20 +133,7 @@ class Brain:
                 0.80,
             )
 
-        # ==================================================
-        # 2. LLM LOCAL (PERGUNTAS ABERTAS)
-        # ==================================================
-        try:
-            local_response = await asyncio.to_thread(self.local_llm.generate_chat_response, user_text)
-            if local_response:
-                return self._chat_response(local_response, user_text, "local_llm", 0.85)
-        except Exception as e:
-            logger.warning(f"Erro no Local LLM: {e}")
-
-        # ==================================================
-        # 3. FALLBACK FINAL
-        # ==================================================
-        logger.info("Fallback local acionado (LLM indisponível ou timeout).")
+        logger.info("Fallback local acionado (nenhuma skill reconhecida).")
         return await self._fallback(user_text)
 
     def _is_current_question(self, user_text: str) -> bool:
@@ -165,10 +143,9 @@ class Brain:
         return "acesso a internet" in user_text or "acessa internet" in user_text
 
     def _internet_status_response(self) -> str:
-        llm_status = "configurado" if self.local_llm.is_available() else "indisponível"
         return (
-            f"Estou rodando em modo local. Meu LLM local está {llm_status} e eu não uso APIs pagas de LLM. "
-            "Para dados atuais, tento ferramentas locais gratuitas de internet, RSS e fontes públicas leves."
+            "Estou rodando em modo local, sem IA generativa. "
+            "Uso skills do próprio Pi e fontes públicas leves para consultar dados reais."
         )
 
     def _chat_response(self, response: str, user_text: str, source: str, confidence: float) -> Dict[str, Any]:
@@ -202,7 +179,8 @@ class Brain:
 
         return {
             "intent": "chat",
-            "params": {"response": LOCAL_LLM_TIMEOUT_MESSAGE},
+            "params": {"response": Personality.get_contextual_fallback(user_text)},
             "text": user_text,
+            "source": "local_clarification",
             "confidence": 1.0,
         }
