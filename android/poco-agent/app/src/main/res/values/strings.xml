@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Jarvis Poco</string>
+    <string name="accessibility_description">Automação local somente leitura para Saneago e Equatorial no Chrome.</string>
+</resources>

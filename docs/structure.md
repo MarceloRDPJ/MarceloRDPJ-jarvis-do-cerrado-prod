@@ -10,7 +10,8 @@ jarvis/
 |-- README.md
 |-- docs/
 |   |-- architecture/
-|   |   `-- technical_architecture.md
+|   |   |-- technical_architecture.md
+|   |   `-- poco_node.md
 |   |-- deployment.md
 |   |-- structure.md
 |   |-- user_guide.md
@@ -19,6 +20,8 @@ jarvis/
 |-- scripts/
 |   |-- backup_db.py
 |   `-- ble_scan.py
+|-- android/
+|   `-- poco-agent/               # satélite Android: UI, heartbeat e acessibilidade
 |-- src/jarvis/
 |   |-- main.py                   # Telegram, callbacks, serviços e FastAPI
 |   |-- config.py                 # ambiente e configuração central

@@ -6,13 +6,15 @@ Gerencia: sistema, fan, bot personality, webhooks, MCP, integrações.
 """
 
 import logging
+import json
 import os
 import time
 from typing import Dict, Any, List, Optional
+from dataclasses import asdict
 from fastapi import FastAPI, HTTPException, Query, Body, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger("api")
 
@@ -80,6 +82,12 @@ class BotSettings(BaseModel):
     notification_level: str = "normal"  # minimal, normal, verbose
 
 
+class PocoJobRequest(BaseModel):
+    action: str
+    params: Dict[str, Any] = Field(default_factory=dict)
+    ttl_seconds: int = 180
+
+
 # ===================================================================
 # HELPERS
 # ===================================================================
@@ -93,6 +101,23 @@ def service_required(name: str):
     service = get_service(name)
     if not service:
         raise HTTPException(status_code=503, detail=f"Service '{name}' not available")
+    return service
+
+
+def get_poco_service():
+    service = get_service("poco_service")
+    if service:
+        return service
+    from jarvis.config import Config
+    from jarvis.services.poco_node import PocoNodeService
+    storage = os.path.join(os.path.dirname(__file__), "..", "storage", "poco_node.json")
+    service = PocoNodeService(
+        storage,
+        shared_secret=Config.POCO_SHARED_SECRET,
+        signature_max_age_seconds=Config.POCO_SIGNATURE_MAX_AGE_SECONDS,
+        heartbeat_stale_seconds=Config.POCO_HEARTBEAT_STALE_SECONDS,
+    )
+    app.state.poco_service = service
     return service
 
 
@@ -145,6 +170,74 @@ async def get_system_health():
         "checks": checks,
         "assistant": {"mode": "local_skills", "generative_ai": False},
     }
+
+
+# ===================================================================
+# POCO ANDROID NODE
+# ===================================================================
+
+async def _authenticate_poco(request: Request, body: bytes):
+    from jarvis.services.poco_node import PocoAuthenticationError
+    service = get_poco_service()
+    try:
+        service.authenticate(
+            request.headers.get("X-Poco-Timestamp"),
+            request.headers.get("X-Poco-Signature"),
+            request.method,
+            request.url.path,
+            body,
+        )
+    except PocoAuthenticationError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    return service
+
+
+@app.get("/api/poco/status")
+async def poco_status():
+    return get_poco_service().status()
+
+
+@app.post("/api/poco/jobs")
+async def poco_enqueue_job(job: PocoJobRequest, request: Request):
+    if not request.client or request.client.host not in {"127.0.0.1", "::1"}:
+        raise HTTPException(status_code=403, detail="Poco jobs can only be queued locally")
+    try:
+        created = get_poco_service().enqueue(job.action, job.params, job.ttl_seconds)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return asdict(created)
+
+
+@app.post("/api/poco/heartbeat")
+async def poco_heartbeat(request: Request):
+    body = await request.body()
+    service = await _authenticate_poco(request, body)
+    try:
+        payload = json.loads(body or b"{}")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON") from exc
+    return {"status": "ok", "heartbeat": service.record_heartbeat(payload)}
+
+
+@app.get("/api/poco/jobs/next")
+async def poco_next_job(request: Request):
+    service = await _authenticate_poco(request, b"")
+    job = service.next_job()
+    return {"job": asdict(job) if job else None}
+
+
+@app.post("/api/poco/jobs/{job_id}/state")
+async def poco_update_job(job_id: str, request: Request):
+    body = await request.body()
+    service = await _authenticate_poco(request, body)
+    try:
+        payload = json.loads(body or b"{}")
+        job = service.update_job(job_id, payload.get("status", ""), payload.get("result"), payload.get("error"))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Unknown Poco job") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return asdict(job)
 
 
 @app.post("/api/system/reboot")

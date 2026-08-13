@@ -64,6 +64,15 @@ class Config:
     FAN_TEMP_OFF = float(os.getenv("FAN_TEMP_OFF", 50.0))
 
     # ==================================================
+    # POCO ANDROID NODE
+    # ==================================================
+    POCO_NODE_ENABLED = os.getenv("POCO_NODE_ENABLED", "false").strip().lower() == "true"
+    POCO_NODE_ID = os.getenv("POCO_NODE_ID", "poco-x3-nfc").strip()
+    POCO_SHARED_SECRET = os.getenv("POCO_SHARED_SECRET", "")
+    POCO_SIGNATURE_MAX_AGE_SECONDS = int(os.getenv("POCO_SIGNATURE_MAX_AGE_SECONDS", 120))
+    POCO_HEARTBEAT_STALE_SECONDS = int(os.getenv("POCO_HEARTBEAT_STALE_SECONDS", 150))
+
+    # ==================================================
     # CONFIG.YAML (COMPORTAMENTO)
     # ==================================================
     YAML_CONFIG = {}
