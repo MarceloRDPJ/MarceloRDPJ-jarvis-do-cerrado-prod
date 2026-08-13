@@ -64,3 +64,28 @@ def test_heartbeat_is_sanitized_and_becomes_stale(tmp_path):
     assert service.status()["heartbeat"]["battery_level"] == 100
     now[0] += 11
     assert service.status()["online"] is False
+
+
+def test_abandoned_running_job_expires_and_does_not_block_queue(tmp_path):
+    now = [1000.0]
+    service = PocoNodeService(tmp_path / "poco.json", shared_secret="x", clock=lambda: now[0])
+    first = service.enqueue("device_status", ttl_seconds=10)
+    service.next_job()
+    service.update_job(first.job_id, "running")
+    second = service.enqueue("network_check", ttl_seconds=60)
+    now[0] += 11
+
+    selected = service.next_job()
+
+    assert service._jobs[first.job_id].status == "expired"
+    assert selected.job_id == second.job_id
+
+
+def test_get_job_returns_detached_snapshot(tmp_path):
+    service = PocoNodeService(tmp_path / "poco.json", shared_secret="x")
+    created = service.enqueue("network_check")
+
+    snapshot = service.get_job(created.job_id)
+    snapshot.status = "completed"
+
+    assert service.get_job(created.job_id).status == "queued"

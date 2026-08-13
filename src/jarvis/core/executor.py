@@ -16,6 +16,8 @@ from jarvis.modules.adguard import AdGuardClient
 from datetime import datetime
 from jarvis.config import Config
 import os
+import asyncio
+import time
 
 logger = logging.getLogger("core.executor")
 
@@ -268,6 +270,9 @@ class Executor:
                         InlineKeyboardButton("🖥️ Sistema & Controle", callback_data="menu_sistema")
                     ],
                     [
+                        InlineKeyboardButton("🧾 Contas & Faturas", callback_data="menu_contas")
+                    ],
+                    [
                         InlineKeyboardButton("ℹ️ Sobre Mim", callback_data="quem é você")
                     ]
                 ]
@@ -426,6 +431,7 @@ class Executor:
                         InlineKeyboardButton("🛡️ Restart AdGuard", callback_data="reiniciar adguard"),
                         InlineKeyboardButton("📜 Ver Logs", callback_data="logs do sistema")
                     ],
+                    [InlineKeyboardButton("📱 Status do Poco", callback_data="status do poco")],
                     [InlineKeyboardButton("🔙 Menu Principal", callback_data="help")]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
@@ -457,9 +463,37 @@ class Executor:
                 "reply_markup": reply_markup
             }
 
+        if intent == "menu_contas":
+            try:
+                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                keyboard = [
+                    [InlineKeyboardButton("💧 Consultar Saneago", callback_data="conta de agua")],
+                    [InlineKeyboardButton("⚡ Equatorial (em preparação)", callback_data="ajuda equatorial")],
+                    [InlineKeyboardButton("🔙 Menu Principal", callback_data="help")],
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+            except ImportError:
+                reply_markup = None
+            return {
+                "text": (
+                    "🧾 **CONTAS & FATURAS**\n\n"
+                    "A Saneago é consultada no app oficial pelo Poco, em modo somente leitura. "
+                    "Se a sessão expirar, eu aviso sem guardar sua senha.\n\n"
+                    "A Equatorial continua bloqueando automação por depuração/antibot; "
+                    "não vou fingir uma consulta enquanto ela não estiver validada."
+                ),
+                "reply_markup": reply_markup,
+            }
+
         # --- END SUBMENUS ---
 
         if intent == "system_status": return await SystemModule.get_status()
+        if intent == "poco_status":
+            return await self._poco_status()
+        if intent == "poco_network_check":
+            return await self._poco_network_check()
+        if intent == "saneago_bills":
+            return await self._poco_saneago_bills()
         if intent == "fan_control":
             return await self._handle_fan_control(params.get("text", ""), self.app)
         if intent == "system_reboot": return SystemModule.reboot_device()
@@ -797,6 +831,70 @@ class Executor:
         if not pending: return "⚠️ Nenhuma ação pendente para confirmar."
         logger.info(f"Ação confirmada pelo usuário: {pending}")
         return await self._execute_intent(pending.get("intent"), pending.get("action", "default"), pending.get("params", {}), chat_id)
+
+    @staticmethod
+    async def _run_poco_job(action: str, timeout_seconds: int = 70):
+        if not Config.POCO_NODE_ENABLED:
+            return None, "O nÃ³ Poco estÃ¡ desativado na configuraÃ§Ã£o."
+        from jarvis.api.app import get_poco_service
+
+        service = get_poco_service()
+        if not service.status().get("online"):
+            return None, "O Poco estÃ¡ offline ou sem heartbeat recente."
+        job = service.enqueue(action, ttl_seconds=timeout_seconds + 20)
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            current = service.get_job(job.job_id)
+            if current and current.status == "completed":
+                return current.result or {}, None
+            if current and current.status in {"failed", "expired"}:
+                return None, current.error or "A tarefa expirou antes de concluir."
+            await asyncio.sleep(2)
+        return None, "O Poco nÃ£o concluiu a tarefa dentro do tempo esperado."
+
+    async def _poco_status(self) -> str:
+        from jarvis.api.app import get_poco_service
+
+        status = get_poco_service().status()
+        heartbeat = status.get("heartbeat") or {}
+        if not status.get("online"):
+            return "Poco: offline ou sem sinal recente. O Jarvis no Pi continua funcionando."
+        battery = heartbeat.get("battery_level")
+        temperature = heartbeat.get("battery_temperature_c")
+        wifi = "conectado" if heartbeat.get("wifi_connected") else "desconectado"
+        return f"Poco: online. Bateria: {battery:.0f}%, Temp: {temperature:.1f} Â°C, Wi-Fi: {wifi}."
+
+    async def _poco_network_check(self) -> str:
+        result, error = await self._run_poco_job("network_check", 45)
+        if error:
+            return f"NÃ£o consegui validar pelo Poco: {error}"
+        if result.get("internet_validated"):
+            return "ValidaÃ§Ã£o pelo Poco: Wi-Fi conectado e internet confirmada pelo Android."
+        if result.get("wifi_connected"):
+            return "ValidaÃ§Ã£o pelo Poco: Wi-Fi conectado, mas sem acesso Ã  internet confirmado."
+        return "ValidaÃ§Ã£o pelo Poco: Wi-Fi desconectado."
+
+    async def _poco_saneago_bills(self) -> str:
+        try:
+            await self.app.bot.send_message(
+                chat_id=Config.ALLOWED_USER_ID,
+                text="Consultando a Saneago no Poco. Isso pode levar atÃ© um minuto...",
+            )
+        except Exception:
+            logger.debug("NÃ£o foi possÃ­vel enviar o aviso intermediÃ¡rio da Saneago", exc_info=True)
+        result, error = await self._run_poco_job("refresh_saneago_bills", 90)
+        if error:
+            if "Sessao Saneago expirada" in error:
+                return "A sessÃ£o da Saneago expirou. Abra o app oficial no Poco e refaÃ§a o login; o Jarvis nÃ£o guarda sua senha."
+            return f"NÃ£o consegui consultar a Saneago agora: {error}"
+        return (
+            "Saneago â€” consulta real pelo app oficial\n"
+            f"Conta: {result.get('account', 'indisponÃ­vel')}\n"
+            f"Fatura: {result.get('amount', 'indisponÃ­vel')}\n"
+            f"ReferÃªncia: {result.get('reference', 'indisponÃ­vel')}\n"
+            f"Vencimento: {result.get('due_date', 'indisponÃ­vel')}\n"
+            f"Consumo: {result.get('consumption', 'indisponÃ­vel')}"
+        )
 
     def _cancel_action(self, chat_id: int) -> str:
         if chat_id in self.pending_actions:

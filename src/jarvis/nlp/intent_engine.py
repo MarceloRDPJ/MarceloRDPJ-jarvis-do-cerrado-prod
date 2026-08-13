@@ -126,6 +126,18 @@ class HybridIntentEngine:
                 "como ta o rasp", "diagnostico", "saude do sistema",
                 "healthcheck", "desempenho", "como esta o sistema", "performance"
             ],
+            "poco_status": [
+                "status do poco", "status poco", "como ta o poco", "bateria do poco",
+                "statu do poco", "temperatura do poco", "tempratura do poco"
+            ],
+            "poco_network_check": [
+                "internet pelo poco", "teste internet pelo poco", "rede do poco",
+                "testar internet no poco", "internt no poco", "conexao pelo poco"
+            ],
+            "saneago_bills": [
+                "conta de agua", "conta saneago", "fatura saneago", "consultar saneago",
+                "ver conta de agua", "conta dagua", "fatura de agua", "conta saneag"
+            ],
             "fan_control": [
                 "ligar fan", "desligar fan", "status do fan", "ventoinha",
                 "ligar ventoinha", "desligar ventoinha", "controlar fan",

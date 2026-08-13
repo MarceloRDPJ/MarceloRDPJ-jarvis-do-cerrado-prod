@@ -64,3 +64,20 @@ async def test_router_keeps_state_changing_actions_strict():
     result = await route("bluqear sit")
 
     assert result["intent"] != "network_block_site"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("text", "intent"),
+    [
+        ("status do poco", "poco_status"),
+        ("tempratura do poco", "poco_status"),
+        ("internt no poco", "poco_network_check"),
+        ("conta dagua", "saneago_bills"),
+        ("conta saneag", "saneago_bills"),
+    ],
+)
+async def test_router_understands_poco_and_bill_typos(text, intent):
+    result = await route(text)
+
+    assert result["intent"] == intent

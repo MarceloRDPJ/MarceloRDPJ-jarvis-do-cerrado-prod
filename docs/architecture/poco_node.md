@@ -36,9 +36,11 @@ USB-C e comunica-se com o Pi pela rede Wi-Fi local.
 
 ## Transporte e estados
 
-O transporte previsto é MQTT local autenticado, sem exposição à internet. Cada
-tarefa possui `job_id`, versão, ação permitida, prazo, nonce e assinatura. O
-estado percorre:
+O transporte implementado é HTTP na LAN entre o agente e a API do Pi. Corpo e
+caminho de cada requisição são autenticados com HMAC-SHA256, timestamp curto e
+segredo aleatório guardado no Android Keystore. A criação de jobs aceita somente
+chamadas locais do Pi. Não existe shell remoto nem porta aberta no Poco. Cada
+tarefa possui `job_id`, ação enumerada e prazo. O estado percorre:
 
 ```text
 queued -> accepted -> running -> completed
@@ -46,27 +48,20 @@ queued -> accepted -> running -> completed
                             `-> expired
 ```
 
-O Poco persiste o job antes de confirmá-lo. Reenvio com o mesmo `job_id` nunca
-repete um efeito. Se o Wi-Fi cair durante a execução, o job termina localmente e
-o resultado permanece na fila até a reconexão.
-
-Tópicos previstos:
-
-```text
-jarvis/poco/heartbeat
-jarvis/poco/status
-jarvis/poco/jobs
-jarvis/poco/results
-jarvis/poco/events
-jarvis/poco/alerts
-```
+O Pi persiste fila, heartbeat e resultados em `storage/poco_node.json`. Jobs
+abandonados expiram e não bloqueiam a fila seguinte. O agente consulta a fila a
+cada 20 segundos e sempre devolve `completed` ou `failed` com erro sanitizado.
 
 ## RPA de contas
 
-Saneago é consultada pelo aplicativo oficial instalado pela Play Store. A
-Equatorial é consultada pelo portal oficial aberto no Chrome, porque o aplicativo
-recusa execução quando a depuração Android está ativa. Login e sessão permanecem
-no Android. O Pi não recebe senha, cookie ou credencial do titular.
+Saneago é consultada pelo aplicativo oficial instalado pela Play Store. O agente
+acorda a tela por tempo limitado, descarta somente o bloqueio simples, abre o app,
+lê primeiro a árvore de acessibilidade e usa OCR local ML Kit como fallback. A
+sessão permanece no Android; o Pi não recebe senha, cookie ou credencial.
+
+A Equatorial ainda não está automatizada: o aplicativo recusa depuração e os
+portais testados devolvem bloqueio Imperva para navegador automatizado. O menu
+declara essa limitação e não apresenta dado simulado.
 
 O fluxo reconhece telas por `resource-id`, texto e descrição. OCR visual é
 fallback para WebView/Canvas; coordenadas fixas não são o método principal. Uma
@@ -116,15 +111,13 @@ aceita somente ações enumeradas, guarda chaves no Android Keystore e não ofer
 shell genérico ao Telegram. Logs e screenshots não podem conter CPF, senha,
 token, código de barras ou conteúdo integral de faturas por padrão.
 
-## Fases de entrega
+## Estado da entrega
 
-1. inventário, limpeza reversível e baseline térmico;
-2. instalação dos apps oficiais e login manual;
-3. prova de comunicação Wi-Fi e heartbeat;
-4. agente Android mínimo com fila persistente;
-5. RPA somente leitura da Equatorial;
-6. RPA somente leitura da Saneago;
-7. intents e respostas de contas no Telegram;
-8. diagnóstico de internet Pi versus Poco;
-9. voz, alarmes e interface neural;
-10. teste de estabilidade e recuperação por pelo menos 30 dias.
+Concluído: inventário, agente Android, Keystore, heartbeat, fila persistente,
+status/bateria/temperatura, validação real de internet pelo Android, menu e intents
+com tolerância a erros, abertura/leitura segura da Saneago e tratamento explícito
+de sessão expirada.
+
+Pendente: autenticar novamente a sessão Saneago no app oficial para validar uma
+fatura real ponta a ponta; encontrar caminho oficial confiável para Equatorial;
+voz, alarmes, interface neural e teste de estabilidade de 30 dias.

@@ -117,7 +117,7 @@ class PocoNodeService:
         with self._lock:
             changed = False
             for job in sorted(self._jobs.values(), key=lambda item: item.created_at):
-                if job.status == "queued" and job.expires_at <= now:
+                if job.status in {"queued", "accepted", "running"} and job.expires_at <= now:
                     job.status = "expired"
                     job.updated_at = now
                     changed = True
@@ -129,6 +129,12 @@ class PocoNodeService:
             if changed:
                 self._save()
         return None
+
+    def get_job(self, job_id: str) -> PocoJob | None:
+        """Return a detached snapshot so callers cannot mutate queue state."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            return PocoJob(**asdict(job)) if job else None
 
     def update_job(
         self,

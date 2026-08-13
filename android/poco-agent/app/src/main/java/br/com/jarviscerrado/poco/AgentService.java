@@ -62,13 +62,24 @@ public class AgentService extends Service {
         String id = job.getString("job_id");
         String action = job.getString("action");
         client.state(id, "running", null, null);
-        if (action.equals("device_status")) client.state(id, "completed", heartbeat(), null);
-        else if (action.equals("network_check")) {
-            JSONObject result = new JSONObject().put("wifi_connected", heartbeat().getBoolean("wifi_connected"));
-            client.state(id, "completed", result, null);
-        } else if (action.equals("refresh_saneago_bills")) {
-            client.state(id, "completed", SaneagoReader.readCurrent(this), null);
-        } else client.state(id, "failed", null, "Acao ainda nao implementada no agente 0.1");
+        try {
+            if (action.equals("device_status")) client.state(id, "completed", heartbeat(), null);
+            else if (action.equals("network_check")) {
+                ConnectivityManager cm = getSystemService(ConnectivityManager.class);
+                NetworkCapabilities caps = cm.getNetworkCapabilities(cm.getActiveNetwork());
+                JSONObject result = new JSONObject()
+                    .put("wifi_connected", caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI))
+                    .put("internet_validated", caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED))
+                    .put("internet_capable", caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET));
+                client.state(id, "completed", result, null);
+            } else if (action.equals("refresh_saneago_bills")) {
+                client.state(id, "completed", SaneagoReader.readCurrent(this), null);
+            } else client.state(id, "failed", null, "Acao ainda nao implementada no agente 0.1");
+        } catch (Exception error) {
+            String message = error.getClass().getSimpleName();
+            if (error.getMessage() != null) message += ": " + error.getMessage();
+            client.state(id, "failed", null, message.substring(0, Math.min(message.length(), 180)));
+        }
     }
 
     @Override public void onDestroy() { if (executor != null) executor.shutdownNow(); super.onDestroy(); }

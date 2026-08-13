@@ -125,6 +125,15 @@ def apply_rules(text: str) -> Optional[Dict]:
             "confidence": 1.0,
         }
 
+    if "ajuda equatorial" in t:
+        return {
+            "intent": "chat",
+            "action": "reply",
+            "entity": "bill",
+            "params": {"response": "A consulta automÃ¡tica da Equatorial ainda nÃ£o estÃ¡ confiÃ¡vel: o app detecta depuraÃ§Ã£o e o portal bloqueia automaÃ§Ã£o. Vou manter essa funÃ§Ã£o desativada atÃ© existir um caminho oficial validado."},
+            "confidence": 1.0,
+        }
+
     if t == "agora nao":
         return {
             "intent": "chat",
@@ -150,6 +159,9 @@ def apply_rules(text: str) -> Optional[Dict]:
 
     if "menu_sistema" in t or "menu sistema" in t or "opcoes do sistema" in t:
         return {"intent": "menu_sistema", "action": "show", "entity": "system", "confidence": 1.0}
+
+    if "menu_contas" in t or "menu contas" in t or "contas e faturas" in t:
+        return {"intent": "menu_contas", "action": "show", "entity": "bill", "confidence": 1.0}
 
     # =====================================================
     # AUTOMATION SPECIFICS
@@ -192,6 +204,18 @@ def apply_rules(text: str) -> Optional[Dict]:
             "requires_confirmation": True,
             "confidence": 0.95,
         }
+
+    # =====================================================
+    # POCO ANDROID NODE — READ-ONLY QUERIES
+    # =====================================================
+    if t in ("status do poco", "status poco", "como ta o poco", "como esta o poco", "bateria do poco"):
+        return {"intent": "poco_status", "action": "check", "entity": "poco", "confidence": 1.0}
+
+    if t in ("internet pelo poco", "teste internet pelo poco", "testar internet no poco", "rede do poco"):
+        return {"intent": "poco_network_check", "action": "check", "entity": "poco", "confidence": 1.0}
+
+    if t in ("conta de agua", "conta saneago", "fatura saneago", "consultar saneago", "ver conta de agua"):
+        return {"intent": "saneago_bills", "action": "read", "entity": "bill", "confidence": 1.0}
 
     # =====================================================
     # REBOOT (AÇÃO PERIGOSA → CONFIRMAÇÃO OBRIGATÓRIA)
