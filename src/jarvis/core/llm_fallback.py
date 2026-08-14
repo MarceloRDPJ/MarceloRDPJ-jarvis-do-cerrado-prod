@@ -47,8 +47,8 @@ def _discover_model():
     return path
 
 
-JARVIS_SYSTEM_PROMPT = (
-    "Você é o Jarvis do Cerrado, assistente doméstico local do Marcelo, "
+ROD_SYSTEM_PROMPT = (
+    "Você é o ROD do Cerrado, assistente doméstico local do Marcelo, "
     "rodando em um Raspberry Pi 3B. "
     "Você ajuda com automação residencial, rede local, Docker, Raspberry Pi, "
     "serviços do servidor e perguntas gerais. "
@@ -127,7 +127,7 @@ class LLMFallbackEngine:
             return None
 
         prompt = (
-            f"System: {JARVIS_SYSTEM_PROMPT}\n"
+            f"System: {ROD_SYSTEM_PROMPT}\n"
             f"User: {text}\nAssistant:"
         )
 
@@ -139,7 +139,7 @@ class LLMFallbackEngine:
             return None
 
         prompt = (
-            f"System: {JARVIS_SYSTEM_PROMPT}\n"
+            f"System: {ROD_SYSTEM_PROMPT}\n"
             "Você recebeu dados coletados por ferramentas locais gratuitas. "
             "Responda apenas com base no contexto. Se o contexto for insuficiente, diga isso.\n"
             f"Contexto:\n{context}\n\n"

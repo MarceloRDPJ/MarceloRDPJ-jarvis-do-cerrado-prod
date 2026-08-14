@@ -6,10 +6,10 @@
 - Remote: `https://github.com/MarceloRDPJ/MarceloRDPJ-jarvis-do-cerrado-prod.git`
 - Branch: `main`
 - Compose: `/opt/bot/jarvis-do-cerrado/docker-compose.yml`
-- Contêiner: `jarvis_cerrado`
-- Log do deploy: `/var/log/jarvis_deploy.log`
+- Contêiner: `rod_cerrado`
+- Log do deploy: `/var/log/rod_deploy.log`
 
-O diretório `/opt/bot/home_assistant_bot` é outro checkout e não deve ser usado para publicar o Jarvis do Cerrado.
+O diretório `/opt/bot/home_assistant_bot` é outro checkout e não deve ser usado para publicar o ROD do Cerrado.
 
 ## Deploy manual seguro
 
@@ -30,14 +30,14 @@ Depois valide antes de remover qualquer recurso antigo:
 ```bash
 docker compose ps
 curl -sS --max-time 10 http://127.0.0.1:8000/api/system/health
-docker logs --tail 100 jarvis_cerrado
+docker logs --tail 100 rod_cerrado
 ```
 
 Resposta esperada do healthcheck: `status` igual a `ok`, banco `ok` e `assistant.mode` igual a `local_skills`.
 
 ## Retirada definitiva dos contêineres de teste do LLM
 
-O Compose novo não cria LLM. `--remove-orphans` deve retirar o antigo `jarvis_llm` pertencente ao projeto. Contêineres de teste criados manualmente podem precisar de remoção explícita, somente depois de o Jarvis saudável ser confirmado:
+O Compose novo não cria LLM. `--remove-orphans` deve retirar o antigo `jarvis_llm` pertencente ao projeto. Contêineres de teste criados manualmente podem precisar de remoção explícita, somente depois de o ROD saudável ser confirmado:
 
 ```bash
 docker ps -a --format '{{.Names}}' | grep -E '^jarvis_llm($|_)'
@@ -49,14 +49,14 @@ Isso remove contêineres, não apaga os arquivos GGUF do SSD. Os modelos podem s
 ## Logs
 
 ```bash
-docker logs -f jarvis_cerrado
-docker logs --tail 200 jarvis_cerrado
-tail -f /var/log/jarvis_deploy.log
+docker logs -f rod_cerrado
+docker logs --tail 200 rod_cerrado
+tail -f /var/log/rod_deploy.log
 ```
 
 Sair de `docker logs -f` com `Ctrl+C` não para o contêiner.
 
-## Script `/usr/local/bin/deploy_jarvis.sh`
+## Script `/usr/local/bin/deploy_rod.sh`
 
 O script deve:
 
@@ -98,7 +98,7 @@ Se o novo contêiner não ficar saudável:
 
 ```bash
 docker compose ps
-docker logs --tail 200 jarvis_cerrado
+docker logs --tail 200 rod_cerrado
 curl -v --max-time 10 http://127.0.0.1:8000/api/system/health
 git log -3 --oneline
 ```

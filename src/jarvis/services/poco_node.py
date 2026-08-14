@@ -172,6 +172,10 @@ class PocoNodeService:
             "thermal_status": str(payload.get("thermal_status", "unknown"))[:32],
             "wifi_connected": bool(payload.get("wifi_connected", False)),
             "agent_version": str(payload.get("agent_version", ""))[:32],
+            "saneago_configured": bool(payload.get("saneago_configured", False)),
+            "equatorial_configured": bool(payload.get("equatorial_configured", False)),
+            "water_units": int(self._number(payload.get("water_units"), 0, 8) or 0),
+            "energy_units": int(self._number(payload.get("energy_units"), 0, 8) or 0),
             "received_at": self.clock(),
         }
         with self._lock:

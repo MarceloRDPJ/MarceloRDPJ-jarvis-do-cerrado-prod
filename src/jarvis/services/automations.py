@@ -9,7 +9,7 @@ logger = logging.getLogger("services.automations")
 
 class AutomationEngine:
     """
-    Motor de automações do Jarvis.
+    Motor de automações do ROD.
     Sistema de regras If-This-Then-That (IFTTT).
     """
 

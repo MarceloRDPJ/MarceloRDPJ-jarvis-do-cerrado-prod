@@ -1,7 +1,7 @@
 services:
   homebot:
     build: .
-    container_name: jarvis_cerrado
+    container_name: rod_cerrado
     restart: unless-stopped
     network_mode: host
     volumes:

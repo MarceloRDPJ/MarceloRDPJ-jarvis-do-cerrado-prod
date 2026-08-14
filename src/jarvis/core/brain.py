@@ -30,7 +30,7 @@ CURRENT_QUESTION_MARKERS = CURRENT_MARKERS
 
 class Brain:
     """
-    Cérebro central do Jarvis.
+    Cérebro central do ROD.
     Participa ativamente da interpretação e decisão de roteamento.
     """
 

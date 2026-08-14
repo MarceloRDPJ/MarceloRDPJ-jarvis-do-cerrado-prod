@@ -17,7 +17,7 @@ def _get_db_path():
 
 class Persistence:
     """
-    Camada de Persistência do Jarvis.
+    Camada de Persistência do ROD.
 
     RESPONSABILIDADES:
     - Armazenar dados RAW

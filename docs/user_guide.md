@@ -1,4 +1,4 @@
-# Guia de uso do Jarvis
+# Guia de uso do ROD
 
 ## Como conversar
 
@@ -8,7 +8,7 @@ Use frases naturais pelo Telegram. Acentos, maiúsculas e vários erros comuns s
 - `status`, `status do raspi`, `tempratura do pi`;
 - `qual a velocidade da net`, `teste velocdade internet`.
 
-O Jarvis não é um chatbot de conhecimento geral. Se a mensagem não corresponder a uma skill confiável, ele explica o que pode consultar em vez de inventar uma resposta.
+O ROD não é um chatbot de conhecimento geral. Se a mensagem não corresponder a uma skill confiável, ele explica o que pode consultar em vez de inventar uma resposta.
 
 ## Menus e botões
 
@@ -112,6 +112,22 @@ Os lembretes sobrevivem a reinícios porque usam SQLite no volume persistente.
 - `pausar hidratação`
 - `retomar hidratação`
 
+### Contas de água e energia
+
+- `conta de água casa`
+- `conta saneago kitnet 01`
+- `conta de luz kitnet 02`
+- `fatura equatorial sala comercial`
+
+No Poco, abra **ROD → Cofre de contas**, informe login/senha da Saneago,
+CPF/data de nascimento da Equatorial e as contas de cada imóvel, e toque em
+**Salvar cofre criptografado**. Esses dados permanecem cifrados no Android e não
+são enviados ao Pi. O serviço de acessibilidade ROD deve estar ativo.
+
+Saneago usa o app oficial. Equatorial usa o portal oficial no Chrome. Se surgir
+CAPTCHA, Imperva ou confirmação humana, resolva a tela no Poco e repita o comando.
+O ROD não contorna a proteção e não inventa valor de fatura.
+
 ### Informações atuais e conversa
 
 Algumas consultas usam RSS ou fontes públicas configuradas. Se a fonte estiver indisponível, a resposta informa a falha. Perguntas gerais sem skill, como `batata combina com banana?`, recebem uma orientação curta; não são enviadas a IA generativa.
@@ -137,5 +153,5 @@ Não exponha a porta 8000 diretamente à internet: este projeto não documenta a
 1. Tente `menu` ou uma frase direta.
 2. Verifique se o Telegram e a internet estão acessíveis.
 3. No Pi, execute `docker compose ps`.
-4. Consulte `docker logs --tail 100 jarvis_cerrado`.
+4. Consulte `docker logs --tail 100 rod_cerrado`.
 5. Teste o healthcheck local.

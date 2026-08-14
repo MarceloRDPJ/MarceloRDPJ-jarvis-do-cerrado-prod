@@ -11,4 +11,4 @@ smarthome:
   command_timeout: 5
 
 bot:
-  persona: "jarvis_cerrado"
+  persona: "rod_cerrado"

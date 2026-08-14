@@ -68,7 +68,9 @@ async def test_health_reports_local_skills_mode_without_llm_probe():
 
     assert response["checks"]["database"]["ok"] is True
     assert "local_llm" not in response["checks"]
-    assert response["assistant"] == {"mode": "local_skills", "generative_ai": False}
+    assert response["assistant"] == {
+        "name": "ROD", "mode": "local_skills", "generative_ai": False
+    }
     assert response["status"] == "ok"
 
 

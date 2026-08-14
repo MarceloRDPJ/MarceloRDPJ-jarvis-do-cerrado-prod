@@ -16,6 +16,17 @@ from typing import Dict, Optional
 import re
 
 
+def _bill_property(text: str) -> str:
+    """Return the stable property key used by the Poco encrypted vault."""
+    if re.search(r"\bkitnet\s*0?1\b", text):
+        return "kitnet_01"
+    if re.search(r"\bkitnet\s*0?2\b", text):
+        return "kitnet_02"
+    if "sala comercial" in text or re.search(r"\bsala\b", text):
+        return "sala_comercial"
+    return "casa"
+
+
 def apply_rules(text: str) -> Optional[Dict]:
     """
     Analisa texto normalizado e retorna um intent estruturado
@@ -214,8 +225,19 @@ def apply_rules(text: str) -> Optional[Dict]:
     if t in ("internet pelo poco", "teste internet pelo poco", "testar internet no poco", "rede do poco"):
         return {"intent": "poco_network_check", "action": "check", "entity": "poco", "confidence": 1.0}
 
-    if t in ("conta de agua", "conta saneago", "fatura saneago", "consultar saneago", "ver conta de agua"):
-        return {"intent": "saneago_bills", "action": "read", "entity": "bill", "confidence": 1.0}
+    water_query = any(term in t for term in ("conta de agua", "conta d agua", "fatura saneago", "consultar saneago", "conta saneago"))
+    if water_query:
+        return {
+            "intent": "saneago_bills", "action": "read", "entity": "bill",
+            "params": {"property": _bill_property(t)}, "confidence": 1.0,
+        }
+
+    energy_query = any(term in t for term in ("conta de luz", "conta de energia", "fatura equatorial", "consultar equatorial", "conta equatorial"))
+    if energy_query:
+        return {
+            "intent": "equatorial_bills", "action": "read", "entity": "bill",
+            "params": {"property": _bill_property(t)}, "confidence": 1.0,
+        }
 
     # =====================================================
     # REBOOT (AÇÃO PERIGOSA → CONFIRMAÇÃO OBRIGATÓRIA)

@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 class LocalBrain:
     """
-    Cérebro Local Estático - Jarvis do Cerrado.
+    Cérebro Local Estático - ROD do Cerrado.
     Contém apenas o conhecimento fixo e essencial.
     """
 
@@ -21,13 +21,13 @@ class LocalBrain:
     def _build_static_kb(self) -> Dict[str, Any]:
         """
         Constrói a base de conhecimento estática.
-        Persona: Jarvis do Cerrado (Guardião, Goiano, Tecnológico).
+        Persona: ROD do Cerrado (Guardião, Goiano, Tecnológico).
         """
         return {
             # === IDENTIDADE (15) ===
-            "quem é você": ["Sou o Jarvis do Cerrado, seu assistente local e guardião da rede."],
-            "quem e voce": ["Sou o Jarvis do Cerrado, seu assistente local e guardião da rede."],
-            "qual seu nome": ["Me chamo Jarvis. Mas se preferir, 'O Sistema'."],
+            "quem é você": ["Sou o ROD do Cerrado, seu assistente local e guardião da rede."],
+            "quem e voce": ["Sou o ROD do Cerrado, seu assistente local e guardião da rede."],
+            "qual seu nome": ["Me chamo ROD. Mas se preferir, 'O Sistema'."],
             "de onde voce veio": ["Fui compilado nas montanhas de código, rodando firme no seu Raspberry Pi."],
             "quem te criou": ["Fui forjado para servir esta casa e proteger seus dados."],
             "voce e uma ia": ["Sou um assistente local baseado em skills, regras e dados reais do Raspberry Pi."],
@@ -111,7 +111,7 @@ class LocalBrain:
             "modo crianca": "Ativando filtros de conteúdo adulto.",
             "desligar luzes": "Não tenho luzes configuradas ainda. Preciso de Home Assistant, Shelly, Tasmota ou outro módulo real.",
             "ligar luzes": "Não tenho luzes configuradas ainda. Posso preparar integração local quando houver dispositivo.",
-            "tomada inteligente": "Tomada inteligente ainda não está configurada neste Jarvis.",
+            "tomada inteligente": "Tomada inteligente ainda não está configurada neste ROD.",
             "consumo de energia": "Ainda não tenho medidor instalado.",
             "voltagem": "Espero que seja 110v ou 220v estável.",
             "caiu a luz": "Se caiu, eu estou no UPS (ou desligado).",
@@ -175,7 +175,7 @@ class LocalBrain:
             "você aprende": "Sim! Memorizo padrões de uso e melhoro com o tempo.",
             "versao do sistema": "Estou na versão mais atualizada do meu código.",
             "quem manda aqui": "Você é o admin, eu sou o executor.",
-            "protocolo": "Protocolo Jarvis iniciado.",
+            "protocolo": "Protocolo ROD iniciado.",
             "status": "Use o comando de status para eu verificar dados reais do sistema.",
             "uptime": "Consigo consultar o uptime real pelo módulo de sistema.",
             "log de erro": "Consigo consultar eventos reais; não vou afirmar zero erro sem olhar o banco/logs.",
@@ -185,7 +185,7 @@ class LocalBrain:
             # === TECNOLOGIA (10) ===
             "o que e dns": "DNS (Domain Name System) é o sistema que traduz nomes de sites (ex: google.com) em endereços IP. Funciona como uma agenda telefônica da internet. Uso o AdGuard Home como servidor DNS na sua rede para bloquear anúncios e malwares.",
             "o que e ip": "IP (Internet Protocol) é o endereço único de cada dispositivo na rede. Ex: 192.168.1.10. É como um CPF digital pra cada aparelho conectado.",
-            "o que e vpn": "VPN (Virtual Private Network) cria um túnel criptografado entre dispositivos. Uso Tailscale pra acessar o Jarvis de fora de casa com segurança.",
+            "o que e vpn": "VPN (Virtual Private Network) cria um túnel criptografado entre dispositivos. Uso Tailscale pra acessar o ROD de fora de casa com segurança.",
             "o que e ping": "Ping é um comando que mede o tempo de resposta entre dois dispositivos na rede. Quanto menor, melhor. É usado pra diagnosticar lentidão.",
             "o que e adguard": "AdGuard Home é um servidor DNS que filtra anúncios, rastreadores e sites maliciosos em toda a rede. É meu parceiro de segurança.",
             "o que e raspberry pi": "Raspberry Pi é um computador do tamanho de um cartão de crédito. O meu é um Pi 3B com 1GB de RAM, 4 núcleos ARM e consumo de apenas 5W.",

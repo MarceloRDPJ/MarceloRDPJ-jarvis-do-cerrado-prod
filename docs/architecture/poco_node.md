@@ -2,7 +2,7 @@
 
 ## Decisão arquitetural
 
-O Raspberry Pi continua sendo o núcleo confiável do Jarvis: Telegram, regras,
+O Raspberry Pi continua sendo o núcleo confiável do ROD: Telegram, regras,
 agenda, banco principal, monitoramento da rede e ações sensíveis permanecem no
 Pi. O Poco X3 NFC (`surya`) funciona como satélite de voz, interface física e
 worker para tarefas que se beneficiam do Android, da câmera ou de mais CPU/RAM.
@@ -57,11 +57,15 @@ cada 20 segundos e sempre devolve `completed` ou `failed` com erro sanitizado.
 Saneago é consultada pelo aplicativo oficial instalado pela Play Store. O agente
 acorda a tela por tempo limitado, descarta somente o bloqueio simples, abre o app,
 lê primeiro a árvore de acessibilidade e usa OCR local ML Kit como fallback. A
-sessão permanece no Android; o Pi não recebe senha, cookie ou credencial.
+sessão e as credenciais permanecem no Android. Login, senha e contas são cifrados
+com AES-GCM por uma chave não exportável do Android Keystore; o Pi não recebe
+senha, cookie, CPF, data de nascimento ou credencial.
 
-A Equatorial ainda não está automatizada: o aplicativo recusa depuração e os
-portais testados devolvem bloqueio Imperva para navegador automatizado. O menu
-declara essa limitação e não apresenta dado simulado.
+A Equatorial usa o portal oficial no Chrome do Poco. O agente preenche CPF, data
+de nascimento e unidade configurada, lê somente valor, referência e vencimento e
+descarta os demais dados. Se Imperva, CAPTCHA ou outra verificação humana aparecer,
+a tarefa encerra com diagnóstico explícito. O ROD não burla proteção antibot e
+jamais apresenta uma consulta simulada.
 
 O fluxo reconhece telas por `resource-id`, texto e descrição. OCR visual é
 fallback para WebView/Canvas; coordenadas fixas não são o método principal. Uma
@@ -74,6 +78,11 @@ jobs, mesmo quando a interface do aplicativo as oferece.
 A leitura Saneago permite somente conta, valor da fatura atual, referência,
 vencimento e consumo. Nome do titular e endereço são descartados no Android e
 não entram no resultado, logs ou armazenamento do Pi.
+
+Para evitar associar uma fatura ao imóvel errado, cada job leva apenas a chave
+estável do imóvel (`kitnet_01`, `kitnet_02`, `sala_comercial` ou `casa`). O Poco
+resolve o número no cofre. Na Saneago, uma conta diferente da solicitada causa
+falha explícita; o ROD não renomeia o resultado incorreto.
 
 ## Disponibilidade
 
@@ -113,11 +122,12 @@ token, código de barras ou conteúdo integral de faturas por padrão.
 
 ## Estado da entrega
 
-Concluído: inventário, agente Android, Keystore, heartbeat, fila persistente,
-status/bateria/temperatura, validação real de internet pelo Android, menu e intents
-com tolerância a erros, abertura/leitura segura da Saneago e tratamento explícito
-de sessão expirada.
+Implementado: inventário, agente Android, Keystore, heartbeat, fila persistente,
+status/bateria/temperatura, validação real de internet, painel RDP, cofre das oito
+unidades, login assistido Saneago, leitura Saneago, fluxo Equatorial via Chrome e
+intents por imóvel.
 
-Pendente: autenticar novamente a sessão Saneago no app oficial para validar uma
-fatura real ponta a ponta; encontrar caminho oficial confiável para Equatorial;
-voz, alarmes, interface neural e teste de estabilidade de 30 dias.
+Uma consulta só é considerada validada quando a concessionária devolve conteúdo
+acessível no aparelho real. Mudanças de tela, CAPTCHA ou conta selecionada errada
+geram falha honesta. Voz, alarmes e interface neural animada permanecem evolução
+posterior, separada do núcleo confiável.

@@ -92,7 +92,7 @@ class ReporterService:
             network_error = str(e)
             logger.exception("Falha ao coletar dados de rede para relatório")
 
-        msg = "Bom dia! Relatorio Diario — Jarvis do Cerrado\n\n"
+        msg = "Bom dia! Relatorio Diario — ROD do Cerrado\n\n"
         msg += f"Sistema: {sys_info}\n"
         msg += f"Uptime: {uptime}\n"
         msg += f"Internet: {net_info}\n\n"
@@ -122,7 +122,7 @@ class ReporterService:
         tokens = Persistence.get_token_usage_today()
         unknown_7d = Persistence.get_unknown_queries_count(days=7)
 
-        msg = "Relatorio Semanal — Jarvis do Cerrado\n\n"
+        msg = "Relatorio Semanal — ROD do Cerrado\n\n"
         msg += f"Semana: {datetime.now(Config.TZ).strftime('%d/%m/%Y')}\n\n"
         msg += "IA local / gratuita\n"
         msg += f"* Chamadas hoje: {tokens['calls']}\n"

@@ -1,8 +1,8 @@
-# Arquitetura técnica do Jarvis do Cerrado
+# Arquitetura técnica do ROD do Cerrado
 
 ## Objetivo
 
-O Jarvis é o assistente pessoal de Marcelo e o guardião da rede residencial. Ele roda continuamente no Raspberry Pi, conversa pelo Telegram e executa somente funções que consegue reconhecer e verificar. Perguntas genéricas não são enviadas a um LLM: recebem uma orientação curta para uma skill disponível.
+O ROD é o assistente pessoal de Marcelo e o guardião da rede residencial. Ele roda continuamente no Raspberry Pi, conversa pelo Telegram e executa somente funções que consegue reconhecer e verificar. Perguntas genéricas não são enviadas a um LLM: recebem uma orientação curta para uma skill disponível.
 
 ## Arquitetura física real
 
@@ -20,10 +20,10 @@ O SSD oferece espaço e reduz a dependência de microSD, mas não aumenta CPU ou
 
 ### Serviços do Pi
 
-- Jarvis do Cerrado: bot, serviços em segundo plano, dashboard e API.
+- ROD do Cerrado: bot, serviços em segundo plano, dashboard e API.
 - AdGuard Home: DNS e bloqueio de propaganda/domínios.
 - CasaOS e serviços domésticos instalados no host.
-- Docker: isolamento e reinício automático do Jarvis.
+- Docker: isolamento e reinício automático do ROD.
 
 Não presumir GPIO, fan, UPS ou sensores externos. Funcionalidades relacionadas só podem afirmar disponibilidade depois de consultar hardware ou serviço real.
 
@@ -37,11 +37,11 @@ Modem/roteador doméstico (NAT, DHCP e firewall)
    +-- Raspberry Pi 3B
    |     +-- AdGuard Home / DNS
    |     +-- CasaOS
-   |     +-- jarvis_cerrado
+   |     +-- rod_cerrado
    |
    +-- computadores, celulares e dispositivos domésticos
 
-Telegram Bot API <--- conexão HTTPS iniciada pelo Jarvis (long polling)
+Telegram Bot API <--- conexão HTTPS iniciada pelo ROD (long polling)
 GitHub          <--- fetch/push HTTPS para atualização de código
 ```
 
@@ -103,7 +103,7 @@ Respostas técnicas podem ser compactas, por exemplo: `CPU: 12%, RAM: 43%, Temp:
 
 ## Processos e contêineres
 
-O Compose de produção possui somente o serviço `homebot`, com nome `jarvis_cerrado`:
+O Compose de produção possui somente o serviço `homebot`, com nome `rod_cerrado`:
 
 - limite de memória: 512 MB;
 - reserva: 256 MB;
@@ -119,7 +119,7 @@ Volumes persistentes:
 - `.env`;
 - `src/jarvis/config.yaml`.
 
-Modelos e `llama.cpp` não são montados. Arquivos GGUF que permanecerem no SSD não são usados pelo Jarvis.
+Modelos e `llama.cpp` não são montados. Arquivos GGUF que permanecerem no SSD não são usados pelo ROD.
 
 ## API e dashboard
 
@@ -136,7 +136,7 @@ A API não tem autenticação própria documentada no código. Deve permanecer r
 
 ## Arquitetura de nuvem
 
-Não existe backend de nuvem do Jarvis. Serviços externos usados são clientes outbound:
+Não existe backend de nuvem do ROD. Serviços externos usados são clientes outbound:
 
 - Telegram Bot API: transporte das mensagens.
 - GitHub: origem e histórico do código.
@@ -166,7 +166,7 @@ Ausências deliberadas: OpenAI, Gemini, Groq, Tuya e LLM local no atendimento.
 
 ## Recuperação
 
-- Falha do bot: consultar `docker logs --tail 200 jarvis_cerrado`.
+- Falha do bot: consultar `docker logs --tail 200 rod_cerrado`.
 - Falha do healthcheck: testar `curl http://127.0.0.1:8000/api/system/health`.
 - Falha de deploy: manter o contêiner atual, verificar Git e construir antes de recriar.
 - Queda de energia: `restart: unless-stopped` deve restaurar o serviço após o boot.

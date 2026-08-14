@@ -1,5 +1,5 @@
 """
-FanControlService — Jarvis do Cerrado
+FanControlService — ROD do Cerrado
 ======================================
 Controle avançado de ventoinha com suporte PWM para Raspberry Pi.
 

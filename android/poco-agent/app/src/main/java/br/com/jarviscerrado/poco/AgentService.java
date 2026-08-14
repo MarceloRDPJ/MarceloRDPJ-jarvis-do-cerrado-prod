@@ -24,10 +24,10 @@ public class AgentService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
-        NotificationChannel channel = new NotificationChannel("jarvis_agent", "Jarvis Poco", NotificationManager.IMPORTANCE_LOW);
+        NotificationChannel channel = new NotificationChannel("jarvis_agent", "ROD // Poco", NotificationManager.IMPORTANCE_LOW);
         getSystemService(NotificationManager.class).createNotificationChannel(channel);
         Notification notification = new Notification.Builder(this, "jarvis_agent")
-            .setContentTitle("Jarvis Poco ativo").setContentText("Conectando ao núcleo no Raspberry Pi")
+            .setContentTitle("ROD ativo").setContentText("Nó Poco conectado ao Raspberry Pi")
             .setSmallIcon(android.R.drawable.presence_online).build();
         startForeground(41, notification);
         executor = Executors.newSingleThreadScheduledExecutor();
@@ -53,9 +53,13 @@ public class AgentService extends Service {
         ConnectivityManager cm = getSystemService(ConnectivityManager.class);
         NetworkCapabilities caps = cm.getNetworkCapabilities(cm.getActiveNetwork());
         boolean wifi = caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
+        BillingConfig billing = BillingConfig.load(this);
         return new JSONObject().put("node_id", "poco-x3-nfc").put("battery_level", level)
             .put("battery_temperature_c", temperature / 10.0).put("thermal_status", "android")
-            .put("wifi_connected", wifi).put("agent_version", BuildConfig.VERSION_NAME);
+            .put("wifi_connected", wifi).put("agent_version", BuildConfig.VERSION_NAME)
+            .put("saneago_configured", billing.saneagoReady())
+            .put("equatorial_configured", billing.equatorialReady())
+            .put("water_units", billing.waterCount()).put("energy_units", billing.energyCount());
     }
 
     private void execute(ApiClient client, JSONObject job) throws Exception {
@@ -73,8 +77,11 @@ public class AgentService extends Service {
                     .put("internet_capable", caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET));
                 client.state(id, "completed", result, null);
             } else if (action.equals("refresh_saneago_bills")) {
-                client.state(id, "completed", SaneagoReader.readCurrent(this), null);
-            } else client.state(id, "failed", null, "Acao ainda nao implementada no agente 0.1");
+                client.state(id, "completed", SaneagoReader.readCurrent(this,
+                    job.optJSONObject("params") == null ? "casa" : job.getJSONObject("params").optString("property", "casa")), null);
+            } else if (action.equals("refresh_equatorial_bills")) {
+                client.state(id, "completed", EquatorialReader.read(this, job.optJSONObject("params") == null ? "casa" : job.getJSONObject("params").optString("property", "casa")), null);
+            } else client.state(id, "failed", null, "Acao nao implementada nesta versao do ROD");
         } catch (Exception error) {
             String message = error.getClass().getSimpleName();
             if (error.getMessage() != null) message += ": " + error.getMessage();

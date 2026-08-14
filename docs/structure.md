@@ -4,7 +4,7 @@
 jarvis/
 |-- AGENTS.md                     # manual para futuros agentes
 |-- Dockerfile                    # imagem Python do bot/API
-|-- docker-compose.yml            # único serviço: homebot/jarvis_cerrado
+|-- docker-compose.yml            # único serviço: homebot/rod_cerrado
 |-- .dockerignore                 # evita segredos e dados no build
 |-- .env.example                  # variáveis sem credenciais reais
 |-- README.md

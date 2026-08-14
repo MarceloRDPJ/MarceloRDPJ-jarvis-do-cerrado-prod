@@ -14,8 +14,9 @@
 
     <application
         android:allowBackup="false"
+        android:icon="@drawable/rdp_app_icon"
         android:usesCleartextTraffic="true"
-        android:label="Jarvis Poco"
+        android:label="ROD"
         android:theme="@style/AppTheme">
         <activity
             android:name=".MainActivity"
@@ -31,6 +32,16 @@
             android:excludeFromRecents="true"
             android:exported="false"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <activity
+            android:name=".BillingSettingsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".ConnectionSettingsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
 
         <service
             android:name=".AgentService"
@@ -40,7 +51,7 @@
         <service
             android:name=".JarvisAccessibilityService"
             android:exported="true"
-            android:label="Jarvis - automacao local"
+            android:label="ROD — automação local"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />

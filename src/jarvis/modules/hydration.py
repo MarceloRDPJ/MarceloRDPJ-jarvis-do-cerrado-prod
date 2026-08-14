@@ -14,7 +14,7 @@ logger = logging.getLogger("modules.hydration")
 
 class HydrationModule:
     """
-    Módulo de Hidratação — Jarvis do Cerrado
+    Módulo de Hidratação — ROD do Cerrado
     (Sistema Consolidado - Modo Diário)
     """
 

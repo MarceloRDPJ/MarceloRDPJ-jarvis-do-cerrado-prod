@@ -1,8 +1,8 @@
 """
-MCP Handler — Model Context Protocol for Jarvis do Cerrado
+MCP Handler — Model Context Protocol for ROD do Cerrado
 ===========================================================
 Implementa o protocolo MCP (Model Context Protocol) para permitir
-que modelos de IA (LLMs) interajam com o Jarvis de forma estruturada.
+que modelos de IA (LLMs) interajam com o ROD de forma estruturada.
 
 Fornece tools, resources e prompts que modelos podem usar.
 """
@@ -18,7 +18,7 @@ class MCPHandler:
     """
     Model Context Protocol (MCP) Handler.
     
-    Permite que LLMs e agentes de IA interajam com o Jarvis
+    Permite que LLMs e agentes de IA interajam com o ROD
     através de um protocolo padronizado de tools e resources.
     """
 

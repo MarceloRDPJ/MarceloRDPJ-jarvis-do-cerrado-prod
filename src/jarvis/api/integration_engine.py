@@ -1,5 +1,5 @@
 """
-Integration Engine — Jarvis do Cerrado
+Integration Engine — ROD do Cerrado
 =======================================
 Motor local simples para workflows e chatbots básicos.
 
@@ -19,7 +19,7 @@ logger = logging.getLogger("api.integrations")
 
 class IntegrationEngine:
     """
-    Motor de Integrações do Jarvis.
+    Motor de Integrações do ROD.
     
     Suporta workflows e chatbots básicos com validação explícita.
     """

@@ -1,5 +1,5 @@
 """
-Webhook Manager — Jarvis do Cerrado
+Webhook Manager — ROD do Cerrado
 ====================================
 Gerencia webhooks de entrada e saída para integração com serviços externos.
 """
@@ -19,7 +19,7 @@ logger = logging.getLogger("api.webhooks")
 
 class WebhookManager:
     """
-    Sistema de Webhooks do Jarvis.
+    Sistema de Webhooks do ROD.
     
     - Webhooks de saída: notificam serviços externos sobre eventos
     - Webhooks de entrada: recebem comandos de serviços externos
@@ -113,8 +113,8 @@ class WebhookManager:
 
         headers = {
             "Content-Type": "application/json",
-            "X-Jarvis-Event": event_type,
-            "X-Jarvis-Timestamp": str(int(time.time())),
+            "X-ROD-Event": event_type,
+            "X-ROD-Timestamp": str(int(time.time())),
         }
 
         # Sign the request if secret is configured
@@ -124,7 +124,7 @@ class WebhookManager:
                 json.dumps(body).encode(),
                 hashlib.sha256
             ).hexdigest()
-            headers["X-Jarvis-Signature"] = signature
+            headers["X-ROD-Signature"] = signature
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -170,7 +170,7 @@ class WebhookManager:
         if not wh:
             return False
         try:
-            await self._send_webhook(wh, "test", {"message": "This is a test event from Jarvis do Cerrado"})
+            await self._send_webhook(wh, "test", {"message": "This is a test event from ROD do Cerrado"})
             return True
         except Exception:
             return False

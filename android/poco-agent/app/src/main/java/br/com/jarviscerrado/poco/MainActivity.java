@@ -3,98 +3,145 @@ package br.com.jarviscerrado.poco;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
-import android.content.SharedPreferences;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.os.BatteryManager;
 import android.os.Bundle;
 import android.provider.Settings;
-import android.text.InputType;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.Button;
-import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
+import java.util.concurrent.Executors;
+import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private SharedPreferences preferences;
+    private TextView linkValue;
+    private TextView nodeValue;
+    private TextView batteryValue;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        preferences = getSharedPreferences("agent", MODE_PRIVATE);
-        if (BuildConfig.DEBUG && getIntent().hasExtra("provision_secret")) {
-            try {
-                String provisionedEndpoint = getIntent().getStringExtra("provision_endpoint");
-                String provisionedSecret = getIntent().getStringExtra("provision_secret");
-                if (provisionedEndpoint != null && provisionedSecret != null && provisionedSecret.length() >= 32) {
-                    preferences.edit().putString("endpoint", provisionedEndpoint).apply();
-                    SecretStore.save(this, provisionedSecret);
-                    getIntent().removeExtra("provision_secret");
-                    AgentService.start(this);
-                }
-            } catch (Exception ignored) { }
-        }
+        provisionForDevelopment();
         if (!SecretStore.load(this).isEmpty()) AgentService.start(this);
-        if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 10);
         }
+        setContentView(buildDashboard());
+        refreshStatus();
+    }
 
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setPadding(36, 30, 36, 30);
-        root.setBackgroundColor(Color.BLACK);
+    @Override protected void onResume() {
+        super.onResume();
+        if (linkValue != null) refreshStatus();
+    }
 
-        NeuralView neural = new NeuralView(this);
-        root.addView(neural, new LinearLayout.LayoutParams(-1, 0, 1f));
+    private ScrollView buildDashboard() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        LinearLayout root = RodUi.screen(this);
 
-        TextView status = new TextView(this);
-        status.setTextColor(Color.rgb(130, 225, 255));
-        status.setTextSize(18);
-        status.setGravity(Gravity.CENTER);
-        status.setText("JARVIS // NÓ POCO");
-        root.addView(status);
+        LinearLayout brand = new LinearLayout(this);
+        brand.setOrientation(LinearLayout.HORIZONTAL);
+        brand.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(br.com.jarviscerrado.poco.R.drawable.rdp_logo);
+        logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        brand.addView(logo, new LinearLayout.LayoutParams(RodUi.dp(this, 58), RodUi.dp(this, 58)));
+        LinearLayout names = new LinearLayout(this);
+        names.setOrientation(LinearLayout.VERTICAL);
+        names.setPadding(RodUi.dp(this, 14), 0, 0, 0);
+        names.addView(RodUi.text(this, "ROD", 30, Color.WHITE, true));
+        names.addView(RodUi.label(this, "RDP STUDIO // HOME OPERATIONS"));
+        brand.addView(names, new LinearLayout.LayoutParams(0, -2, 1));
+        root.addView(brand);
 
-        EditText endpoint = field("Endereço do Pi", preferences.getString("endpoint", "http://192.168.1.10:8000"), false);
-        EditText secret = field("Chave do nó", "", true);
-        if (!SecretStore.load(this).isEmpty()) secret.setHint("Chave protegida no Android Keystore");
-        root.addView(endpoint);
-        root.addView(secret);
+        TextView intro = RodUi.text(this,
+            "Nó móvel dedicado para rede, contas e automações da casa.", 16, RodUi.MUTED, false);
+        intro.setPadding(0, RodUi.dp(this, 18), 0, RodUi.dp(this, 18));
+        root.addView(intro);
 
-        Button save = button("Salvar e iniciar");
-        save.setOnClickListener(v -> {
-            preferences.edit().putString("endpoint", endpoint.getText().toString().trim()).apply();
+        LinearLayout statusCard = RodUi.card(this);
+        statusCard.addView(RodUi.label(this, "OPERAÇÃO AGORA"));
+        linkValue = RodUi.metric(this, "Verificando Pi…");
+        statusCard.addView(linkValue);
+        nodeValue = RodUi.text(this, "Agente local iniciando", 14, RodUi.MUTED, false);
+        statusCard.addView(nodeValue);
+        batteryValue = RodUi.text(this, "Bateria: lendo", 14, RodUi.MUTED, false);
+        statusCard.addView(batteryValue);
+        root.addView(statusCard, RodUi.cardParams(this));
+
+        root.addView(RodUi.section(this, "CENTRAL ROD"));
+        root.addView(action("Contas de água e energia", "Cofre local, imóveis e acessos", v ->
+            startActivity(new Intent(this, BillingSettingsActivity.class))));
+        root.addView(action("Conexão com o Raspberry Pi", "Endpoint e chave protegida", v ->
+            startActivity(new Intent(this, ConnectionSettingsActivity.class))));
+        root.addView(action("Permissão de automação", "Estado da acessibilidade do ROD", v ->
+            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))));
+
+        root.addView(RodUi.section(this, "CAPACIDADES ATIVAS"));
+        LinearLayout capabilities = RodUi.card(this);
+        capabilities.addView(RodUi.statusRow(this, "Rede pelo Poco", "Validação Android", RodUi.GREEN));
+        capabilities.addView(RodUi.statusRow(this, "Saneago", "Leitura local assistida", RodUi.AMBER));
+        capabilities.addView(RodUi.statusRow(this, "Equatorial", "Aguardando fluxo validado", RodUi.RED));
+        capabilities.addView(RodUi.statusRow(this, "Telegram", "Controlado pelo Pi", RodUi.CYAN));
+        root.addView(capabilities, RodUi.cardParams(this));
+
+        TextView footer = RodUi.label(this, "ROD 0.2 // RDP STUDIO // DADOS LOCAIS");
+        footer.setGravity(Gravity.CENTER);
+        footer.setPadding(0, RodUi.dp(this, 30), 0, RodUi.dp(this, 20));
+        root.addView(footer);
+        scroll.addView(root);
+        return scroll;
+    }
+
+    private LinearLayout action(String title, String subtitle, android.view.View.OnClickListener click) {
+        LinearLayout card = RodUi.card(this);
+        card.setClickable(true);
+        card.setFocusable(true);
+        card.setOnClickListener(click);
+        card.addView(RodUi.text(this, title, 17, Color.WHITE, true));
+        TextView sub = RodUi.text(this, subtitle + "   ›", 13, RodUi.MUTED, false);
+        sub.setPadding(0, RodUi.dp(this, 5), 0, 0);
+        card.addView(sub);
+        card.setLayoutParams(RodUi.cardParams(this));
+        return card;
+    }
+
+    private void refreshStatus() {
+        Intent battery = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        int level = battery == null ? -1 : battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+        int temp = battery == null ? -1 : battery.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1);
+        batteryValue.setText(String.format("Poco: %d%% // %.1f °C", level, temp / 10.0));
+        boolean configured = !SecretStore.load(this).isEmpty();
+        nodeValue.setText(configured ? "Agente protegido pelo Android Keystore" : "Conexão ainda não configurada");
+        if (!configured) { linkValue.setText("PI NÃO CONFIGURADO"); return; }
+        Executors.newSingleThreadExecutor().execute(() -> {
             try {
-                if (secret.getText().length() > 0) SecretStore.save(this, secret.getText().toString());
-                AgentService.start(this);
-                status.setText("AGENTE INICIADO // AGUARDANDO PI");
-            } catch (Exception error) { status.setText("ERRO AO PROTEGER A CHAVE"); }
+                String endpoint = getSharedPreferences("agent", MODE_PRIVATE).getString("endpoint", "");
+                JSONObject response = new ApiClient(endpoint, SecretStore.load(this)).get("/api/poco/status");
+                runOnUiThread(() -> linkValue.setText(response.optBoolean("online") ? "PI + POCO ONLINE" : "PI ONLINE // POCO SINCRONIZANDO"));
+            } catch (Exception error) {
+                runOnUiThread(() -> linkValue.setText("PI FORA DE ALCANCE"));
+            }
         });
-        root.addView(save);
-
-        Button accessibility = button("Ativar acessibilidade do Jarvis");
-        accessibility.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
-        root.addView(accessibility);
-        setContentView(root);
     }
 
-    private EditText field(String hint, String value, boolean password) {
-        EditText field = new EditText(this);
-        field.setHint(hint);
-        field.setHintTextColor(Color.GRAY);
-        field.setTextColor(Color.WHITE);
-        field.setText(value);
-        field.setSingleLine(true);
-        if (password) field.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        field.setLayoutParams(new LinearLayout.LayoutParams(-1, -2));
-        return field;
-    }
-
-    private Button button(String text) {
-        Button button = new Button(this);
-        button.setText(text);
-        button.setAllCaps(false);
-        button.setLayoutParams(new LinearLayout.LayoutParams(-1, -2));
-        return button;
+    private void provisionForDevelopment() {
+        if (!BuildConfig.DEBUG || !getIntent().hasExtra("provision_secret")) return;
+        try {
+            String endpoint = getIntent().getStringExtra("provision_endpoint");
+            String secret = getIntent().getStringExtra("provision_secret");
+            if (endpoint != null && secret != null && secret.length() >= 32) {
+                getSharedPreferences("agent", MODE_PRIVATE).edit().putString("endpoint", endpoint).apply();
+                SecretStore.save(this, secret);
+                getIntent().removeExtra("provision_secret");
+                AgentService.start(this);
+            }
+        } catch (Exception ignored) { }
     }
 }

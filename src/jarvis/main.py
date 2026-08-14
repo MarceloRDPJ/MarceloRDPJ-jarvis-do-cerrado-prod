@@ -104,7 +104,7 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
 logging.getLogger("telegram.ext").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
-logger = logging.getLogger("Jarvis")
+logger = logging.getLogger("ROD")
 
 TELEGRAM_TEXT_LIMIT = 3900
 
@@ -156,7 +156,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await safe_reply_text(
         update.message,
-        "Jarvis do Cerrado online.\n"
+        "ROD do Cerrado online.\n"
         "Guardião da casa ativado.\n\n"
         "Fala o trem aí 👊",
     )
@@ -336,10 +336,19 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def post_init(application):
     """
     Executado após o bot subir.
-    Aqui nasce o Jarvis de verdade.
+    Aqui nasce o ROD de verdade.
     """
 
     logger.info("🚀 Inicialização pós-start iniciada")
+
+    try:
+        await application.bot.set_my_name("ROD")
+        await application.bot.set_my_description(
+            "Assistente residencial da RDP Studio: rede, Raspberry Pi, lembretes e contas."
+        )
+        await application.bot.set_my_short_description("ROD // RDP Studio // Home Operations")
+    except Exception:
+        logger.warning("Não foi possível sincronizar o nome público do bot no Telegram", exc_info=True)
 
     # -------------------------
     # BANCO
@@ -504,7 +513,7 @@ def main():
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
     )
 
-    logger.info("🟢 Jarvis do Cerrado operacional.")
+    logger.info("🟢 ROD do Cerrado operacional.")
     application.run_polling()
 
 

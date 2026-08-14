@@ -1,5 +1,5 @@
 """
-Jarvis do Cerrado — Web Dashboard API
+ROD do Cerrado — Web Dashboard API
 =====================================
 Painel de controle completo estilo Iron Man.
 Gerencia: sistema, fan, bot personality, webhooks, MCP, integrações.
@@ -21,7 +21,7 @@ logger = logging.getLogger("api")
 # ──────────────────────────────────────────────
 # FastAPI App
 # ──────────────────────────────────────────────
-app = FastAPI(title="Jarvis do Cerrado — Control Center")
+app = FastAPI(title="ROD do Cerrado — Control Center")
 
 # ──────────────────────────────────────────────
 # Static Files
@@ -132,7 +132,7 @@ async def serve_dashboard():
         with open(index_path, "r", encoding="utf-8") as f:
             return HTMLResponse(content=f.read())
     return HTMLResponse(
-        content="<h1>Jarvis Dashboard UI not found</h1><p>Run the build or check static/ directory.</p>",
+        content="<h1>ROD Dashboard UI not found</h1><p>Run the build or check static/ directory.</p>",
         status_code=404,
     )
 
@@ -168,7 +168,7 @@ async def get_system_health():
         "status": status,
         "timestamp": time.time(),
         "checks": checks,
-        "assistant": {"mode": "local_skills", "generative_ai": False},
+        "assistant": {"name": "ROD", "mode": "local_skills", "generative_ai": False},
     }
 
 

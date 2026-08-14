@@ -84,7 +84,7 @@ def reduce_lengthened_words(text: str) -> str:
 # =============================================================================
 def normalize_text(text: str) -> str:
     """
-    Normalizador de Linguagem Natural – Jarvis do Cerrado
+    Normalizador de Linguagem Natural – ROD do Cerrado
 
     ✔ determinístico
     ✔ preserva emoção

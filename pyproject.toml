@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "jarvis-do-cerrado"
 version = "0.1.0"
-description = "Jarvis do Cerrado - Home Automation Bot"
+description = "ROD — assistente residencial e guardião de rede da RDP Studio"
 authors = [
   { name="Marcelo", email="marcelo@example.com" },
 ]

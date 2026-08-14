@@ -1,4 +1,4 @@
-# Jarvis do Cerrado
+# ROD do Cerrado
 
 Assistente pessoal e guardião da rede doméstica executado 24/7 em um Raspberry Pi 3B. A interface principal é o Telegram. O atendimento usa regras, NLP local tolerante a erros, contexto curto e skills que consultam dados reais; IA generativa não participa do fluxo de mensagens.
 
@@ -12,6 +12,8 @@ Assistente pessoal e guardião da rede doméstica executado 24/7 em um Raspberry
 - Executa Wake-on-LAN e consulta o estado do computador configurado.
 - Monitora rede, energia e eventos, enviando alertas pelo Telegram.
 - Oferece menus e botões para rede, agenda, automações e sistema.
+- Usa o Poco X3 NFC como nó Android pela rede Wi-Fi para diagnóstico, cofre local
+  e consultas assistidas de Saneago/Equatorial.
 - Expõe dashboard e API somente na rede local, na porta `8000`.
 
 ## Princípios
@@ -26,7 +28,7 @@ Assistente pessoal e guardião da rede doméstica executado 24/7 em um Raspberry
 
 - Projeto: `/opt/bot/jarvis-do-cerrado`
 - Branch: `main`
-- Contêiner: `jarvis_cerrado`
+- Contêiner: `rod_cerrado`
 - Compose: `/opt/bot/jarvis-do-cerrado/docker-compose.yml`
 - API local: `http://IP_DO_PI:8000/`
 - Healthcheck: `http://127.0.0.1:8000/api/system/health`
@@ -51,6 +53,19 @@ O CI também mede cobertura. A suíte funcional pode passar mesmo quando o limit
 - `docs/deployment.md`: atualização, verificação e recuperação no Pi.
 - `docs/specifications/reminders_system.md`: comportamento dos lembretes.
 - `AGENTS.md`: regras operacionais para futuros agentes de código.
+
+## Aplicativo ROD no Poco
+
+O APK está em `android/poco-agent`. A tela usa a identidade visual oficial RDP,
+mostra o estado real do Pi e do telefone e possui um cofre de contas protegido
+por Android Keystore. CPF, data de nascimento, login, senha e números das contas
+ficam somente no aparelho; não entram no repositório, no Telegram nem nos logs.
+
+O identificador técnico Android `br.com.jarviscerrado.poco`, o nome interno do
+serviço de acessibilidade e o pacote Python `jarvis` foram preservados de forma
+intencional para atualizar o app sem perder o Keystore, manter a permissão de
+acessibilidade e preservar banco/imports existentes. Toda identidade apresentada
+ao usuário é ROD.
 
 ## Configuração mínima
 

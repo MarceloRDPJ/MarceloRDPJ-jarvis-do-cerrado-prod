@@ -50,7 +50,7 @@ class Config:
     LOCAL_WEB_TOOLS_ENABLED = os.getenv("LOCAL_WEB_TOOLS_ENABLED", "true").strip().lower() == "true"
     WEB_FETCH_TIMEOUT_SECONDS = int(os.getenv("WEB_FETCH_TIMEOUT_SECONDS", 10))
     WEB_FETCH_MAX_CHARS = int(os.getenv("WEB_FETCH_MAX_CHARS", 12000))
-    WEB_USER_AGENT = os.getenv("WEB_USER_AGENT", "JarvisDoCerrado/1.0")
+    WEB_USER_AGENT = os.getenv("WEB_USER_AGENT", "RODDoCerrado/1.0")
     RSS_FEEDS_ENABLED = os.getenv("RSS_FEEDS_ENABLED", "true").strip().lower() == "true"
     RSS_FEEDS = [feed.strip() for feed in os.getenv("RSS_FEEDS", "").split(",") if feed.strip()]
     CURRENT_INFO_BRASILEIRAO_URL = os.getenv("CURRENT_INFO_BRASILEIRAO_URL", "")

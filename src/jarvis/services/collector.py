@@ -15,7 +15,7 @@ logger = logging.getLogger("services.collector")
 
 class CollectorService:
     """
-    Serviço de Coleta Automática do Jarvis.
+    Serviço de Coleta Automática do ROD.
 
     Responsabilidades:
     - Coletar dados periodicamente

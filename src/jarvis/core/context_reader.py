@@ -7,7 +7,7 @@ from jarvis.database.persistence import Persistence
 
 class ContextReader:
     """
-    ContextReader — Leitura Técnica da Memória do Jarvis
+    ContextReader — Leitura Técnica da Memória do ROD
 
     RESPONSABILIDADES (NUNCA VIOLAR):
     - Ler dados RAW

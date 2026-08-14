@@ -6,6 +6,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.net.Uri;
 import android.graphics.Bitmap;
 import android.graphics.ColorSpace;
 import android.graphics.Path;
@@ -31,6 +32,7 @@ public class JarvisAccessibilityService extends AccessibilityService {
     static final String ACTION_BRIDGE = "br.com.jarviscerrado.poco.ACCESSIBILITY_BRIDGE";
     static final String PREFS_BRIDGE = "accessibility_bridge";
     private static final String SANEAGO = "br.com.saneago";
+    private static final String CHROME = "com.android.chrome";
 
     private final BroadcastReceiver bridge = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -43,6 +45,17 @@ public class JarvisAccessibilityService extends AccessibilityService {
                 } else if (operation.equals("read_saneago")) {
                     if (Build.VERSION.SDK_INT >= 31) performGlobalAction(GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE);
                     new Handler(Looper.getMainLooper()).postDelayed(() -> readSaneagoWithFallback(request), 1800);
+                } else if (operation.equals("login_saneago")) {
+                    loginSaneago(request, intent.getStringExtra("login"), intent.getStringExtra("password"));
+                } else if (operation.equals("open_equatorial")) {
+                    Intent browser = new Intent(Intent.ACTION_VIEW, Uri.parse("https://go.equatorialenergia.com.br/"));
+                    browser.setPackage(CHROME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(browser);
+                    reply(request, true, new JSONObject().put("opened", true), null);
+                } else if (operation.equals("fill_equatorial")) {
+                    fillEquatorial(request, intent.getStringExtra("cpf"), intent.getStringExtra("birth"), intent.getStringExtra("unit"));
+                } else if (operation.equals("read_equatorial")) {
+                    readEquatorial(request);
                 } else reply(request, false, null, "Operacao nao permitida");
             } catch (Exception error) {
                 reply(request, false, null, error.getClass().getSimpleName() + ": " + error.getMessage());
@@ -74,6 +87,91 @@ public class JarvisAccessibilityService extends AccessibilityService {
                 reply(request, false, null, error.getClass().getSimpleName() + ": " + error.getMessage());
             }
         }, 1500);
+    }
+
+    private void loginSaneago(String request, String login, String password) {
+        if (login == null || password == null || login.isEmpty() || password.isEmpty()) {
+            reply(request, false, null, "Credenciais Saneago ausentes no cofre");
+            return;
+        }
+        AccessibilityNodeInfo root = saneagoRoot();
+        if (root == null) { reply(request, false, null, "Tela de login Saneago nao encontrada"); return; }
+        List<AccessibilityNodeInfo> editors = new ArrayList<>();
+        collectEditors(root, editors);
+        if (editors.size() < 2) {
+            root.recycle();
+            reply(request, false, null, "Campos de login Saneago nao estao acessiveis nesta tela");
+            return;
+        }
+        setNodeText(editors.get(0), login);
+        setNodeText(editors.get(1), password);
+        boolean clicked = clickFirst(root, "entrar", "acessar", "login");
+        for (AccessibilityNodeInfo editor : editors) editor.recycle();
+        root.recycle();
+        reply(request, clicked, new JSONObject(), clicked ? null : "Botao de entrada Saneago nao encontrado");
+    }
+
+    private void fillEquatorial(String request, String cpf, String birth, String unit) {
+        AccessibilityNodeInfo root = packageRoot(CHROME);
+        if (root == null) { reply(request, false, null, "Portal Equatorial nao encontrado no Chrome"); return; }
+        List<AccessibilityNodeInfo> editors = new ArrayList<>();
+        collectEditors(root, editors);
+        if (editors.size() < 2) {
+            root.recycle();
+            reply(request, false, null, "Campos Equatorial indisponiveis ou verificacao humana ativa");
+            return;
+        }
+        String[] values = editors.size() >= 3 ? new String[]{cpf, birth, unit} : new String[]{cpf, unit};
+        for (int i = 0; i < values.length && i < editors.size(); i++) setNodeText(editors.get(i), values[i] == null ? "" : values[i]);
+        boolean clicked = clickFirst(root, "continuar", "consultar", "entrar", "avancar");
+        for (AccessibilityNodeInfo editor : editors) editor.recycle();
+        root.recycle();
+        reply(request, clicked, new JSONObject(), clicked ? null : "Botao de consulta Equatorial nao encontrado");
+    }
+
+    private void readEquatorial(String request) {
+        AccessibilityNodeInfo root = packageRoot(CHROME);
+        if (root == null) { reply(request, false, null, "Portal Equatorial nao encontrado"); return; }
+        List<String> values = new ArrayList<>();
+        collect(root, values);
+        root.recycle();
+        try {
+            Map<String,String> parsed = EquatorialTextParser.parse(String.join("\n", values));
+            JSONObject result = new JSONObject().put("source", "equatorial_chrome_accessibility");
+            for (Map.Entry<String,String> entry : parsed.entrySet()) result.put(entry.getKey(), entry.getValue());
+            reply(request, true, result, null);
+        } catch (Exception error) { reply(request, false, null, error.getMessage()); }
+    }
+
+    private static void collectEditors(AccessibilityNodeInfo node, List<AccessibilityNodeInfo> result) {
+        if (node.isEditable() || "android.widget.EditText".contentEquals(node.getClassName()))
+            result.add(AccessibilityNodeInfo.obtain(node));
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) { collectEditors(child, result); child.recycle(); }
+        }
+    }
+
+    private static void setNodeText(AccessibilityNodeInfo node, String value) {
+        android.os.Bundle arguments = new android.os.Bundle();
+        arguments.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value);
+        node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments);
+    }
+
+    private static boolean clickFirst(AccessibilityNodeInfo node, String... labels) {
+        String value = ((node.getText() == null ? "" : node.getText()) + " " +
+            (node.getContentDescription() == null ? "" : node.getContentDescription())).toLowerCase();
+        for (String label : labels) if (value.contains(label) && node.isClickable())
+            return node.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                boolean clicked = clickFirst(child, labels);
+                child.recycle();
+                if (clicked) return true;
+            }
+        }
+        return false;
     }
 
     private JSONObject readSaneago() throws Exception {
@@ -185,19 +283,27 @@ public class JarvisAccessibilityService extends AccessibilityService {
     }
 
     private AccessibilityNodeInfo saneagoRoot() {
+        return packageRoot(SANEAGO);
+    }
+
+    private AccessibilityNodeInfo packageRoot(String packageName) {
         AccessibilityNodeInfo active = getRootInActiveWindow();
-        if (belongsToSaneago(active)) return active;
+        if (belongsTo(active, packageName)) return active;
         if (active != null) active.recycle();
         for (AccessibilityWindowInfo window : getWindows()) {
             AccessibilityNodeInfo root = window.getRoot();
-            if (belongsToSaneago(root)) return root;
+            if (belongsTo(root, packageName)) return root;
             if (root != null) root.recycle();
         }
         return null;
     }
 
     private static boolean belongsToSaneago(AccessibilityNodeInfo root) {
-        return root != null && root.getPackageName() != null && SANEAGO.contentEquals(root.getPackageName());
+        return belongsTo(root, SANEAGO);
+    }
+
+    private static boolean belongsTo(AccessibilityNodeInfo root, String packageName) {
+        return root != null && root.getPackageName() != null && packageName.contentEquals(root.getPackageName());
     }
 
     private void reply(String request, boolean ok, JSONObject payload, String error) {

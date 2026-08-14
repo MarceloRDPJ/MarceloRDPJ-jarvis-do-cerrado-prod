@@ -6,7 +6,7 @@ from jarvis.database.persistence import Persistence
 
 class ContextEngine:
     """
-    ContextEngine — Memória REAL do Jarvis.
+    ContextEngine — Memória REAL do ROD.
 
     RESPONSABILIDADES (NUNCA VIOLAR):
     - Memória curta (chat)

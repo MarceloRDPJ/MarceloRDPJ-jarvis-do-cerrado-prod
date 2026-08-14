@@ -2,7 +2,7 @@
 
 ## Missão do projeto
 
-Manter o Jarvis do Cerrado confiável no Raspberry Pi 3B. Ele é assistente pessoal de Marcelo pelo Telegram e guardião da rede doméstica. Priorize skills reais, respostas rápidas e verdade operacional. Não transforme o projeto em chatbot genérico.
+Manter o ROD do Cerrado confiável no Raspberry Pi 3B. Ele é assistente pessoal de Marcelo pelo Telegram e guardião da rede doméstica. Priorize skills reais, respostas rápidas e verdade operacional. Não transforme o projeto em chatbot genérico.
 
 ## Ambiente real
 
@@ -13,9 +13,9 @@ Manter o Jarvis do Cerrado confiável no Raspberry Pi 3B. Ele é assistente pess
 - Remote: `MarceloRDPJ/MarceloRDPJ-jarvis-do-cerrado-prod`.
 - Branch de produção: `main`.
 - Compose correto: `/opt/bot/jarvis-do-cerrado/docker-compose.yml`.
-- Contêiner correto: `jarvis_cerrado`.
+- Contêiner correto: `rod_cerrado`.
 - API/dashboard: porta local `8000`.
-- Deploy habitual: `/usr/local/bin/deploy_jarvis.sh`; valide seu conteúdo, pois versões antigas apontavam incorretamente para `/opt/bot/home_assistant_bot`.
+- Deploy habitual: `/usr/local/bin/deploy_rod.sh`; valide seu conteúdo, pois versões antigas apontavam incorretamente para `/opt/bot/home_assistant_bot`.
 
 ## Arquitetura obrigatória
 
@@ -114,7 +114,7 @@ docker compose build homebot
 docker compose up -d --no-deps --remove-orphans homebot
 docker compose ps
 curl -sS --max-time 10 http://127.0.0.1:8000/api/system/health
-docker logs --tail 100 jarvis_cerrado
+docker logs --tail 100 rod_cerrado
 ```
 
 Não derrubar a versão saudável antes de saber que fetch, merge, configuração e build funcionaram. Após a migração sem LLM, remover contêineres antigos somente depois do healthcheck verde. Arquivos GGUF no SSD não afetam o runtime e podem ser tratados separadamente.

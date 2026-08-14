@@ -24,7 +24,7 @@ logger = logging.getLogger("core.executor")
 
 class Executor:
     """
-    Executor do Jarvis do Cerrado — EXECUÇÃO CONTROLADA
+    Executor do ROD do Cerrado — EXECUÇÃO CONTROLADA
     """
 
     SENSITIVE_ACTIONS = {
@@ -88,7 +88,7 @@ class Executor:
         # ---------------- COMMAND LIST (NEW) ----------------
         if intent == "command_list":
             return (
-                "📜 **MANUAL DE COMANDOS — JARVIS DO CERRADO**\n"
+                "📜 **MANUAL DE COMANDOS — ROD DO CERRADO**\n"
                 "_Lista completa de tudo que eu entendo e executo._\n\n"
 
                 "🌐 **REDE & SEGURANÇA**\n"
@@ -282,7 +282,7 @@ class Executor:
 
             return {
                 "text": (
-                    "🧠 **JARVIS DO CERRADO - CENTRAL DE COMANDO**\n\n"
+                    "🧠 **ROD DO CERRADO - CENTRAL DE COMANDO**\n\n"
                     "_Guardião da sua casa digital, operacional 24/7._\n\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                     "👋 **O que eu posso fazer por você?**\n\n"
@@ -467,8 +467,8 @@ class Executor:
             try:
                 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
                 keyboard = [
-                    [InlineKeyboardButton("💧 Consultar Saneago", callback_data="conta de agua")],
-                    [InlineKeyboardButton("⚡ Equatorial (em preparação)", callback_data="ajuda equatorial")],
+                    [InlineKeyboardButton("💧 Saneago — Casa", callback_data="conta de agua casa")],
+                    [InlineKeyboardButton("⚡ Equatorial — Casa", callback_data="conta de luz casa")],
                     [InlineKeyboardButton("🔙 Menu Principal", callback_data="help")],
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
@@ -477,10 +477,10 @@ class Executor:
             return {
                 "text": (
                     "🧾 **CONTAS & FATURAS**\n\n"
-                    "A Saneago é consultada no app oficial pelo Poco, em modo somente leitura. "
-                    "Se a sessão expirar, eu aviso sem guardar sua senha.\n\n"
-                    "A Equatorial continua bloqueando automação por depuração/antibot; "
-                    "não vou fingir uma consulta enquanto ela não estiver validada."
+                    "As consultas são executadas no Poco e os acessos ficam criptografados "
+                    "no Android Keystore. Diga a concessionária e o imóvel, por exemplo:\n"
+                    "`conta de água kitnet 01` ou `conta de luz sala comercial`.\n\n"
+                    "Se o portal exigir CAPTCHA ou confirmação humana, eu aviso claramente."
                 ),
                 "reply_markup": reply_markup,
             }
@@ -493,7 +493,9 @@ class Executor:
         if intent == "poco_network_check":
             return await self._poco_network_check()
         if intent == "saneago_bills":
-            return await self._poco_saneago_bills()
+            return await self._poco_saneago_bills(params)
+        if intent == "equatorial_bills":
+            return await self._poco_equatorial_bills(params)
         if intent == "fan_control":
             return await self._handle_fan_control(params.get("text", ""), self.app)
         if intent == "system_reboot": return SystemModule.reboot_device()
@@ -753,7 +755,7 @@ class Executor:
         msg += f"• Custo: ${all_time['cost']:.6f}\n\n"
 
         if today['calls'] == 0:
-            msg += "_Nenhuma chamada de API hoje. O Jarvis resolveu tudo localmente/gratuito._ 🤖"
+            msg += "_Nenhuma chamada de API hoje. O ROD resolveu tudo localmente/gratuito._ 🤖"
         else:
             msg += f"_Custo médio por chamada: ${today['cost']/max(today['calls'],1):.8f}_"
 
@@ -789,7 +791,7 @@ class Executor:
         except:
             net_info = "N/A"
 
-        msg = "📋 *Relatório Diário — Jarvis do Cerrado*\n\n"
+        msg = "📋 *Relatório Diário — ROD do Cerrado*\n\n"
         msg += f"🖥️ *Sistema*\n{sys_info}\nUptime: {uptime}\n\n"
         msg += f"🌐 *Internet*\n{net_info}\n\n"
         msg += f"🤖 *IA Local / Gratuita*\n"
@@ -833,7 +835,7 @@ class Executor:
         return await self._execute_intent(pending.get("intent"), pending.get("action", "default"), pending.get("params", {}), chat_id)
 
     @staticmethod
-    async def _run_poco_job(action: str, timeout_seconds: int = 70):
+    async def _run_poco_job(action: str, timeout_seconds: int = 70, params: dict | None = None):
         if not Config.POCO_NODE_ENABLED:
             return None, "O nÃ³ Poco estÃ¡ desativado na configuraÃ§Ã£o."
         from jarvis.api.app import get_poco_service
@@ -841,7 +843,7 @@ class Executor:
         service = get_poco_service()
         if not service.status().get("online"):
             return None, "O Poco estÃ¡ offline ou sem heartbeat recente."
-        job = service.enqueue(action, ttl_seconds=timeout_seconds + 20)
+        job = service.enqueue(action, params=params or {}, ttl_seconds=timeout_seconds + 20)
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
             current = service.get_job(job.job_id)
@@ -858,7 +860,7 @@ class Executor:
         status = get_poco_service().status()
         heartbeat = status.get("heartbeat") or {}
         if not status.get("online"):
-            return "Poco: offline ou sem sinal recente. O Jarvis no Pi continua funcionando."
+            return "Poco: offline ou sem sinal recente. O ROD no Pi continua funcionando."
         battery = heartbeat.get("battery_level")
         temperature = heartbeat.get("battery_temperature_c")
         wifi = "conectado" if heartbeat.get("wifi_connected") else "desconectado"
@@ -874,7 +876,7 @@ class Executor:
             return "ValidaÃ§Ã£o pelo Poco: Wi-Fi conectado, mas sem acesso Ã  internet confirmado."
         return "ValidaÃ§Ã£o pelo Poco: Wi-Fi desconectado."
 
-    async def _poco_saneago_bills(self) -> str:
+    async def _poco_saneago_bills(self, params: dict | None = None) -> str:
         try:
             await self.app.bot.send_message(
                 chat_id=Config.ALLOWED_USER_ID,
@@ -882,10 +884,13 @@ class Executor:
             )
         except Exception:
             logger.debug("NÃ£o foi possÃ­vel enviar o aviso intermediÃ¡rio da Saneago", exc_info=True)
-        result, error = await self._run_poco_job("refresh_saneago_bills", 90)
+        property_key = (params or {}).get("property", "casa")
+        result, error = await self._run_poco_job(
+            "refresh_saneago_bills", 90, {"property": property_key}
+        )
         if error:
             if "Sessao Saneago expirada" in error:
-                return "A sessÃ£o da Saneago expirou. Abra o app oficial no Poco e refaÃ§a o login; o Jarvis nÃ£o guarda sua senha."
+                return "A sessÃ£o da Saneago expirou. Abra o app oficial no Poco e refaÃ§a o login; o ROD nÃ£o guarda sua senha."
             return f"NÃ£o consegui consultar a Saneago agora: {error}"
         return (
             "Saneago â€” consulta real pelo app oficial\n"
@@ -894,6 +899,23 @@ class Executor:
             f"ReferÃªncia: {result.get('reference', 'indisponÃ­vel')}\n"
             f"Vencimento: {result.get('due_date', 'indisponÃ­vel')}\n"
             f"Consumo: {result.get('consumption', 'indisponÃ­vel')}"
+        )
+
+    async def _poco_equatorial_bills(self, params: dict | None = None) -> str:
+        property_key = (params or {}).get("property", "casa")
+        result, error = await self._run_poco_job(
+            "refresh_equatorial_bills", 90, {"property": property_key}
+        )
+        if error:
+            if any(marker in error.lower() for marker in ("captcha", "imperva", "verificacao humana")):
+                return "A Equatorial pediu verificação humana no Poco. Resolva a tela uma vez e repita a consulta; o ROD não tenta contornar o bloqueio."
+            return f"Não consegui consultar a Equatorial agora: {error}"
+        return (
+            "Equatorial — consulta real pelo portal oficial\n"
+            f"Imóvel: {property_key.replace('_', ' ').title()}\n"
+            f"Fatura: {result.get('amount', 'indisponível')}\n"
+            f"Referência: {result.get('reference', 'indisponível')}\n"
+            f"Vencimento: {result.get('due_date', 'indisponível')}"
         )
 
     def _cancel_action(self, chat_id: int) -> str:
