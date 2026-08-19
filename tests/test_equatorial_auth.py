@@ -174,3 +174,70 @@ async def test_empty_barcode_and_pix_strings_are_treated_as_absent(monkeypatch):
 
     assert "Código de barras" not in response
     assert "pix" not in response.lower()
+
+
+@pytest.mark.asyncio
+async def test_property_not_mapped_explains_the_learning_step(monkeypatch):
+    """O ROD aprende a conta contrato sozinho; o aviso precisa dizer isso.
+
+    Sem essa tradução o dono veria "falhou" e não saberia se o problema é o portal,
+    o cadastro do cofre ou a leitura da tela.
+    """
+    executor = build_executor(
+        monkeypatch, error="EQUATORIAL_PROPERTY_NOT_MAPPED kitnet_01"
+    )
+
+    response = await executor._poco_equatorial_bills({"property": "kitnet_01"})
+
+    assert "conta contrato" in response.lower()
+    assert "Kitnet 01" in response
+    assert "EQUATORIAL_PROPERTY_NOT_MAPPED" not in response
+
+
+@pytest.mark.asyncio
+async def test_contract_not_found_never_claims_another_property(monkeypatch):
+    executor = build_executor(monkeypatch, error="EQUATORIAL_CONTRACT_NOT_FOUND")
+
+    response = await executor._poco_equatorial_bills({"property": "casa"})
+
+    assert "não usei dados de outro imóvel" in response.lower()
+
+
+@pytest.mark.asyncio
+async def test_bill_not_found_is_distinct_from_a_broken_reading(monkeypatch):
+    """Não ter fatura em aberto é um fato sobre a conta, não uma falha do ROD."""
+    executor = build_executor(monkeypatch, error="EQUATORIAL_BILL_NOT_FOUND")
+
+    response = await executor._poco_equatorial_bills({"property": "casa"})
+
+    assert "nenhuma fatura" in response.lower()
+
+
+@pytest.mark.asyncio
+async def test_missing_payment_data_refuses_to_invent_a_code(monkeypatch):
+    executor = build_executor(monkeypatch, error="EQUATORIAL_PAYMENT_DATA_NOT_FOUND")
+
+    response = await executor._poco_equatorial_bills({"property": "casa"})
+
+    assert "não vou inventar" in response.lower()
+    assert "código de pagamento" in response.lower()
+
+
+@pytest.mark.asyncio
+async def test_portal_timeout_suggests_retrying(monkeypatch):
+    executor = build_executor(monkeypatch, error="EQUATORIAL_PORTAL_TIMEOUT")
+
+    response = await executor._poco_equatorial_bills({"property": "casa"})
+
+    assert "não respondeu a tempo" in response.lower()
+    assert "repetir a consulta" in response.lower()
+
+
+@pytest.mark.asyncio
+async def test_unknown_error_still_falls_back_to_the_generic_message(monkeypatch):
+    """Negativo: um erro que não é tipado não pode ser confundido com um que é."""
+    executor = build_executor(monkeypatch, error="O Poco está offline ou sem heartbeat recente.")
+
+    response = await executor._poco_equatorial_bills({"property": "casa"})
+
+    assert "Não consegui consultar a Equatorial agora" in response

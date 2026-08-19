@@ -968,6 +968,35 @@ class Executor:
                 marker in error_text.lower() for marker in ("captcha", "imperva", "verificacao humana")
             ):
                 return "A Equatorial pediu verificação humana no Poco. Resolva a tela uma vez e repita a consulta; o ROD não tenta contornar o bloqueio." + fallback
+            # Cada código diz o que fazer. Devolver só "falhou" obrigaria abrir o
+            # logcat do Poco para descobrir se o problema é do portal, do cadastro
+            # ou da leitura.
+            typed = {
+                "EQUATORIAL_PROPERTY_NOT_MAPPED": (
+                    f"Ainda não sei qual conta contrato do portal corresponde a "
+                    f"{property_key.replace('_', ' ').title()}. O ROD aprende isso sozinho na "
+                    "primeira consulta bem-sucedida; se persistir, confira a unidade consumidora "
+                    "cadastrada no cofre do Poco."
+                ),
+                "EQUATORIAL_CONTRACT_NOT_FOUND": (
+                    "O imóvel pedido não apareceu na lista de contratos desse login da Equatorial. "
+                    "Não usei dados de outro imóvel."
+                ),
+                "EQUATORIAL_BILL_NOT_FOUND": (
+                    "Cheguei ao imóvel certo no portal, mas nenhuma fatura estava visível na tela. "
+                    "Pode não haver fatura em aberto agora."
+                ),
+                "EQUATORIAL_PAYMENT_DATA_NOT_FOUND": (
+                    "Li a fatura, mas o portal não expôs código de barras nem PIX nesta tela. "
+                    "Não vou inventar um código de pagamento."
+                ),
+                "EQUATORIAL_PORTAL_TIMEOUT": (
+                    "O portal da Equatorial não respondeu a tempo no Poco. Vale repetir a consulta."
+                ),
+            }
+            for code, message in typed.items():
+                if error_text.startswith(code):
+                    return message + fallback
             return f"Não consegui consultar a Equatorial agora: {error}" + fallback
         lines = [
             "Equatorial — consulta real pelo portal oficial",
