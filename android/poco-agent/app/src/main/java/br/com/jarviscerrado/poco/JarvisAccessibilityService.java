@@ -54,8 +54,12 @@ public class JarvisAccessibilityService extends AccessibilityService {
                     browser.setPackage(CHROME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     startActivity(browser);
                     reply(request, true, new JSONObject().put("opened", true), null);
+                } else if (operation.equals("dismiss_equatorial")) {
+                    dismissEquatorialOverlay(request);
                 } else if (operation.equals("fill_equatorial")) {
                     fillEquatorial(request, intent.getStringExtra("cpf"), intent.getStringExtra("birth"), intent.getStringExtra("unit"));
+                } else if (operation.equals("login_equatorial")) {
+                    loginEquatorial(request, intent.getStringExtra("cpf"), intent.getStringExtra("unit"));
                 } else if (operation.equals("read_equatorial")) {
                     readEquatorial(request);
                 } else reply(request, false, null, "Operacao nao permitida");
@@ -187,22 +191,184 @@ public class JarvisAccessibilityService extends AccessibilityService {
         }
     }
 
-    private void fillEquatorial(String request, String cpf, String birth, String unit) {
+    private void fillEquatorial(String request, String cpf, String birth, String unit) throws Exception {
         AccessibilityNodeInfo root = packageRoot(CHROME);
         if (root == null) { reply(request, false, null, "Portal Equatorial nao encontrado no Chrome"); return; }
+        // O portal abre com o aviso de privacidade por cima. Enquanto ele estiver
+        // aberto nada da pagina responde. Fechamos o aviso; nao clicamos em
+        // "Enviar", que submeteria um consentimento no lugar do proprietario.
+        dismissOverlay(root);
         List<AccessibilityNodeInfo> editors = new ArrayList<>();
-        collectEditors(root, editors);
-        if (editors.size() < 2) {
+        collectPageEditors(root, editors);
+        if (editors.isEmpty()) {
             root.recycle();
             reply(request, false, null, "Campos Equatorial indisponiveis ou verificacao humana ativa");
             return;
         }
-        String[] values = editors.size() >= 3 ? new String[]{cpf, birth, unit} : new String[]{cpf, unit};
-        for (int i = 0; i < values.length && i < editors.size(); i++) setNodeText(editors.get(i), values[i] == null ? "" : values[i]);
-        boolean clicked = clickFirst(root, "continuar", "consultar", "entrar", "avancar");
+        // A home do portal pede somente o CPF; nascimento e unidade aparecem nas
+        // telas seguintes. Preenchemos o que a tela atual realmente oferece.
+        String[] values = editors.size() >= 3
+            ? new String[]{cpf, birth, unit}
+            : (editors.size() == 2 ? new String[]{cpf, unit} : new String[]{cpf});
+        for (int i = 0; i < values.length && i < editors.size(); i++)
+            setNodeText(editors.get(i), values[i] == null ? "" : values[i]);
+        // Gesto primeiro, pelo mesmo motivo do aviso de privacidade: em conteudo
+        // web ACTION_CLICK devolve true sem que a pagina reaja, e a tela nunca avanca.
+        boolean clicked = gestureClickLabel(root, "acessar", "continuar", "consultar", "avancar");
+        if (!clicked) clicked = clickFirst(root, "acessar", "continuar", "consultar", "entrar", "avancar");
         for (AccessibilityNodeInfo editor : editors) editor.recycle();
         root.recycle();
-        reply(request, clicked, new JSONObject(), clicked ? null : "Botao de consulta Equatorial nao encontrado");
+        reply(request, clicked, new JSONObject().put("fields_filled", values.length),
+            clicked ? null : "Botao de consulta Equatorial nao encontrado");
+    }
+
+    /**
+     * Fecha o aviso de privacidade e confirma que ele saiu.
+     *
+     * Fechar e clicar no mesmo passo nao funcionava: o clique em "Acessar" era
+     * reportado como sucesso mas o modal ainda cobria a pagina, entao nada
+     * avancava. O fechamento agora e um passo proprio, com verificacao.
+     */
+    private void dismissEquatorialOverlay(String request) {
+        AccessibilityNodeInfo root = packageRoot(CHROME);
+        if (root == null) { reply(request, false, null, "Portal Equatorial nao encontrado no Chrome"); return; }
+        if (!hasOverlay(root)) { root.recycle(); reply(request, true, new JSONObject(), null); return; }
+        // Gesto primeiro. Em conteudo web, ACTION_CLICK devolve true mesmo quando a
+        // pagina nao reage, o que escondia a falha e impedia a segunda tentativa.
+        // E o mesmo motivo pelo qual o login da Saneago ja tenta o gesto antes.
+        if (!gestureClickLabel(root, "fechar")) clickFirst(root, "fechar");
+        root.recycle();
+        new Handler(Looper.getMainLooper()).postDelayed(() -> retireOverlay(request, 0), 1500);
+    }
+
+    private void retireOverlay(String request, int attempt) {
+        AccessibilityNodeInfo root = packageRoot(CHROME);
+        if (root == null) { reply(request, false, null, "Portal Equatorial nao encontrado no Chrome"); return; }
+        if (!hasOverlay(root)) { root.recycle(); reply(request, true, new JSONObject(), null); return; }
+        if (attempt >= 2) {
+            root.recycle();
+            reply(request, false, null, "Aviso de privacidade da Equatorial nao fechou");
+            return;
+        }
+        if (attempt == 0) {
+            if (!gestureClickLabel(root, "fechar")) clickFirst(root, "fechar");
+        } else {
+            // Ultimo recurso: o botao voltar fecha o dialogo sem aceitar nada.
+            performGlobalAction(GLOBAL_ACTION_BACK);
+        }
+        root.recycle();
+        new Handler(Looper.getMainLooper()).postDelayed(() -> retireOverlay(request, attempt + 1), 1500);
+    }
+
+    private static boolean hasOverlay(AccessibilityNodeInfo root) {
+        return containsLabel(root, "aviso de privacidade") || containsLabel(root, "seus direitos garantidos");
+    }
+
+    /** Fecha avisos sobrepostos (LGPD e afins) que bloqueiam a pagina. */
+    private void dismissOverlay(AccessibilityNodeInfo root) {
+        if (!hasOverlay(root)) return;
+        if (!clickFirst(root, "fechar")) gestureClickLabel(root, "fechar");
+    }
+
+    /**
+     * Campos da pagina, sem os do proprio navegador.
+     *
+     * A varredura antiga pegava a barra de endereco do Chrome como se fosse um
+     * campo do formulario e escrevia a unidade consumidora nela. Tudo que tem
+     * viewIdResourceName do pacote do Chrome e cromo do navegador, nao conteudo.
+     */
+    private static void collectPageEditors(AccessibilityNodeInfo node, List<AccessibilityNodeInfo> result) {
+        String viewId = node.getViewIdResourceName();
+        boolean browserChrome = viewId != null && viewId.startsWith(CHROME + ":id/");
+        if (!browserChrome && (node.isEditable() || "android.widget.EditText".contentEquals(node.getClassName())))
+            result.add(AccessibilityNodeInfo.obtain(node));
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) { collectPageEditors(child, result); child.recycle(); }
+        }
+    }
+
+    /**
+     * Agencia Virtual da Equatorial: unidade consumidora e CPF.
+     *
+     * A home so pede o CPF e leva para esta tela. Aqui os campos tem
+     * resource-id estavel, entao nao dependemos da ordem em que aparecem.
+     */
+    private void loginEquatorial(String request, String cpf, String unit) {
+        AccessibilityNodeInfo root = packageRoot(CHROME);
+        if (root == null) { reply(request, false, null, "Portal Equatorial nao encontrado no Chrome"); return; }
+        AccessibilityNodeInfo unitField = findByViewId(root, "WEBDOOR_headercorporativogo_txtUC");
+        AccessibilityNodeInfo documentField = findByViewId(root, "WEBDOOR_headercorporativogo_txtDocumento");
+        if (unitField == null || documentField == null) {
+            if (unitField != null) unitField.recycle();
+            if (documentField != null) documentField.recycle();
+            root.recycle();
+            reply(request, false, null, "Tela de acesso da Agencia Virtual nao encontrada");
+            return;
+        }
+        setNodeText(unitField, unit == null ? "" : unit);
+        setNodeText(documentField, cpf == null ? "" : cpf);
+        unitField.recycle();
+        documentField.recycle();
+        root.recycle();
+        // Escrever num campo dispara JS que limpa o outro: na primeira tentativa a
+        // unidade entrava e o CPF ficava vazio. Conferimos e reaplicamos antes de
+        // enviar, para nunca clicar em ENTRAR com formulario incompleto.
+        new Handler(Looper.getMainLooper()).postDelayed(() -> submitEquatorial(request, cpf, unit, 0), 900);
+    }
+
+    private void submitEquatorial(String request, String cpf, String unit, int attempt) {
+        AccessibilityNodeInfo root = packageRoot(CHROME);
+        if (root == null) { reply(request, false, null, "Portal Equatorial nao encontrado no Chrome"); return; }
+        AccessibilityNodeInfo unitField = findByViewId(root, "WEBDOOR_headercorporativogo_txtUC");
+        AccessibilityNodeInfo documentField = findByViewId(root, "WEBDOOR_headercorporativogo_txtDocumento");
+        if (unitField == null || documentField == null) {
+            if (unitField != null) unitField.recycle();
+            if (documentField != null) documentField.recycle();
+            root.recycle();
+            reply(request, false, null, "Campos da Agencia Virtual sumiram antes do envio");
+            return;
+        }
+        boolean unitOk = filled(unitField, unit);
+        boolean documentOk = filled(documentField, cpf);
+        if (!unitOk) setNodeText(unitField, unit == null ? "" : unit);
+        if (!documentOk) setNodeText(documentField, cpf == null ? "" : cpf);
+        unitField.recycle();
+        documentField.recycle();
+        if (!unitOk || !documentOk) {
+            root.recycle();
+            if (attempt >= 3) {
+                reply(request, false, null, "Nao consegui preencher unidade e CPF na Agencia Virtual");
+                return;
+            }
+            new Handler(Looper.getMainLooper()).postDelayed(
+                () -> submitEquatorial(request, cpf, unit, attempt + 1), 900);
+            return;
+        }
+        boolean clicked = gestureClickLabel(root, "entrar");
+        if (!clicked) clicked = clickFirst(root, "entrar");
+        root.recycle();
+        reply(request, clicked, new JSONObject(), clicked ? null : "Botao ENTRAR da Agencia Virtual nao encontrado");
+    }
+
+    private static boolean filled(AccessibilityNodeInfo field, String expected) {
+        if (expected == null || expected.isEmpty()) return true;
+        CharSequence current = field.getText();
+        return current != null && digits(current.toString()).equals(digits(expected));
+    }
+
+    private static AccessibilityNodeInfo findByViewId(AccessibilityNodeInfo node, String suffix) {
+        String viewId = node.getViewIdResourceName();
+        if (viewId != null && viewId.endsWith(suffix)) return AccessibilityNodeInfo.obtain(node);
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                AccessibilityNodeInfo found = findByViewId(child, suffix);
+                child.recycle();
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     private void readEquatorial(String request) {

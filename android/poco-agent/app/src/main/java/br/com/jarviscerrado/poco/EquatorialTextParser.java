@@ -10,7 +10,7 @@ final class EquatorialTextParser {
     static Map<String,String> parse(String raw) {
         String text = raw == null ? "" : raw.replace('\u00a0', ' ');
         String lower = text.toLowerCase();
-        if (lower.contains("captcha") || lower.contains("verifique que voce") || lower.contains("access denied") || lower.contains("error 15"))
+        if (isHumanCheck(lower))
             throw new IllegalStateException("Equatorial exige verificacao humana no Poco");
         Map<String,String> out = new LinkedHashMap<>();
         out.put("amount", capture(text, "(?i)R\\$\\s*([0-9.]+,[0-9]{2})"));
@@ -20,6 +20,25 @@ final class EquatorialTextParser {
             throw new IllegalStateException("Fatura Equatorial nao encontrada na tela atual");
         return out;
     }
+    /**
+     * Bloqueio antibot real, e nao o selo passivo do reCAPTCHA.
+     *
+     * Procurar apenas por "captcha" acusava verificacao humana em qualquer pagina
+     * do portal: o rodape carrega sempre "protegido por reCAPTCHA". So contam os
+     * textos de um desafio de fato apresentado ao usuario.
+     */
+    private static boolean isHumanCheck(String lower) {
+        String[] markers = {
+            "access denied", "error 15",
+            "verifique que voce", "verifique que você",
+            "nao sou um robo", "não sou um robô", "i'm not a robot",
+            "resolva o desafio", "confirme que voce", "confirme que você",
+            "verificacao de seguranca", "verificação de segurança"
+        };
+        for (String marker : markers) if (lower.contains(marker)) return true;
+        return false;
+    }
+
     private static String capture(String text, String regex) {
         Matcher m = Pattern.compile(regex).matcher(text); return m.find() ? m.group(1).trim() : "";
     }

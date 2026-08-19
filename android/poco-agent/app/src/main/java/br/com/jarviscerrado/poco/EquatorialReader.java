@@ -25,8 +25,15 @@ final class EquatorialReader {
         try {
             call(context, "open_equatorial", null, null, null);
             Thread.sleep(7000);
+            // O aviso de privacidade cobre a pagina; sem fecha-lo o clique em
+            // "Acessar" e aceito mas nao avanca.
+            call(context, "dismiss_equatorial", null, null, null);
+            Thread.sleep(2000);
             call(context, "fill_equatorial", config.value("equatorial_cpf"), config.value("equatorial_birth_date"), unit);
-            Thread.sleep(10000);
+            Thread.sleep(12000);
+            // A home leva para a Agencia Virtual, que pede unidade consumidora e CPF.
+            call(context, "login_equatorial", config.value("equatorial_cpf"), null, unit);
+            Thread.sleep(12000);
             JSONObject result = call(context, "read_equatorial", null, null, null);
             result.put("property", normalizeProperty(property)).put("read_only", true);
             return result;
