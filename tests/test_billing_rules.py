@@ -19,6 +19,12 @@ def test_energy_query_defaults_to_house():
     assert result["params"]["property"] == "casa"
 
 
+def test_water_query_maps_restaurant():
+    result = apply_rules("conta de agua restaurante")
+    assert result["intent"] == "saneago_bills"
+    assert result["params"]["property"] == "restaurante"
+
+
 def test_unrelated_bill_sentence_does_not_trigger_provider_action():
     result = apply_rules("a conta da padaria ficou cara")
     assert result is None or result.get("intent") not in {"saneago_bills", "equatorial_bills"}

@@ -9,12 +9,14 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 final class RodUi {
-    static final int BG = Color.rgb(2, 6, 23);
-    static final int SURFACE = Color.rgb(15, 29, 48);
-    static final int LINE = Color.rgb(37, 58, 78);
-    static final int MUTED = Color.rgb(166, 183, 200);
-    static final int CYAN = Color.rgb(0, 180, 216);
-    static final int GREEN = Color.rgb(16, 185, 129);
+    // Official RDP dark palette from RDPstudio/assets/css/rdp-rebrand.css.
+    static final int BG = Color.rgb(6, 22, 17);
+    static final int SURFACE = Color.rgb(16, 42, 34);
+    static final int LINE = Color.rgb(41, 72, 61);
+    static final int MUTED = Color.rgb(169, 192, 177);
+    static final int ACCENT = Color.rgb(178, 217, 139);
+    static final int CYAN = ACCENT; // Compatibility name for existing components.
+    static final int GREEN = Color.rgb(178, 217, 139);
     static final int AMBER = Color.rgb(245, 158, 11);
     static final int RED = Color.rgb(239, 68, 68);
 
@@ -47,7 +49,7 @@ final class RodUi {
         return view;
     }
     static TextView label(Context c, String value) {
-        TextView view = text(c, value, 11, CYAN, true); view.setLetterSpacing(.12f); return view;
+        TextView view = text(c, value, 11, ACCENT, true); view.setLetterSpacing(.12f); return view;
     }
     static TextView section(Context c, String value) {
         TextView view = label(c, value); view.setPadding(0, dp(c, 25), 0, dp(c, 7)); return view;

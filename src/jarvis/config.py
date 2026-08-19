@@ -71,6 +71,10 @@ class Config:
     POCO_SHARED_SECRET = os.getenv("POCO_SHARED_SECRET", "")
     POCO_SIGNATURE_MAX_AGE_SECONDS = int(os.getenv("POCO_SIGNATURE_MAX_AGE_SECONDS", 120))
     POCO_HEARTBEAT_STALE_SECONDS = int(os.getenv("POCO_HEARTBEAT_STALE_SECONDS", 150))
+    # A bill query drives the official app end to end and can need a session
+    # recovery, so it is minutes-scale work, not a request/response round trip.
+    POCO_BILL_JOB_TIMEOUT_SECONDS = int(os.getenv("POCO_BILL_JOB_TIMEOUT_SECONDS", 240))
+    POCO_JOB_LEASE_SECONDS = int(os.getenv("POCO_JOB_LEASE_SECONDS", 60))
 
     # ==================================================
     # CONFIG.YAML (COMPORTAMENTO)

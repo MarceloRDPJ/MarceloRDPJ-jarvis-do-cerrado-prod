@@ -8,6 +8,10 @@ import java.util.UUID;
 import org.json.JSONObject;
 
 final class EquatorialReader {
+    /** Portal load, form fill and result render, with room for a slow mobile page. */
+    private static final long SCREEN_BUDGET_MILLIS = 180_000L;
+    private static final long CALL_TIMEOUT_MILLIS = 30_000L;
+
     private EquatorialReader() { }
     static JSONObject read(Context context, String property) throws Exception {
         BillingConfig config = BillingConfig.load(context);
@@ -17,7 +21,7 @@ final class EquatorialReader {
         if (unit.isEmpty()) throw new IllegalStateException("Unidade Equatorial nao configurada para " + property);
         PowerManager.WakeLock wake = context.getSystemService(PowerManager.class).newWakeLock(
             PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP, "rod:equatorial-read");
-        wake.acquire(90_000);
+        wake.acquire(SCREEN_BUDGET_MILLIS);
         try {
             call(context, "open_equatorial", null, null, null);
             Thread.sleep(7000);
@@ -37,7 +41,7 @@ final class EquatorialReader {
         if (unit != null) intent.putExtra("unit", unit);
         context.sendBroadcast(intent);
         SharedPreferences prefs = context.getSharedPreferences(JarvisAccessibilityService.PREFS_BRIDGE, Context.MODE_PRIVATE);
-        long deadline = System.currentTimeMillis() + 20_000;
+        long deadline = System.currentTimeMillis() + CALL_TIMEOUT_MILLIS;
         while (System.currentTimeMillis() < deadline) {
             if (request.equals(prefs.getString("request_id", ""))) {
                 if (!prefs.getBoolean("ok", false)) throw new IllegalStateException(prefs.getString("error", "Falha Equatorial"));

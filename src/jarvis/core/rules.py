@@ -24,6 +24,8 @@ def _bill_property(text: str) -> str:
         return "kitnet_02"
     if "sala comercial" in text or re.search(r"\bsala\b", text):
         return "sala_comercial"
+    if "restaurante" in text:
+        return "restaurante"
     return "casa"
 
 

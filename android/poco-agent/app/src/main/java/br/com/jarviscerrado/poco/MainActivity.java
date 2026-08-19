@@ -9,6 +9,7 @@ import android.graphics.Color;
 import android.os.BatteryManager;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.util.Base64;
 import android.view.Gravity;
 import android.widget.Button;
 import android.widget.ImageView;
@@ -16,6 +17,8 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import java.util.concurrent.Executors;
+import java.nio.charset.StandardCharsets;
+import java.util.Iterator;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
@@ -87,7 +90,7 @@ public class MainActivity extends Activity {
         LinearLayout capabilities = RodUi.card(this);
         capabilities.addView(RodUi.statusRow(this, "Rede pelo Poco", "Validação Android", RodUi.GREEN));
         capabilities.addView(RodUi.statusRow(this, "Saneago", "Leitura local assistida", RodUi.AMBER));
-        capabilities.addView(RodUi.statusRow(this, "Equatorial", "Aguardando fluxo validado", RodUi.RED));
+        capabilities.addView(RodUi.statusRow(this, "Equatorial", "Leitura assistida / CAPTCHA", RodUi.AMBER));
         capabilities.addView(RodUi.statusRow(this, "Telegram", "Controlado pelo Pi", RodUi.CYAN));
         root.addView(capabilities, RodUi.cardParams(this));
 
@@ -132,15 +135,31 @@ public class MainActivity extends Activity {
     }
 
     private void provisionForDevelopment() {
-        if (!BuildConfig.DEBUG || !getIntent().hasExtra("provision_secret")) return;
+        if (!BuildConfig.DEBUG) return;
         try {
-            String endpoint = getIntent().getStringExtra("provision_endpoint");
-            String secret = getIntent().getStringExtra("provision_secret");
-            if (endpoint != null && secret != null && secret.length() >= 32) {
-                getSharedPreferences("agent", MODE_PRIVATE).edit().putString("endpoint", endpoint).apply();
-                SecretStore.save(this, secret);
-                getIntent().removeExtra("provision_secret");
-                AgentService.start(this);
+            if (getIntent().hasExtra("provision_secret")) {
+                String endpoint = getIntent().getStringExtra("provision_endpoint");
+                String secret = getIntent().getStringExtra("provision_secret");
+                if (endpoint != null && secret != null && secret.length() >= 32) {
+                    getSharedPreferences("agent", MODE_PRIVATE).edit().putString("endpoint", endpoint).apply();
+                    SecretStore.save(this, secret);
+                    getIntent().removeExtra("provision_secret");
+                    AgentService.start(this);
+                }
+            }
+            String encodedBilling = getIntent().getStringExtra("provision_billing_b64");
+            if (encodedBilling != null && !encodedBilling.isEmpty()) {
+                JSONObject current = new JSONObject(EncryptedSettingsStore.load(this));
+                JSONObject incoming = new JSONObject(new String(
+                    Base64.decode(encodedBilling, Base64.NO_WRAP), StandardCharsets.UTF_8
+                ));
+                Iterator<String> keys = incoming.keys();
+                while (keys.hasNext()) {
+                    String key = keys.next();
+                    current.put(key, incoming.getString(key));
+                }
+                EncryptedSettingsStore.save(this, current.toString());
+                getIntent().removeExtra("provision_billing_b64");
             }
         } catch (Exception ignored) { }
     }

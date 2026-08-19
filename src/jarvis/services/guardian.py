@@ -38,6 +38,12 @@ class GuardianService:
 
         self.last_device_scan_time = 0
 
+        self.POCO_CHECK_INTERVAL = 60
+        self.POCO_MISSES_BEFORE_ALERT = 3
+        self.last_poco_check_time = 0
+        self.poco_state = "unknown"
+        self.poco_consecutive_misses = 0
+
         # State: Dispositivos online no último ciclo
         self.online_macs: Optional[Set[str]] = None
 
@@ -60,6 +66,10 @@ class GuardianService:
                 if now - self.last_device_scan_time >= self.DEVICE_SCAN_INTERVAL:
                     await self.check_device_changes()
                     self.last_device_scan_time = now
+
+                if now - self.last_poco_check_time >= self.POCO_CHECK_INTERVAL:
+                    await self.check_poco_node()
+                    self.last_poco_check_time = now
             except Exception as e:
                 logger.error(f"Erro no loop do Guardian: {e}")
                 await asyncio.sleep(5)
@@ -78,6 +88,56 @@ class GuardianService:
                 logger.info(f"Queda de energia detectada. Mensagem na fila: {msg}")
         except Exception as e:
             logger.error(f"Erro ao verificar status de energia: {e}")
+
+    async def check_poco_node(self):
+        """Watchdog do nó Android.
+
+        Observa o heartbeat e avisa uma única vez por transição. Nunca reenvia
+        comandos nem tenta acordar o aparelho: se o Poco caiu, insistir só gasta
+        bateria e enche o Telegram.
+        """
+        from jarvis.config import Config
+
+        if not Config.POCO_NODE_ENABLED:
+            return
+        try:
+            from jarvis.api.app import get_poco_service
+
+            status = get_poco_service().status()
+        except Exception:
+            logger.debug("Watchdog do Poco não conseguiu ler o estado do nó", exc_info=True)
+            return
+
+        heartbeat = status.get("heartbeat")
+        if not heartbeat:
+            # O nó nunca se apresentou. Não há queda para relatar.
+            return
+
+        if status.get("online"):
+            self.poco_consecutive_misses = 0
+            if self.poco_state == "offline":
+                pending = heartbeat.get("pending_results") or 0
+                extra = f" Trazia {pending} resultado(s) guardado(s) na fila local." if pending else ""
+                if await self.send_message(f"O Poco voltou a responder.{extra}"):
+                    self.poco_state = "online"
+            else:
+                self.poco_state = "online"
+            return
+
+        # Quando a própria rede do Pi está fora, a causa provável já foi avisada.
+        if self.internet_state == "offline":
+            return
+
+        self.poco_consecutive_misses += 1
+        if self.poco_consecutive_misses < self.POCO_MISSES_BEFORE_ALERT:
+            return
+        if self.poco_state != "offline":
+            sent = await self.send_message(
+                "O Poco parou de mandar heartbeat. As consultas de água e energia ficam "
+                "indisponíveis até ele voltar. Não vou reenviar comandos enquanto isso."
+            )
+            if sent:
+                self.poco_state = "offline"
 
     async def check_internet_status(self):
         metrics = await NetworkModule.get_ping_metrics()

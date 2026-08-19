@@ -46,7 +46,9 @@ public class JarvisAccessibilityService extends AccessibilityService {
                     if (Build.VERSION.SDK_INT >= 31) performGlobalAction(GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE);
                     new Handler(Looper.getMainLooper()).postDelayed(() -> readSaneagoWithFallback(request), 1800);
                 } else if (operation.equals("login_saneago")) {
-                    loginSaneago(request, intent.getStringExtra("login"), intent.getStringExtra("password"));
+                    loginSaneago(request, intent.getStringExtra("login"), intent.getStringExtra("password"), 0);
+                } else if (operation.equals("select_saneago")) {
+                    selectSaneago(request, intent.getStringExtra("account"), 0);
                 } else if (operation.equals("open_equatorial")) {
                     Intent browser = new Intent(Intent.ACTION_VIEW, Uri.parse("https://go.equatorialenergia.com.br/"));
                     browser.setPackage(CHROME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -89,26 +91,100 @@ public class JarvisAccessibilityService extends AccessibilityService {
         }, 1500);
     }
 
-    private void loginSaneago(String request, String login, String password) {
+    private void loginSaneago(String request, String login, String password, int attempt) {
         if (login == null || password == null || login.isEmpty() || password.isEmpty()) {
             reply(request, false, null, "Credenciais Saneago ausentes no cofre");
             return;
         }
         AccessibilityNodeInfo root = saneagoRoot();
+        if (root == null) root = packageRoot(CHROME);
         if (root == null) { reply(request, false, null, "Tela de login Saneago nao encontrada"); return; }
         List<AccessibilityNodeInfo> editors = new ArrayList<>();
         collectEditors(root, editors);
         if (editors.size() < 2) {
+            boolean opened = gestureClickLabel(root, "faca login", "faça login", "abrir tela de login");
             root.recycle();
+            if (attempt < 3) {
+                if (!opened) {
+                    Intent loginIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("br.com.saneago://login"))
+                        .setPackage(SANEAGO).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(loginIntent);
+                }
+                new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> loginSaneago(request, login, password, attempt + 1), 2200
+                );
+                return;
+            }
             reply(request, false, null, "Campos de login Saneago nao estao acessiveis nesta tela");
             return;
         }
         setNodeText(editors.get(0), login);
         setNodeText(editors.get(1), password);
-        boolean clicked = clickFirst(root, "entrar", "acessar", "login");
+        boolean clicked = gestureClickLabel(root, "entrar", "acessar");
+        if (!clicked) clicked = clickFirst(root, "entrar", "acessar", "login");
         for (AccessibilityNodeInfo editor : editors) editor.recycle();
         root.recycle();
         reply(request, clicked, new JSONObject(), clicked ? null : "Botao de entrada Saneago nao encontrado");
+    }
+
+    private void selectSaneago(String request, String account, int step) {
+        String expected = digits(account);
+        if (expected.isEmpty()) { reply(request, false, null, "Conta Saneago ausente"); return; }
+        AccessibilityNodeInfo root = saneagoRoot();
+        if (root == null) { reply(request, false, null, "Tela Saneago nao encontrada"); return; }
+        if (containsDigits(root, expected)) {
+            boolean current = step == 0 && containsLabel(root, "fatura atual");
+            if (current) {
+                root.recycle();
+                reply(request, true, new JSONObject(), null);
+                return;
+            }
+            boolean clicked = gestureClickDigits(root, expected);
+            root.recycle();
+            if (clicked) {
+                new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> confirmSaneagoSelection(request), 900);
+            } else {
+                reply(request, false, null, "Conta Saneago encontrada, mas nao selecionavel");
+            }
+            return;
+        }
+        boolean advanced = false;
+        boolean returnHome = false;
+        if (step == 0) {
+            advanced = gestureClickLabel(root, "conta:");
+            if (!advanced && containsLabel(root, "agência virtual")) {
+                returnHome = gestureClickLabel(root, "home");
+            }
+        }
+        else if (step == 1) advanced = gestureClickLabel(root, "trocar conta", "minhas contas", "contas");
+        root.recycle();
+        if (returnHome) {
+            new Handler(Looper.getMainLooper()).postDelayed(
+                () -> selectSaneago(request, account, 0), 1800
+            );
+            return;
+        }
+        if (advanced && step < 2) {
+            new Handler(Looper.getMainLooper()).postDelayed(
+                () -> selectSaneago(request, account, step + 1), 1800
+            );
+            return;
+        }
+        reply(request, false, null, "Conta Saneago nao apareceu no seletor");
+    }
+
+    private void confirmSaneagoSelection(String request) {
+        AccessibilityNodeInfo root = saneagoRoot();
+        if (root == null) { reply(request, false, null, "Confirmacao da conta Saneago nao encontrada"); return; }
+        boolean clicked = gestureClickLabel(root, "ok", "confirmar");
+        root.recycle();
+        if (clicked) {
+            new Handler(Looper.getMainLooper()).postDelayed(
+                () -> reply(request, true, new JSONObject(), null), 1800);
+        } else {
+            reply(request, false, null, "Botao OK da conta Saneago nao encontrado");
+        }
     }
 
     private void fillEquatorial(String request, String cpf, String birth, String unit) {
@@ -174,12 +250,105 @@ public class JarvisAccessibilityService extends AccessibilityService {
         return false;
     }
 
+    private boolean gestureClickLabel(AccessibilityNodeInfo node, String... labels) {
+        String value = ((node.getText() == null ? "" : node.getText()) + " " +
+            (node.getContentDescription() == null ? "" : node.getContentDescription())).toLowerCase();
+        for (String label : labels) {
+            if (value.contains(label)) {
+                Rect bounds = new Rect();
+                node.getBoundsInScreen(bounds);
+                if (!bounds.isEmpty()) {
+                    Path path = new Path();
+                    path.moveTo(bounds.exactCenterX(), bounds.exactCenterY());
+                    GestureDescription gesture = new GestureDescription.Builder()
+                        .addStroke(new GestureDescription.StrokeDescription(path, 0, 120)).build();
+                    return dispatchGesture(gesture, null, null);
+                }
+            }
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                boolean clicked = gestureClickLabel(child, labels);
+                child.recycle();
+                if (clicked) return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean gestureClickDigits(AccessibilityNodeInfo node, String expected) {
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                boolean clicked = gestureClickDigits(child, expected);
+                child.recycle();
+                if (clicked) return true;
+            }
+        }
+        String value = digits((node.getText() == null ? "" : node.getText()) + " " +
+            (node.getContentDescription() == null ? "" : node.getContentDescription()));
+        if (value.contains(expected)) {
+            Rect bounds = new Rect();
+            node.getBoundsInScreen(bounds);
+            if (!bounds.isEmpty()) {
+                Path path = new Path();
+                path.moveTo(bounds.exactCenterX(), bounds.exactCenterY());
+                return dispatchGesture(new GestureDescription.Builder()
+                    .addStroke(new GestureDescription.StrokeDescription(path, 0, 120)).build(), null, null);
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsDigits(AccessibilityNodeInfo node, String expected) {
+        String value = digits((node.getText() == null ? "" : node.getText()) + " " +
+            (node.getContentDescription() == null ? "" : node.getContentDescription()));
+        if (value.contains(expected)) return true;
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                boolean found = containsDigits(child, expected);
+                child.recycle();
+                if (found) return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsLabel(AccessibilityNodeInfo node, String label) {
+        String value = ((node.getText() == null ? "" : node.getText()) + " " +
+            (node.getContentDescription() == null ? "" : node.getContentDescription())).toLowerCase();
+        if (value.contains(label)) return true;
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                boolean found = containsLabel(child, label);
+                child.recycle();
+                if (found) return true;
+            }
+        }
+        return false;
+    }
+
+    private static String digits(String value) {
+        if (value == null) return "";
+        String result = value.replaceAll("\\D", "");
+        return result.replaceFirst("^0+(?!$)", "");
+    }
+
     private JSONObject readSaneago() throws Exception {
         AccessibilityNodeInfo root = saneagoRoot();
         if (root == null) throw new IllegalStateException("Janela Saneago nao encontrada");
         List<String> text = new ArrayList<>();
         collect(root, text);
         root.recycle();
+        for (String value : text) {
+            String normalized = value.toLowerCase();
+            if (normalized.contains("faça login") || normalized.contains("faca login") ||
+                    normalized.contains("abrir tela de login"))
+                throw new IllegalStateException("Sessao Saneago expirada");
+        }
         JSONObject result = new JSONObject()
             .put("source", "saneago_android_app")
             .put("account", valueAfterPrefix(text, "Conta:"))
@@ -198,7 +367,11 @@ public class JarvisAccessibilityService extends AccessibilityService {
     private void readSaneagoWithFallback(String request) {
         try {
             reply(request, true, readSaneago(), null);
-        } catch (Exception ignored) {
+        } catch (Exception error) {
+            if (error.getMessage() != null && error.getMessage().contains("Sessao Saneago expirada")) {
+                reply(request, false, null, error.getMessage());
+                return;
+            }
             readSaneagoOcr(request);
         }
     }

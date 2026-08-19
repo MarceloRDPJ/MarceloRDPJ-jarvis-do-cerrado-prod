@@ -118,15 +118,33 @@ Os lembretes sobrevivem a reinícios porque usam SQLite no volume persistente.
 - `conta saneago kitnet 01`
 - `conta de luz kitnet 02`
 - `fatura equatorial sala comercial`
+- `conta de água restaurante`
+- `conta de luz restaurante`
 
-No Poco, abra **ROD → Cofre de contas**, informe login/senha da Saneago,
-CPF/data de nascimento da Equatorial e as contas de cada imóvel, e toque em
-**Salvar cofre criptografado**. Esses dados permanecem cifrados no Android e não
-são enviados ao Pi. O serviço de acessibilidade ROD deve estar ativo.
+O Poco entregue ao proprietário já é provisionado por cabo, sem digitação manual.
+A tela **ROD → Cofre de contas** existe apenas para manutenção futura. Login,
+senha e identificadores permanecem cifrados pelo Android Keystore e não são
+enviados ao Pi. O heartbeat informa somente se cada integração está configurada e
+quantas unidades existem. O serviço **ROD — automação local** deve estar ativo.
+
+Na Saneago, o ROD abre o app oficial, reconhece sessão expirada, entra pelo SSO
+oficial no Chrome, escolhe a unidade e lê os dados exibidos. Se uma unidade não
+estiver vinculada ao login, ele informa isso e interrompe a consulta; nunca reutiliza
+o resultado da unidade anterior.
 
 Saneago usa o app oficial. Equatorial usa o portal oficial no Chrome. Se surgir
 CAPTCHA, Imperva ou confirmação humana, resolva a tela no Poco e repita o comando.
 O ROD não contorna a proteção e não inventa valor de fatura.
+
+A consulta dirige o aplicativo de ponta a ponta e pode levar alguns minutos,
+principalmente quando a sessão precisa ser refeita. O ROD avisa quando começa e
+responde quando termina; não é preciso repetir o comando enquanto isso. Se o
+Wi-Fi cair no meio, o Poco continua a tarefa e guarda o resultado até conseguir
+entregá-lo.
+
+Quando a consulta ao vivo falha, o ROD acrescenta a última leitura confirmada
+guardada no Poco, sempre dizendo há quanto tempo ela foi feita e que se trata de
+cache. Valor antigo nunca é apresentado como a fatura de agora.
 
 ### Informações atuais e conversa
 

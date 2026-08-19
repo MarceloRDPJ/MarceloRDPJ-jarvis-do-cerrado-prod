@@ -11,6 +11,14 @@ import javax.crypto.spec.SecretKeySpec;
 import org.json.JSONObject;
 
 public class ApiClient {
+    /** Carries the HTTP status so callers can tell a rejected job from a dead network. */
+    static final class HttpException extends Exception {
+        final int code;
+        HttpException(int code) { super("HTTP " + code); this.code = code; }
+        /** 4xx means the Pi will never accept this payload; retrying it forever is pointless. */
+        boolean permanent() { return code >= 400 && code < 500; }
+    }
+
     private final String endpoint;
     private final String secret;
     ApiClient(String endpoint, String secret) { this.endpoint = endpoint.replaceAll("/$", ""); this.secret = secret; }
@@ -45,7 +53,7 @@ public class ApiClient {
             while ((count = stream.read(buffer)) != -1) output.write(buffer, 0, count);
             stream.close();
         }
-        if (code >= 400) throw new IllegalStateException("HTTP " + code);
+        if (code >= 400) throw new HttpException(code);
         return new JSONObject(output.toString(StandardCharsets.UTF_8));
     }
 

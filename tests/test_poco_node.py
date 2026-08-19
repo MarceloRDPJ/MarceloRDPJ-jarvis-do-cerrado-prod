@@ -89,3 +89,93 @@ def test_get_job_returns_detached_snapshot(tmp_path):
     snapshot.status = "completed"
 
     assert service.get_job(created.job_id).status == "queued"
+
+
+def test_abandoned_lease_returns_to_queue(tmp_path):
+    """A job handed out but never confirmed must not sit idle until the TTL.
+
+    If the Wi-Fi drops exactly at dispatch the node never sees the job. Before the
+    lease existed the user waited the whole timeout for work that never started.
+    """
+    now = [1000.0]
+    service = PocoNodeService(
+        tmp_path / "poco.json", shared_secret="x", lease_seconds=60, clock=lambda: now[0]
+    )
+    created = service.enqueue("refresh_saneago_bills", ttl_seconds=600)
+
+    first = service.next_job()
+    assert first.job_id == created.job_id and first.attempts == 1
+
+    now[0] += 61
+    redelivered = service.next_job()
+
+    assert redelivered.job_id == created.job_id
+    assert redelivered.attempts == 2
+
+
+def test_lease_requeue_gives_up_instead_of_looping_forever(tmp_path):
+    now = [1000.0]
+    service = PocoNodeService(
+        tmp_path / "poco.json",
+        shared_secret="x",
+        lease_seconds=10,
+        max_attempts=2,
+        clock=lambda: now[0],
+    )
+    created = service.enqueue("refresh_equatorial_bills", ttl_seconds=600)
+
+    for _ in range(2):
+        service.next_job()
+        now[0] += 11
+
+    assert service.next_job() is None
+    failed = service.get_job(created.job_id)
+    assert failed.status == "failed"
+    assert "não confirmou" in failed.error
+
+
+def test_requeued_job_still_accepts_a_late_result_from_the_outbox(tmp_path):
+    """The node keeps results in a durable outbox and may deliver them after a requeue.
+
+    Answering 4xx here would make the node treat a real reading as permanently
+    rejected and drop it, so the query would fail even though the phone succeeded.
+    """
+    now = [1000.0]
+    service = PocoNodeService(
+        tmp_path / "poco.json", shared_secret="x", lease_seconds=10, clock=lambda: now[0]
+    )
+    created = service.enqueue("refresh_saneago_bills", ttl_seconds=600)
+    service.next_job()
+    now[0] += 11
+    service.next_job()  # sweep puts it back and hands it out again
+
+    completed = service.update_job(created.job_id, "completed", {"amount": "123,45"})
+
+    assert completed.status == "completed"
+    assert completed.result == {"amount": "123,45"}
+
+
+def test_heartbeat_carries_busy_and_pending_results(tmp_path):
+    service = PocoNodeService(tmp_path / "poco.json", "secret")
+    service.record_heartbeat({"node_id": "poco", "busy": True, "pending_results": 3})
+
+    heartbeat = service.status()["heartbeat"]
+
+    assert heartbeat["busy"] is True
+    assert heartbeat["pending_results"] == 3
+
+
+def test_lease_requeue_never_resurrects_a_terminal_job(tmp_path):
+    """Negative guard: a finished job must never be dispatched a second time."""
+    now = [1000.0]
+    service = PocoNodeService(
+        tmp_path / "poco.json", shared_secret="x", lease_seconds=10, clock=lambda: now[0]
+    )
+    created = service.enqueue("refresh_saneago_bills", ttl_seconds=600)
+    service.next_job()
+    service.update_job(created.job_id, "completed", {"amount": "10,00"})
+
+    now[0] += 300
+
+    assert service.next_job() is None
+    assert service.get_job(created.job_id).status == "completed"

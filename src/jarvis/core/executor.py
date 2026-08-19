@@ -476,10 +476,10 @@ class Executor:
                 reply_markup = None
             return {
                 "text": (
-                    "🧾 **CONTAS & FATURAS**\n\n"
+                    "🧾 CONTAS & FATURAS\n\n"
                     "As consultas são executadas no Poco e os acessos ficam criptografados "
                     "no Android Keystore. Diga a concessionária e o imóvel, por exemplo:\n"
-                    "`conta de água kitnet 01` ou `conta de luz sala comercial`.\n\n"
+                    "conta de água kitnet 01 ou conta de luz restaurante.\n\n"
                     "Se o portal exigir CAPTCHA ou confirmação humana, eu aviso claramente."
                 ),
                 "reply_markup": reply_markup,
@@ -837,13 +837,13 @@ class Executor:
     @staticmethod
     async def _run_poco_job(action: str, timeout_seconds: int = 70, params: dict | None = None):
         if not Config.POCO_NODE_ENABLED:
-            return None, "O nÃ³ Poco estÃ¡ desativado na configuraÃ§Ã£o."
+            return None, "O nó Poco está desativado na configuração."
         from jarvis.api.app import get_poco_service
 
         service = get_poco_service()
         if not service.status().get("online"):
-            return None, "O Poco estÃ¡ offline ou sem heartbeat recente."
-        job = service.enqueue(action, params=params or {}, ttl_seconds=timeout_seconds + 20)
+            return None, "O Poco está offline ou sem heartbeat recente."
+        job = service.enqueue(action, params=params or {}, ttl_seconds=timeout_seconds + 30)
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
             current = service.get_job(job.job_id)
@@ -852,7 +852,34 @@ class Executor:
             if current and current.status in {"failed", "expired"}:
                 return None, current.error or "A tarefa expirou antes de concluir."
             await asyncio.sleep(2)
-        return None, "O Poco nÃ£o concluiu a tarefa dentro do tempo esperado."
+        return None, "O Poco não concluiu a tarefa dentro do tempo esperado."
+
+    async def _poco_bill_cache_note(self, provider: str, property_key: str) -> str:
+        """Última leitura confirmada guardada no Poco.
+
+        Vale como consolo quando a consulta ao vivo falha, mas só pode aparecer
+        com data explícita. Cache apresentado como medição atual seria mentira.
+        """
+        result, error = await self._run_poco_job(
+            "read_bill_cache", 30, {"provider": provider, "property": property_key}
+        )
+        if error or not result:
+            return ""
+        age = result.get("cache_age_seconds")
+        if not isinstance(age, (int, float)) or age < 0:
+            when = "em data desconhecida"
+        elif age < 3600:
+            when = f"há {int(age // 60)} min"
+        elif age < 86400:
+            when = f"há {int(age // 3600)} h"
+        else:
+            when = f"há {int(age // 86400)} dia(s)"
+        amount = result.get("amount", "indisponível")
+        due = result.get("due_date", "indisponível")
+        return (
+            f"\n\nÚltima leitura confirmada ({when}): fatura {amount}, "
+            f"vencimento {due}. Isso é cache do Poco, não a consulta de agora."
+        )
 
     async def _poco_status(self) -> str:
         from jarvis.api.app import get_poco_service
@@ -864,52 +891,73 @@ class Executor:
         battery = heartbeat.get("battery_level")
         temperature = heartbeat.get("battery_temperature_c")
         wifi = "conectado" if heartbeat.get("wifi_connected") else "desconectado"
-        return f"Poco: online. Bateria: {battery:.0f}%, Temp: {temperature:.1f} Â°C, Wi-Fi: {wifi}."
+        return f"Poco: online. Bateria: {battery:.0f}%, Temp: {temperature:.1f} °C, Wi-Fi: {wifi}."
 
     async def _poco_network_check(self) -> str:
         result, error = await self._run_poco_job("network_check", 45)
         if error:
-            return f"NÃ£o consegui validar pelo Poco: {error}"
+            return f"Não consegui validar pelo Poco: {error}"
         if result.get("internet_validated"):
-            return "ValidaÃ§Ã£o pelo Poco: Wi-Fi conectado e internet confirmada pelo Android."
+            return "Validação pelo Poco: Wi-Fi conectado e internet confirmada pelo Android."
         if result.get("wifi_connected"):
-            return "ValidaÃ§Ã£o pelo Poco: Wi-Fi conectado, mas sem acesso Ã  internet confirmado."
-        return "ValidaÃ§Ã£o pelo Poco: Wi-Fi desconectado."
+            return "Validação pelo Poco: Wi-Fi conectado, mas sem acesso à internet confirmado."
+        return "Validação pelo Poco: Wi-Fi desconectado."
 
     async def _poco_saneago_bills(self, params: dict | None = None) -> str:
         try:
             await self.app.bot.send_message(
                 chat_id=Config.ALLOWED_USER_ID,
-                text="Consultando a Saneago no Poco. Isso pode levar atÃ© um minuto...",
+                text="Consultando a Saneago no Poco pelo app oficial. Pode levar alguns minutos; aviso assim que terminar.",
             )
         except Exception:
-            logger.debug("NÃ£o foi possÃ­vel enviar o aviso intermediÃ¡rio da Saneago", exc_info=True)
+            logger.debug("Não foi possível enviar o aviso intermediário da Saneago", exc_info=True)
         property_key = (params or {}).get("property", "casa")
         result, error = await self._run_poco_job(
-            "refresh_saneago_bills", 90, {"property": property_key}
+            "refresh_saneago_bills",
+            Config.POCO_BILL_JOB_TIMEOUT_SECONDS,
+            {"property": property_key},
         )
         if error:
+            fallback = await self._poco_bill_cache_note("saneago", property_key)
+            if "acessibilidade nao respondeu" in error.lower() or "acessibilidade não respondeu" in error.lower():
+                return "A automação do ROD está desativada no Poco. Abra Configurações > Acessibilidade > Aplicativos baixados e ative ROD — automação local." + fallback
             if "Sessao Saneago expirada" in error:
-                return "A sessÃ£o da Saneago expirou. Abra o app oficial no Poco e refaÃ§a o login; o ROD nÃ£o guarda sua senha."
-            return f"NÃ£o consegui consultar a Saneago agora: {error}"
+                return "A sessão da Saneago expirou. O ROD tentará entrar novamente usando o cofre local do Poco." + fallback
+            if "numero da conta" in error.lower():
+                return "Li a tela da Saneago mas não consegui confirmar o número da conta. Não vou atribuir essa fatura a nenhum imóvel sem essa confirmação." + fallback
+            if "nao apareceu no seletor" in error.lower():
+                name = property_key.replace("_", " ").title()
+                return f"A unidade {name} não aparece entre as contas vinculadas a este login da Saneago. Não usei dados de outro imóvel."
+            return f"Não consegui consultar a Saneago agora: {error}" + fallback
         return (
-            "Saneago â€” consulta real pelo app oficial\n"
-            f"Conta: {result.get('account', 'indisponÃ­vel')}\n"
-            f"Fatura: {result.get('amount', 'indisponÃ­vel')}\n"
-            f"ReferÃªncia: {result.get('reference', 'indisponÃ­vel')}\n"
-            f"Vencimento: {result.get('due_date', 'indisponÃ­vel')}\n"
-            f"Consumo: {result.get('consumption', 'indisponÃ­vel')}"
+            "Saneago — consulta real pelo app oficial\n"
+            f"Imóvel: {property_key.replace('_', ' ').title()}\n"
+            f"Conta: {result.get('account', 'indisponível')}\n"
+            f"Fatura: {result.get('amount', 'indisponível')}\n"
+            f"Referência: {result.get('reference', 'indisponível')}\n"
+            f"Vencimento: {result.get('due_date', 'indisponível')}\n"
+            f"Consumo: {result.get('consumption', 'indisponível')}"
         )
 
     async def _poco_equatorial_bills(self, params: dict | None = None) -> str:
         property_key = (params or {}).get("property", "casa")
+        try:
+            await self.app.bot.send_message(
+                chat_id=Config.ALLOWED_USER_ID,
+                text="Consultando a Equatorial no Poco pelo portal oficial. Pode levar alguns minutos; aviso assim que terminar.",
+            )
+        except Exception:
+            logger.debug("Não foi possível enviar o aviso intermediário da Equatorial", exc_info=True)
         result, error = await self._run_poco_job(
-            "refresh_equatorial_bills", 90, {"property": property_key}
+            "refresh_equatorial_bills",
+            Config.POCO_BILL_JOB_TIMEOUT_SECONDS,
+            {"property": property_key},
         )
         if error:
+            fallback = await self._poco_bill_cache_note("equatorial", property_key)
             if any(marker in error.lower() for marker in ("captcha", "imperva", "verificacao humana")):
-                return "A Equatorial pediu verificação humana no Poco. Resolva a tela uma vez e repita a consulta; o ROD não tenta contornar o bloqueio."
-            return f"Não consegui consultar a Equatorial agora: {error}"
+                return "A Equatorial pediu verificação humana no Poco. Resolva a tela uma vez e repita a consulta; o ROD não tenta contornar o bloqueio." + fallback
+            return f"Não consegui consultar a Equatorial agora: {error}" + fallback
         return (
             "Equatorial — consulta real pelo portal oficial\n"
             f"Imóvel: {property_key.replace('_', ' ').title()}\n"

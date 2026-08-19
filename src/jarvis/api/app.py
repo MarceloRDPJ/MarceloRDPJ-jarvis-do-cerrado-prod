@@ -116,6 +116,7 @@ def get_poco_service():
         shared_secret=Config.POCO_SHARED_SECRET,
         signature_max_age_seconds=Config.POCO_SIGNATURE_MAX_AGE_SECONDS,
         heartbeat_stale_seconds=Config.POCO_HEARTBEAT_STALE_SECONDS,
+        lease_seconds=Config.POCO_JOB_LEASE_SECONDS,
     )
     app.state.poco_service = service
     return service

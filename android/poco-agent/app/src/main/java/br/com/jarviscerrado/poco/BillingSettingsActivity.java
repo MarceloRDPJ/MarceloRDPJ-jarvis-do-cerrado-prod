@@ -44,6 +44,7 @@ public final class BillingSettingsActivity extends Activity {
         property(content, saved, "kitnet_02", "Kitnet 02");
         property(content, saved, "sala_comercial", "Sala comercial");
         property(content, saved, "casa", "Casa");
+        property(content, saved, "restaurante", "Restaurante");
 
         status = note(content, "Preencha e toque em salvar.");
         Button save = new Button(this);
@@ -65,7 +66,7 @@ public final class BillingSettingsActivity extends Activity {
 
     private void property(LinearLayout root, JSONObject saved, String key, String label) {
         TextView name = note(root, label);
-        name.setTextColor(Color.rgb(130, 225, 255));
+        name.setTextColor(RodUi.ACCENT);
         addField(root, saved, key + "_energy", "Unidade consumidora de energia", true, true);
         addField(root, saved, key + "_water", "Conta de água", true, true);
     }
@@ -111,7 +112,7 @@ public final class BillingSettingsActivity extends Activity {
         TextView view = note(root, value);
         view.setTextSize(22);
         view.setGravity(Gravity.CENTER);
-        view.setTextColor(Color.rgb(130, 225, 255));
+        view.setTextColor(RodUi.ACCENT);
     }
 
     private void section(LinearLayout root, String value) {

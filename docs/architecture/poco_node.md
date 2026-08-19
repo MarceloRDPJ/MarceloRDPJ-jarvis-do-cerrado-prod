@@ -50,7 +50,24 @@ queued -> accepted -> running -> completed
 
 O Pi persiste fila, heartbeat e resultados em `storage/poco_node.json`. Jobs
 abandonados expiram e não bloqueiam a fila seguinte. O agente consulta a fila a
-cada 20 segundos e sempre devolve `completed` ou `failed` com erro sanitizado.
+cada 15 segundos e sempre devolve `completed` ou `failed` com erro sanitizado.
+Quando o Pi está inacessível, o intervalo cresce por backoff exponencial com
+jitter até 120 segundos, e volta ao normal na primeira resposta boa.
+
+Um job entregue entra em `accepted` imediatamente. Se o Wi-Fi cair exatamente
+nesse instante, o aparelho nunca chega a vê-lo. Passado o *lease*
+(`POCO_JOB_LEASE_SECONDS`, padrão 60), o Pi devolve o job à fila em vez de deixá-lo
+parado até o TTL. Após `max_attempts` reentregas sem confirmação, o job falha com
+diagnóstico em vez de girar para sempre.
+
+O agente guarda todo resultado terminal numa fila local SQLite (`rod_outbox.db`)
+antes de qualquer tentativa de rede. Uma consulta de conta leva minutos e o Wi-Fi
+pode cair logo depois da leitura; sem essa fila o resultado morria dentro da
+exceção HTTP e o Pi relatava timeout de um trabalho que o telefone concluiu. A
+entrega é retentada nos ciclos seguintes e sobrevive ao reinício do processo. O
+mesmo banco registra cada `job_id` já executado, então uma reentrega jamais roda
+duas vezes. Resposta 4xx significa recusa definitiva do Pi e descarta a entrada;
+erro de rede a mantém guardada.
 
 ## RPA de contas
 
@@ -86,15 +103,53 @@ falha explícita; o ROD não renomeia o resultado incorreto.
 
 ## Disponibilidade
 
-O Poco envia heartbeat periódico e o Pi aplica backoff e circuit breaker. A
-ausência de heartbeat não dispara cliques nem reinícios em loop. Depois de uma
-falha, a recuperação segue: reconexão, reinício do agente, reinício do app alvo
-e alerta. Reinício completo do aparelho é último recurso.
+O Poco envia heartbeat a cada 30 segundos por um executor próprio, separado do
+que executa jobs. Compartilhar a mesma thread fazia o Pi marcar o nó como offline
+no meio da consulta que ele mesmo havia despachado. O heartbeat carrega também
+`busy` e `pending_results`, para distinguir aparelho ocupado de aparelho ausente.
+
+O `GuardianService` observa esse heartbeat a cada 60 segundos. São necessárias
+três leituras seguidas sem sinal antes de qualquer alerta, e o alerta sai uma
+única vez por transição. A ausência de heartbeat não dispara cliques nem
+reinícios em loop: o Pi apenas avisa e espera. Quando a própria rede do Pi está
+fora, o watchdog cala, porque a causa provável já foi relatada. Nó que nunca
+enviou heartbeat não gera alerta algum — não houve queda a relatar.
+
+Durante a execução de um job o agente segura um `PARTIAL_WAKE_LOCK`, e cada
+leitor segura o wake lock de tela pelo orçamento inteiro do seu fluxo. Antes
+disso o bloqueio expirava aos 60 segundos no meio da consulta, apagando a tela e
+derrubando tanto o app quanto o OCR.
 
 Se o Pi ficar indisponível, o Poco mantém interface, alarmes já sincronizados,
 diagnóstico local e cache. Um modo de contingência do Telegram só poderá ser
 ativado depois de implementar eleição que impeça Pi e Poco de consumir o mesmo
 token simultaneamente.
+
+## Orçamento de tempo
+
+Consulta de conta não é requisição comum: o agente dirige o app oficial de ponta
+a ponta e pode precisar refazer a sessão. Os limites das camadas precisam ser
+coerentes entre si, ou a tarefa é abortada por um lado enquanto o outro ainda
+trabalha.
+
+| Camada | Limite | Onde |
+| --- | --- | --- |
+| Espera do Pi pela conclusão | 240 s | `POCO_BILL_JOB_TIMEOUT_SECONDS` |
+| TTL do job | timeout + 30 s | `_run_poco_job` |
+| Lease antes de reentregar | 60 s | `POCO_JOB_LEASE_SECONDS` |
+| Wake lock do job no agente | 300 s | `AgentService` |
+| Wake lock de tela Saneago | 240 s | `SaneagoReader` |
+| Wake lock de tela Equatorial | 180 s | `EquatorialReader` |
+| Ida e volta na ponte de acessibilidade | 25 s / 30 s | leitores |
+| Polling saudável | 15 s | `AgentService` |
+
+## Cache de faturas
+
+Toda leitura real é guardada no aparelho, cifrada com AES-GCM por chave própria
+do Keystore, indexada por provedor e imóvel. Quando a consulta ao vivo falha, o
+Pi pede `read_bill_cache` e acrescenta a última leitura confirmada à resposta,
+sempre com a idade explícita e a frase de que aquilo é cache, não a medição de
+agora. Apresentar cache como leitura atual seria inventar um fato.
 
 ## Energia e temperatura
 
@@ -107,6 +162,29 @@ token simultaneamente.
 - Estado `SEVERE` encerra workers, apaga a tela e alerta o Pi.
 - Limites numéricos de bateria são política conservadora ajustada por benchmark,
   não especificação oficial da Xiaomi.
+
+## Preparação pelo PC (USB)
+
+A primeira preparação é feita por cabo, que é mais confortável para configurar e
+depurar. Antes de limpar qualquer coisa, faz-se inventário. Nenhum dado, conta ou
+aplicativo é removido sem que a lista exata apareça na tela primeiro.
+
+- `scripts/poco_usb_inventory.ps1` — somente leitura. Modelo, codinome, Android,
+  MIUI, patch de segurança, bateria, armazenamento, volume de mídia, aplicativos
+  de terceiros, já desativados, acessibilidade ativa e isenções de bateria. Grava
+  relatório com data em `.tools/poco-reports/`. Não instala, não desinstala, não
+  desativa e não apaga nada. Detecta e explica os estados `unauthorized` e
+  `offline` do adb em vez de falhar em silêncio.
+- `scripts/poco_usb_disable_apps.ps1` — desativa bloatware de forma reversível,
+  a partir de uma lista curada por você com o relatório na mão. Usa
+  `pm disable-user --user 0`, nunca `pm uninstall`: nada é removido de fato e
+  nenhum dado de usuário é apagado. Imprime o plano, recusa pacotes protegidos
+  (sistema, Play Services, Chrome, Saneago e o próprio agente ROD), exige a
+  palavra `CONFIRMO` digitada e grava um script de desfazer. Aceita `-WhatIf`
+  para ver o plano sem tocar no aparelho.
+
+Nesta fase não se desbloqueia bootloader, não se instala ROM e não se faz root.
+ADB é ferramenta de preparação e manutenção, nunca o canal operacional.
 
 ## Sistema e segurança
 
@@ -122,10 +200,18 @@ token, código de barras ou conteúdo integral de faturas por padrão.
 
 ## Estado da entrega
 
-Implementado: inventário, agente Android, Keystore, heartbeat, fila persistente,
+Implementado: inventário, agente Android, Keystore, heartbeat em thread própria,
+fila persistente no Pi, fila local SQLite no aparelho, reentrega por lease com
+deduplicação por `job_id`, backoff com jitter, watchdog no `GuardianService`,
 status/bateria/temperatura, validação real de internet, painel RDP, cofre das oito
-unidades, login assistido Saneago, leitura Saneago, fluxo Equatorial via Chrome e
-intents por imóvel.
+unidades, login assistido Saneago, leitura Saneago, fluxo Equatorial via Chrome,
+cache de faturas rotulado e intents por imóvel.
+
+As ações aceitas são exatamente `device_status`, `network_check`,
+`read_bill_cache`, `refresh_saneago_bills` e `refresh_equatorial_bills`.
+`network_speed` e `scan_document` foram retiradas da lista: o Pi as enfileirava e
+o aparelho só as recusava depois do timeout inteiro. Voltam quando existirem de
+fato no agente.
 
 Uma consulta só é considerada validada quando a concessionária devolve conteúdo
 acessível no aparelho real. Mudanças de tela, CAPTCHA ou conta selecionada errada

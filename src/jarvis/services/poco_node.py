@@ -14,12 +14,12 @@ from pathlib import Path
 from typing import Any
 
 
+# Only actions the agent really implements. Advertising more meant the job was
+# queued, dispatched and only rejected by the phone after the full timeout.
 ALLOWED_ACTIONS = frozenset(
     {
         "device_status",
         "network_check",
-        "network_speed",
-        "scan_document",
         "read_bill_cache",
         "refresh_equatorial_bills",
         "refresh_saneago_bills",
@@ -40,6 +40,7 @@ class PocoJob:
     updated_at: float = field(default_factory=time.time)
     result: dict[str, Any] | None = None
     error: str | None = None
+    attempts: int = 0
 
 
 class PocoAuthenticationError(ValueError):
@@ -55,12 +56,16 @@ class PocoNodeService:
         shared_secret: str = "",
         signature_max_age_seconds: int = 120,
         heartbeat_stale_seconds: int = 150,
+        lease_seconds: int = 60,
+        max_attempts: int = 3,
         clock=time.time,
     ):
         self.storage_path = Path(storage_path)
         self.shared_secret = shared_secret
         self.signature_max_age_seconds = signature_max_age_seconds
         self.heartbeat_stale_seconds = heartbeat_stale_seconds
+        self.lease_seconds = lease_seconds
+        self.max_attempts = max_attempts
         self.clock = clock
         self._lock = threading.RLock()
         self._jobs: dict[str, PocoJob] = {}
@@ -115,20 +120,42 @@ class PocoNodeService:
     def next_job(self) -> PocoJob | None:
         now = self.clock()
         with self._lock:
-            changed = False
+            changed = self._sweep(now)
             for job in sorted(self._jobs.values(), key=lambda item: item.created_at):
-                if job.status in {"queued", "accepted", "running"} and job.expires_at <= now:
-                    job.status = "expired"
-                    job.updated_at = now
-                    changed = True
-                elif job.status == "queued":
+                if job.status == "queued":
                     job.status = "accepted"
+                    job.attempts += 1
                     job.updated_at = now
                     self._save()
                     return job
             if changed:
                 self._save()
         return None
+
+    def _sweep(self, now: float) -> bool:
+        """Expire dead jobs and return abandoned leases to the queue.
+
+        A job goes to ``accepted`` the moment it is handed out. If the Wi-Fi drops
+        exactly then, the node never sees it and the job would sit there until the
+        TTL while the user waits. Handing it back after the lease gives the node a
+        second chance inside the same request. The agent deduplicates by ``job_id``,
+        so a redelivered job is never executed twice.
+        """
+        changed = False
+        for job in self._jobs.values():
+            if job.status in {"queued", "accepted", "running"} and job.expires_at <= now:
+                job.status = "expired"
+                job.updated_at = now
+                changed = True
+            elif job.status == "accepted" and now - job.updated_at > self.lease_seconds:
+                if job.attempts >= self.max_attempts:
+                    job.status = "failed"
+                    job.error = "O Poco não confirmou o início da tarefa"
+                else:
+                    job.status = "queued"
+                job.updated_at = now
+                changed = True
+        return changed
 
     def get_job(self, job_id: str) -> PocoJob | None:
         """Return a detached snapshot so callers cannot mutate queue state."""
@@ -152,6 +179,10 @@ class PocoNodeService:
             if job.status in TERMINAL_STATES:
                 return job
             allowed = {
+                # A lease can be requeued while the node is still working on it; its
+                # durable outbox will report the real outcome, so accept it here
+                # instead of answering 4xx and making the node drop a real result.
+                "queued": {"running", "completed", "failed"},
                 "accepted": {"running", "completed", "failed"},
                 "running": {"completed", "failed"},
             }
@@ -176,6 +207,8 @@ class PocoNodeService:
             "equatorial_configured": bool(payload.get("equatorial_configured", False)),
             "water_units": int(self._number(payload.get("water_units"), 0, 8) or 0),
             "energy_units": int(self._number(payload.get("energy_units"), 0, 8) or 0),
+            "busy": bool(payload.get("busy", False)),
+            "pending_results": int(self._number(payload.get("pending_results"), 0, 999) or 0),
             "received_at": self.clock(),
         }
         with self._lock:

@@ -1,5 +1,6 @@
 package br.com.jarviscerrado.poco;
 
+import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
@@ -10,14 +11,31 @@ import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
 import android.os.BatteryManager;
 import android.os.IBinder;
-import android.app.Notification;
+import android.os.PowerManager;
+import java.util.List;
+import java.util.Random;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.json.JSONObject;
 
 public class AgentService extends Service {
-    private ScheduledExecutorService executor;
+    /** Healthy polling cadence. Short enough that a Telegram request feels immediate. */
+    private static final int POLL_BASE_SECONDS = 15;
+    private static final int POLL_MAX_SECONDS = 120;
+    /** Heartbeat runs on its own thread so a multi-minute bill query never starves it. */
+    private static final int HEARTBEAT_SECONDS = 30;
+    /** Must exceed the slowest job (Saneago session recovery) or the CPU sleeps mid-flow. */
+    private static final long JOB_WAKELOCK_MILLIS = 300_000L;
+
+    private ScheduledExecutorService heartbeatExecutor;
+    private ScheduledExecutorService jobExecutor;
+    private JobOutbox outbox;
+    private PowerManager.WakeLock jobWakeLock;
+    private final Random jitter = new Random();
+    private volatile int failureStreak;
+    private volatile boolean busy;
+
     public static void start(Context context) {
         context.startForegroundService(new Intent(context, AgentService.class));
     }
@@ -30,20 +48,149 @@ public class AgentService extends Service {
             .setContentTitle("ROD ativo").setContentText("Nó Poco conectado ao Raspberry Pi")
             .setSmallIcon(android.R.drawable.presence_online).build();
         startForeground(41, notification);
-        executor = Executors.newSingleThreadScheduledExecutor();
-        executor.scheduleWithFixedDelay(this::cycle, 1, 20, TimeUnit.SECONDS);
+
+        outbox = new JobOutbox(this);
+        jobWakeLock = getSystemService(PowerManager.class)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "rod:poco-job");
+        jobWakeLock.setReferenceCounted(false);
+
+        heartbeatExecutor = Executors.newSingleThreadScheduledExecutor();
+        heartbeatExecutor.scheduleWithFixedDelay(this::heartbeatCycle, 2, HEARTBEAT_SECONDS, TimeUnit.SECONDS);
+        jobExecutor = Executors.newSingleThreadScheduledExecutor();
+        scheduleNextPoll(1);
     }
 
-    private void cycle() {
+    @Override public int onStartCommand(Intent intent, int flags, int startId) { return START_STICKY; }
+
+    private ApiClient client() {
+        String endpoint = getSharedPreferences("agent", MODE_PRIVATE).getString("endpoint", "");
+        String secret = SecretStore.load(this);
+        if (endpoint.isEmpty() || secret.isEmpty()) return null;
+        return new ApiClient(endpoint, secret);
+    }
+
+    /**
+     * Heartbeat lives on its own executor. Sharing a thread with job execution made the
+     * Pi mark the node offline in the middle of the very query it had dispatched.
+     */
+    private void heartbeatCycle() {
         try {
-            String endpoint = getSharedPreferences("agent", MODE_PRIVATE).getString("endpoint", "");
-            String secret = SecretStore.load(this);
-            if (endpoint.isEmpty() || secret.isEmpty()) return;
-            ApiClient client = new ApiClient(endpoint, secret);
-            client.post("/api/poco/heartbeat", heartbeat());
+            ApiClient client = client();
+            if (client != null) client.post("/api/poco/heartbeat", heartbeat());
+        } catch (Throwable ignored) {
+            // A throw here would cancel the scheduled task permanently; swallow it.
+        }
+    }
+
+    private void scheduleNextPoll(long delaySeconds) {
+        if (jobExecutor == null || jobExecutor.isShutdown()) return;
+        try { jobExecutor.schedule(this::jobCycle, delaySeconds, TimeUnit.SECONDS); }
+        catch (Throwable ignored) { }
+    }
+
+    private void jobCycle() {
+        long preferred = POLL_BASE_SECONDS;
+        try {
+            ApiClient client = client();
+            if (client == null) return;
+            flushOutbox(client);
             JSONObject response = client.get("/api/poco/jobs/next");
-            if (!response.isNull("job")) execute(client, response.getJSONObject("job"));
-        } catch (Exception ignored) { }
+            failureStreak = 0;
+            if (!response.isNull("job")) {
+                runJob(client, response.getJSONObject("job"));
+                preferred = 1;
+            }
+        } catch (Throwable error) {
+            if (failureStreak < 6) failureStreak++;
+        } finally {
+            scheduleNextPoll(nextDelaySeconds(preferred));
+        }
+    }
+
+    private long nextDelaySeconds(long preferred) {
+        if (failureStreak == 0) return preferred;
+        long backoff = POLL_BASE_SECONDS * (1L << Math.min(failureStreak, 3));
+        return Math.min(POLL_MAX_SECONDS, backoff) + jitter.nextInt(6);
+    }
+
+    private void runJob(ApiClient client, JSONObject job) throws Exception {
+        String id = job.getString("job_id");
+        String action = job.getString("action");
+        // The Pi requeues jobs whose lease expired. The result is already durable here.
+        if (outbox.alreadyHandled(id)) { flushOutbox(client); return; }
+        busy = true;
+        jobWakeLock.acquire(JOB_WAKELOCK_MILLIS);
+        try {
+            try { client.state(id, "running", null, null); } catch (Exception ignored) { }
+            long now = System.currentTimeMillis();
+            try {
+                JSONObject result = perform(action, job.optJSONObject("params"));
+                outbox.record(id, "completed", result.toString(), null, now);
+            } catch (Throwable error) {
+                outbox.record(id, "failed", null, describe(error), now);
+            }
+            flushOutbox(client);
+        } finally {
+            if (jobWakeLock.isHeld()) jobWakeLock.release();
+            busy = false;
+        }
+    }
+
+    private JSONObject perform(String action, JSONObject params) throws Exception {
+        String property = params == null ? "casa" : params.optString("property", "casa");
+        if (action.equals("device_status")) return heartbeat();
+        if (action.equals("network_check")) return networkCheck();
+        if (action.equals("refresh_saneago_bills")) return cached("saneago", property, SaneagoReader.readCurrent(this, property));
+        if (action.equals("refresh_equatorial_bills")) return cached("equatorial", property, EquatorialReader.read(this, property));
+        if (action.equals("read_bill_cache")) {
+            String provider = params == null ? "" : params.optString("provider", "");
+            if (!provider.equals("saneago") && !provider.equals("equatorial"))
+                throw new IllegalStateException("Provedor invalido para leitura de cache");
+            return BillCache.read(this, provider, property, System.currentTimeMillis());
+        }
+        throw new IllegalStateException("Acao nao implementada nesta versao do ROD: " + action);
+    }
+
+    private JSONObject cached(String provider, String property, JSONObject result) {
+        BillCache.store(this, provider, property, result, System.currentTimeMillis());
+        return result;
+    }
+
+    /**
+     * Delivers durable results. A 4xx means the Pi already expired or rejected the job,
+     * so the entry is dropped instead of retried forever; a network error keeps it queued.
+     */
+    private void flushOutbox(ApiClient client) {
+        List<JobOutbox.Entry> pending = outbox.pending(20);
+        for (JobOutbox.Entry entry : pending) {
+            try {
+                JSONObject payload = entry.payload == null ? null : new JSONObject(entry.payload);
+                client.state(entry.jobId, entry.status, payload, entry.error);
+                outbox.delivered(entry.jobId);
+            } catch (ApiClient.HttpException http) {
+                if (http.permanent()) outbox.delivered(entry.jobId);
+                else { outbox.failedAttempt(entry.jobId); break; }
+            } catch (Exception offline) {
+                outbox.failedAttempt(entry.jobId);
+                break;
+            }
+        }
+        outbox.prune(System.currentTimeMillis());
+    }
+
+    private static String describe(Throwable error) {
+        String message = error.getClass().getSimpleName();
+        if (error.getMessage() != null) message += ": " + error.getMessage();
+        return message.substring(0, Math.min(message.length(), 180));
+    }
+
+    private JSONObject networkCheck() throws Exception {
+        ConnectivityManager cm = getSystemService(ConnectivityManager.class);
+        NetworkCapabilities caps = cm.getNetworkCapabilities(cm.getActiveNetwork());
+        return new JSONObject()
+            .put("wifi_connected", caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI))
+            .put("internet_validated", caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED))
+            .put("internet_capable", caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET));
     }
 
     private JSONObject heartbeat() throws Exception {
@@ -59,36 +206,18 @@ public class AgentService extends Service {
             .put("wifi_connected", wifi).put("agent_version", BuildConfig.VERSION_NAME)
             .put("saneago_configured", billing.saneagoReady())
             .put("equatorial_configured", billing.equatorialReady())
-            .put("water_units", billing.waterCount()).put("energy_units", billing.energyCount());
+            .put("water_units", billing.waterCount()).put("energy_units", billing.energyCount())
+            .put("busy", busy)
+            .put("pending_results", outbox == null ? 0 : outbox.pendingCount());
     }
 
-    private void execute(ApiClient client, JSONObject job) throws Exception {
-        String id = job.getString("job_id");
-        String action = job.getString("action");
-        client.state(id, "running", null, null);
-        try {
-            if (action.equals("device_status")) client.state(id, "completed", heartbeat(), null);
-            else if (action.equals("network_check")) {
-                ConnectivityManager cm = getSystemService(ConnectivityManager.class);
-                NetworkCapabilities caps = cm.getNetworkCapabilities(cm.getActiveNetwork());
-                JSONObject result = new JSONObject()
-                    .put("wifi_connected", caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI))
-                    .put("internet_validated", caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED))
-                    .put("internet_capable", caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET));
-                client.state(id, "completed", result, null);
-            } else if (action.equals("refresh_saneago_bills")) {
-                client.state(id, "completed", SaneagoReader.readCurrent(this,
-                    job.optJSONObject("params") == null ? "casa" : job.getJSONObject("params").optString("property", "casa")), null);
-            } else if (action.equals("refresh_equatorial_bills")) {
-                client.state(id, "completed", EquatorialReader.read(this, job.optJSONObject("params") == null ? "casa" : job.getJSONObject("params").optString("property", "casa")), null);
-            } else client.state(id, "failed", null, "Acao nao implementada nesta versao do ROD");
-        } catch (Exception error) {
-            String message = error.getClass().getSimpleName();
-            if (error.getMessage() != null) message += ": " + error.getMessage();
-            client.state(id, "failed", null, message.substring(0, Math.min(message.length(), 180)));
-        }
+    @Override public void onDestroy() {
+        if (heartbeatExecutor != null) heartbeatExecutor.shutdownNow();
+        if (jobExecutor != null) jobExecutor.shutdownNow();
+        if (jobWakeLock != null && jobWakeLock.isHeld()) jobWakeLock.release();
+        if (outbox != null) outbox.close();
+        super.onDestroy();
     }
 
-    @Override public void onDestroy() { if (executor != null) executor.shutdownNow(); super.onDestroy(); }
     @Override public IBinder onBind(Intent intent) { return null; }
 }

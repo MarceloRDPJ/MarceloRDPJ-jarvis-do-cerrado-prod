@@ -19,7 +19,10 @@ jarvis/
 |       `-- reminders_system.md
 |-- scripts/
 |   |-- backup_db.py
-|   `-- ble_scan.py
+|   |-- ble_scan.py
+|   |-- deploy_rod.sh
+|   |-- poco_usb_inventory.ps1    # inventário do Poco por USB, somente leitura
+|   `-- poco_usb_disable_apps.ps1 # desativação reversível, com confirmação
 |-- android/
 |   `-- poco-agent/               # satélite Android: UI, heartbeat e acessibilidade
 |-- src/jarvis/

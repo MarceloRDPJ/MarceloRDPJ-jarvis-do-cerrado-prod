@@ -60,6 +60,9 @@ O APK está em `android/poco-agent`. A tela usa a identidade visual oficial RDP,
 mostra o estado real do Pi e do telefone e possui um cofre de contas protegido
 por Android Keystore. CPF, data de nascimento, login, senha e números das contas
 ficam somente no aparelho; não entram no repositório, no Telegram nem nos logs.
+O provisionamento inicial pode ser feito localmente por ADB em builds de depuração;
+o payload é removido do `Intent` após ser incorporado ao cofre. O fluxo Saneago
+suporta login SSO e seleção de unidades vinculadas.
 
 O identificador técnico Android `br.com.jarviscerrado.poco`, o nome interno do
 serviço de acessibilidade e o pacote Python `jarvis` foram preservados de forma

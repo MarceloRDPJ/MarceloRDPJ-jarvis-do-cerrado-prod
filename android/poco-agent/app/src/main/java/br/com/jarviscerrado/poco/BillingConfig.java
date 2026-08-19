@@ -25,7 +25,7 @@ final class BillingConfig {
     private String digits(String key) { return value(key).replaceAll("\\D", ""); }
     private int countSuffix(String suffix) {
         int count = 0;
-        for (String property : new String[]{"kitnet_01", "kitnet_02", "sala_comercial", "casa"})
+        for (String property : new String[]{"kitnet_01", "kitnet_02", "sala_comercial", "casa", "restaurante"})
             if (!value(property + suffix).isEmpty()) count++;
         return count;
     }
