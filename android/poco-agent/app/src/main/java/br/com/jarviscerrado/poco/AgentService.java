@@ -117,6 +117,7 @@ public class AgentService extends Service {
         String id = job.getString("job_id");
         String action = job.getString("action");
         // The Pi requeues jobs whose lease expired. The result is already durable here.
+        RodLog.step("job", "recebido acao=" + action);
         if (outbox.alreadyHandled(id)) { flushOutbox(client); return; }
         busy = true;
         jobWakeLock.acquire(JOB_WAKELOCK_MILLIS);
@@ -127,6 +128,7 @@ public class AgentService extends Service {
                 JSONObject result = perform(action, job.optJSONObject("params"));
                 outbox.record(id, "completed", result.toString(), null, now);
             } catch (Throwable error) {
+                RodLog.fail("job", "acao=" + action + " falhou: " + describe(error));
                 outbox.record(id, "failed", null, describe(error), now);
             }
             flushOutbox(client);

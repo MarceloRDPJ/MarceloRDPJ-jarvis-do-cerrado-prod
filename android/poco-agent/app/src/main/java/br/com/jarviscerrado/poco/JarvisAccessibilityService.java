@@ -39,6 +39,7 @@ public class JarvisAccessibilityService extends AccessibilityService {
             String request = intent.getStringExtra("request_id");
             String operation = intent.getStringExtra("operation");
             if (request == null || operation == null) return;
+            RodLog.step("ponte", "operacao=" + operation);
             try {
                 if (operation.equals("open_saneago")) {
                     bringSaneagoToFront(request);
@@ -50,10 +51,7 @@ public class JarvisAccessibilityService extends AccessibilityService {
                 } else if (operation.equals("select_saneago")) {
                     selectSaneago(request, intent.getStringExtra("account"), 0);
                 } else if (operation.equals("open_equatorial")) {
-                    Intent browser = new Intent(Intent.ACTION_VIEW, Uri.parse("https://go.equatorialenergia.com.br/"));
-                    browser.setPackage(CHROME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    startActivity(browser);
-                    reply(request, true, new JSONObject().put("opened", true), null);
+                    openEquatorial(request, 0);
                 } else if (operation.equals("dismiss_equatorial")) {
                     dismissEquatorialOverlay(request);
                 } else if (operation.equals("fill_equatorial")) {
@@ -200,6 +198,7 @@ public class JarvisAccessibilityService extends AccessibilityService {
         dismissOverlay(root);
         List<AccessibilityNodeInfo> editors = new ArrayList<>();
         collectPageEditors(root, editors);
+        RodLog.step("home", "campos da pagina encontrados: " + editors.size());
         if (editors.isEmpty()) {
             root.recycle();
             reply(request, false, null, "Campos Equatorial indisponiveis ou verificacao humana ativa");
@@ -215,7 +214,11 @@ public class JarvisAccessibilityService extends AccessibilityService {
         // Gesto primeiro, pelo mesmo motivo do aviso de privacidade: em conteudo
         // web ACTION_CLICK devolve true sem que a pagina reaja, e a tela nunca avanca.
         boolean clicked = gestureClickLabel(root, "acessar", "continuar", "consultar", "avancar");
-        if (!clicked) clicked = clickFirst(root, "acessar", "continuar", "consultar", "entrar", "avancar");
+        RodLog.step("home", "clique por gesto: " + clicked);
+        if (!clicked) {
+            clicked = clickFirst(root, "acessar", "continuar", "consultar", "entrar", "avancar");
+            RodLog.step("home", "clique por ACTION_CLICK: " + clicked);
+        }
         for (AccessibilityNodeInfo editor : editors) editor.recycle();
         root.recycle();
         reply(request, clicked, new JSONObject().put("fields_filled", values.length),
@@ -232,7 +235,11 @@ public class JarvisAccessibilityService extends AccessibilityService {
     private void dismissEquatorialOverlay(String request) {
         AccessibilityNodeInfo root = packageRoot(CHROME);
         if (root == null) { reply(request, false, null, "Portal Equatorial nao encontrado no Chrome"); return; }
-        if (!hasOverlay(root)) { root.recycle(); reply(request, true, new JSONObject(), null); return; }
+        if (!hasOverlay(root)) {
+            RodLog.step("aviso", "nao havia aviso sobreposto");
+            root.recycle(); reply(request, true, new JSONObject(), null); return;
+        }
+        RodLog.step("aviso", "aviso presente, tentando fechar");
         // Gesto primeiro. Em conteudo web, ACTION_CLICK devolve true mesmo quando a
         // pagina nao reage, o que escondia a falha e impedia a segunda tentativa.
         // E o mesmo motivo pelo qual o login da Saneago ja tenta o gesto antes.
@@ -244,7 +251,11 @@ public class JarvisAccessibilityService extends AccessibilityService {
     private void retireOverlay(String request, int attempt) {
         AccessibilityNodeInfo root = packageRoot(CHROME);
         if (root == null) { reply(request, false, null, "Portal Equatorial nao encontrado no Chrome"); return; }
-        if (!hasOverlay(root)) { root.recycle(); reply(request, true, new JSONObject(), null); return; }
+        if (!hasOverlay(root)) {
+            RodLog.step("aviso", "fechado na tentativa " + attempt);
+            root.recycle(); reply(request, true, new JSONObject(), null); return;
+        }
+        RodLog.step("aviso", "ainda presente na tentativa " + attempt);
         if (attempt >= 2) {
             root.recycle();
             reply(request, false, null, "Aviso de privacidade da Equatorial nao fechou");
@@ -294,11 +305,58 @@ public class JarvisAccessibilityService extends AccessibilityService {
      * A home so pede o CPF e leva para esta tela. Aqui os campos tem
      * resource-id estavel, entao nao dependemos da ordem em que aparecem.
      */
+    /**
+     * Abre o portal e confirma que o Chrome realmente ficou visivel.
+     *
+     * O passo antigo disparava o Intent e respondia "ok" em poucos milissegundos,
+     * sem verificar nada. Com a tela apagada o Chrome nao chegava a aparecer para
+     * o servico de acessibilidade e o passo seguinte falhava sem explicacao.
+     *
+     * O SCREEN_BRIGHT_WAKE_LOCK usado pelo leitor esta depreciado desde a API 17 e
+     * nao acende mais a tela no Android 12; por isso a WakeActivity, que ja servia
+     * ao fluxo da Saneago, passa a valer tambem aqui.
+     */
+    private void openEquatorial(String request, int attempt) {
+        if (attempt == 0) {
+            RodLog.step("abertura", "acordando a tela antes de abrir o portal");
+            performGlobalAction(GLOBAL_ACTION_HOME);
+            startActivity(new Intent(this, WakeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            new Handler(Looper.getMainLooper()).postDelayed(() -> openEquatorial(request, 1), 1600);
+            return;
+        }
+        if (attempt == 1) {
+            RodLog.step("abertura", "abrindo o portal no Chrome");
+            Intent browser = new Intent(Intent.ACTION_VIEW, Uri.parse("https://go.equatorialenergia.com.br/"));
+            browser.setPackage(CHROME)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            startActivity(browser);
+            new Handler(Looper.getMainLooper()).postDelayed(() -> openEquatorial(request, 2), 3000);
+            return;
+        }
+        AccessibilityNodeInfo root = packageRoot(CHROME);
+        if (root != null) {
+            root.recycle();
+            RodLog.step("abertura", "Chrome visivel na tentativa " + attempt);
+            reply(request, true, new JSONObject(), null);
+            return;
+        }
+        if (attempt >= 6) {
+            RodLog.fail("abertura", "Chrome nao ficou visivel");
+            reply(request, false, null, "O Chrome nao abriu o portal da Equatorial");
+            return;
+        }
+        RodLog.step("abertura", "Chrome ainda nao visivel, aguardando (tentativa " + attempt + ")");
+        new Handler(Looper.getMainLooper()).postDelayed(() -> openEquatorial(request, attempt + 1), 1500);
+    }
+
     private void loginEquatorial(String request, String cpf, String unit) {
         AccessibilityNodeInfo root = packageRoot(CHROME);
         if (root == null) { reply(request, false, null, "Portal Equatorial nao encontrado no Chrome"); return; }
         AccessibilityNodeInfo unitField = findByViewId(root, "WEBDOOR_headercorporativogo_txtUC");
         AccessibilityNodeInfo documentField = findByViewId(root, "WEBDOOR_headercorporativogo_txtDocumento");
+        RodLog.step("agencia", "campo unidade=" + (unitField != null)
+            + " campo documento=" + (documentField != null)
+            + " cpf=" + RodLog.describe(cpf) + " unidade=" + RodLog.describe(unit));
         if (unitField == null || documentField == null) {
             if (unitField != null) unitField.recycle();
             if (documentField != null) documentField.recycle();
@@ -331,6 +389,8 @@ public class JarvisAccessibilityService extends AccessibilityService {
         }
         boolean unitOk = filled(unitField, unit);
         boolean documentOk = filled(documentField, cpf);
+        RodLog.step("agencia", "tentativa " + attempt + " unidade_ok=" + unitOk
+            + " documento_ok=" + documentOk);
         if (!unitOk) setNodeText(unitField, unit == null ? "" : unit);
         if (!documentOk) setNodeText(documentField, cpf == null ? "" : cpf);
         unitField.recycle();
@@ -346,7 +406,11 @@ public class JarvisAccessibilityService extends AccessibilityService {
             return;
         }
         boolean clicked = gestureClickLabel(root, "entrar");
-        if (!clicked) clicked = clickFirst(root, "entrar");
+        RodLog.step("agencia", "ENTRAR por gesto: " + clicked);
+        if (!clicked) {
+            clicked = clickFirst(root, "entrar");
+            RodLog.step("agencia", "ENTRAR por ACTION_CLICK: " + clicked);
+        }
         root.recycle();
         reply(request, clicked, new JSONObject(), clicked ? null : "Botao ENTRAR da Agencia Virtual nao encontrado");
     }
@@ -377,6 +441,9 @@ public class JarvisAccessibilityService extends AccessibilityService {
         List<String> values = new ArrayList<>();
         collect(root, values);
         root.recycle();
+        RodLog.step("leitura", "rotulos na tela: " + values.size());
+        for (int i = 0; i < Math.min(values.size(), 25); i++)
+            RodLog.step("leitura", "  [" + i + "] " + values.get(i));
         try {
             Map<String,String> parsed = EquatorialTextParser.parse(String.join("\n", values));
             JSONObject result = new JSONObject().put("source", "equatorial_chrome_accessibility");
@@ -646,6 +713,8 @@ public class JarvisAccessibilityService extends AccessibilityService {
     }
 
     private void reply(String request, boolean ok, JSONObject payload, String error) {
+        if (ok) RodLog.step("resposta", "ok");
+        else RodLog.fail("resposta", "falha: " + error);
         getSharedPreferences(PREFS_BRIDGE, MODE_PRIVATE).edit()
             .putString("request_id", request).putBoolean("ok", ok)
             .putString("payload", payload == null ? "{}" : payload.toString())

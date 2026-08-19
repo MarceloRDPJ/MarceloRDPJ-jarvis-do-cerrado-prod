@@ -40,6 +40,7 @@ final class EquatorialReader {
         } finally { if (wake.isHeld()) wake.release(); }
     }
     private static JSONObject call(Context context, String operation, String cpf, String birth, String unit) throws Exception {
+        RodLog.step("equatorial", "passo: " + operation);
         String request = UUID.randomUUID().toString();
         Intent intent = new Intent(JarvisAccessibilityService.ACTION_BRIDGE).setPackage(context.getPackageName())
             .putExtra("request_id", request).putExtra("operation", operation);
