@@ -854,6 +854,20 @@ class Executor:
             await asyncio.sleep(2)
         return None, "O Poco não concluiu a tarefa dentro do tempo esperado."
 
+    @staticmethod
+    def _equatorial_code(error_text: str) -> str:
+        """Código tipado emitido pelo agente Android, venha ele embrulhado ou não.
+
+        O agente monta a mensagem como ``classe: mensagem`` antes de devolvê-la,
+        então o que chega no fio é ``IllegalStateException: EQUATORIAL_...``.
+        Casar pelo início da string parecia certo e nunca funcionou: dos 37 erros
+        registrados em produção, nenhum começava com ``EQUATORIAL_`` e todos
+        começavam com o nome da exceção. Procurar o código em qualquer posição
+        sobrevive a qualquer embrulho que o Android venha a usar.
+        """
+        match = re.search(r"\b(EQUATORIAL_[A-Z_]+)", error_text or "")
+        return match.group(1) if match else ""
+
     async def _poco_bill_cache_note(self, provider: str, property_key: str) -> str:
         """Última leitura confirmada guardada no Poco.
 
@@ -959,12 +973,13 @@ class Executor:
             # Erros tipados do agente Android vêm antes da heurística por palavra-chave.
             # Sessão expirada não é falha de infraestrutura: pedir login humano uma vez
             # é mais honesto (e mais barato) do que repetir tentativas cegas no Poco.
-            if error_text.startswith("EQUATORIAL_AUTH_REQUIRED"):
+            code = self._equatorial_code(error_text)
+            if code == "EQUATORIAL_AUTH_REQUIRED":
                 return (
                     "A sessão da Equatorial expirou no Poco. Abra o Chrome do Poco e faça "
                     "login novamente na Equatorial; depois repita a consulta." + fallback
                 )
-            if error_text.startswith("EQUATORIAL_HUMAN_CHECK") or any(
+            if code == "EQUATORIAL_HUMAN_CHECK" or any(
                 marker in error_text.lower() for marker in ("captcha", "imperva", "verificacao humana")
             ):
                 return "A Equatorial pediu verificação humana no Poco. Resolva a tela uma vez e repita a consulta; o ROD não tenta contornar o bloqueio." + fallback
@@ -977,6 +992,11 @@ class Executor:
                     f"{property_key.replace('_', ' ').title()}. O ROD aprende isso sozinho na "
                     "primeira consulta bem-sucedida; se persistir, confira a unidade consumidora "
                     "cadastrada no cofre do Poco."
+                ),
+                # Sinônimo emitido hoje pelo agente Android.
+                "EQUATORIAL_UC_NAO_ENCONTRADA": (
+                    "O imóvel pedido não apareceu na lista de contratos desse login da Equatorial. "
+                    "Não usei dados de outro imóvel."
                 ),
                 "EQUATORIAL_CONTRACT_NOT_FOUND": (
                     "O imóvel pedido não apareceu na lista de contratos desse login da Equatorial. "
@@ -994,9 +1014,8 @@ class Executor:
                     "O portal da Equatorial não respondeu a tempo no Poco. Vale repetir a consulta."
                 ),
             }
-            for code, message in typed.items():
-                if error_text.startswith(code):
-                    return message + fallback
+            if code in typed:
+                return typed[code] + fallback
             return f"Não consegui consultar a Equatorial agora: {error}" + fallback
         lines = [
             "Equatorial — consulta real pelo portal oficial",

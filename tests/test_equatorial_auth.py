@@ -40,10 +40,22 @@ def build_executor(monkeypatch, *, error=None, result=None, cache=None):
     return executor
 
 
+def wire(code: str, detail: str = "detalhe tecnico") -> str:
+    """Erro no formato exato em que o agente Android o entrega.
+
+    ``AgentService.describe(Throwable)`` monta ``classe: mensagem`` antes de
+    gravar o erro no outbox, e o código tipado nasce dentro de um
+    ``IllegalStateException``. Injetar a string crua nos testes escondeu por
+    completo o fato de que a tradução no Pi casava pelo início e portanto nunca
+    disparava: dos 37 erros registrados em produção, nenhum começava com
+    ``EQUATORIAL_``. Todo teste daqui em diante usa o formato do fio.
+    """
+    return f"IllegalStateException: {code}: {detail}"
+
 @pytest.mark.asyncio
 async def test_auth_required_asks_for_manual_login_instead_of_generic_failure(monkeypatch):
     executor = build_executor(
-        monkeypatch, error="EQUATORIAL_AUTH_REQUIRED sessao do Chrome expirada"
+        monkeypatch, error=wire("EQUATORIAL_AUTH_REQUIRED", "sessao do Chrome expirada")
     )
 
     response = await executor._poco_equatorial_bills({"property": "casa"})
@@ -184,7 +196,7 @@ async def test_property_not_mapped_explains_the_learning_step(monkeypatch):
     o cadastro do cofre ou a leitura da tela.
     """
     executor = build_executor(
-        monkeypatch, error="EQUATORIAL_PROPERTY_NOT_MAPPED kitnet_01"
+        monkeypatch, error=wire("EQUATORIAL_PROPERTY_NOT_MAPPED", "kitnet_01")
     )
 
     response = await executor._poco_equatorial_bills({"property": "kitnet_01"})
@@ -196,7 +208,7 @@ async def test_property_not_mapped_explains_the_learning_step(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_contract_not_found_never_claims_another_property(monkeypatch):
-    executor = build_executor(monkeypatch, error="EQUATORIAL_CONTRACT_NOT_FOUND")
+    executor = build_executor(monkeypatch, error=wire("EQUATORIAL_CONTRACT_NOT_FOUND"))
 
     response = await executor._poco_equatorial_bills({"property": "casa"})
 
@@ -206,7 +218,7 @@ async def test_contract_not_found_never_claims_another_property(monkeypatch):
 @pytest.mark.asyncio
 async def test_bill_not_found_is_distinct_from_a_broken_reading(monkeypatch):
     """Não ter fatura em aberto é um fato sobre a conta, não uma falha do ROD."""
-    executor = build_executor(monkeypatch, error="EQUATORIAL_BILL_NOT_FOUND")
+    executor = build_executor(monkeypatch, error=wire("EQUATORIAL_BILL_NOT_FOUND"))
 
     response = await executor._poco_equatorial_bills({"property": "casa"})
 
@@ -215,7 +227,7 @@ async def test_bill_not_found_is_distinct_from_a_broken_reading(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_missing_payment_data_refuses_to_invent_a_code(monkeypatch):
-    executor = build_executor(monkeypatch, error="EQUATORIAL_PAYMENT_DATA_NOT_FOUND")
+    executor = build_executor(monkeypatch, error=wire("EQUATORIAL_PAYMENT_DATA_NOT_FOUND"))
 
     response = await executor._poco_equatorial_bills({"property": "casa"})
 
@@ -225,7 +237,7 @@ async def test_missing_payment_data_refuses_to_invent_a_code(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_portal_timeout_suggests_retrying(monkeypatch):
-    executor = build_executor(monkeypatch, error="EQUATORIAL_PORTAL_TIMEOUT")
+    executor = build_executor(monkeypatch, error=wire("EQUATORIAL_PORTAL_TIMEOUT"))
 
     response = await executor._poco_equatorial_bills({"property": "casa"})
 
@@ -241,3 +253,42 @@ async def test_unknown_error_still_falls_back_to_the_generic_message(monkeypatch
     response = await executor._poco_equatorial_bills({"property": "casa"})
 
     assert "Não consegui consultar a Equatorial agora" in response
+
+
+@pytest.mark.asyncio
+async def test_typed_code_survives_the_exception_wrapper(monkeypatch):
+    """Regressão do achado que invalidava toda a tradução de erros.
+
+    Casar pelo início da string parecia razoável e era inútil, porque o agente
+    embrulha tudo no nome da exceção antes de enviar. Se alguém trocar a busca
+    por ``startswith`` de novo, este teste reprova.
+    """
+    executor = build_executor(
+        monkeypatch, error="IllegalStateException: EQUATORIAL_AUTH_REQUIRED: sessao caiu"
+    )
+
+    response = await executor._poco_equatorial_bills({"property": "casa"})
+
+    assert "Chrome do Poco" in response
+    assert "Não consegui consultar a Equatorial agora" not in response
+
+
+@pytest.mark.asyncio
+async def test_portuguese_code_emitted_by_the_agent_is_understood(monkeypatch):
+    """O agente ainda emite EQUATORIAL_UC_NAO_ENCONTRADA; nada pode se perder por isso."""
+    executor = build_executor(monkeypatch, error=wire("EQUATORIAL_UC_NAO_ENCONTRADA"))
+
+    response = await executor._poco_equatorial_bills({"property": "casa"})
+
+    assert "não usei dados de outro imóvel" in response.lower()
+    assert "Não consegui consultar a Equatorial agora" not in response
+
+
+@pytest.mark.asyncio
+async def test_raw_code_without_wrapper_is_still_understood(monkeypatch):
+    """Se o agente parar de embrulhar um dia, a tradução não pode quebrar junto."""
+    executor = build_executor(monkeypatch, error="EQUATORIAL_BILL_NOT_FOUND: nada na tela")
+
+    response = await executor._poco_equatorial_bills({"property": "casa"})
+
+    assert "nenhuma fatura" in response.lower()

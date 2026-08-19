@@ -58,6 +58,8 @@ class PocoNodeService:
         heartbeat_stale_seconds: int = 150,
         lease_seconds: int = 60,
         max_attempts: int = 3,
+        result_grace_seconds: int = 600,
+        retention_seconds: int = 3600,
         clock=time.time,
     ):
         self.storage_path = Path(storage_path)
@@ -66,6 +68,8 @@ class PocoNodeService:
         self.heartbeat_stale_seconds = heartbeat_stale_seconds
         self.lease_seconds = lease_seconds
         self.max_attempts = max_attempts
+        self.result_grace_seconds = result_grace_seconds
+        self.retention_seconds = retention_seconds
         self.clock = clock
         self._lock = threading.RLock()
         self._jobs: dict[str, PocoJob] = {}
@@ -132,6 +136,29 @@ class PocoNodeService:
                 self._save()
         return None
 
+    def _prune(self, now: float) -> bool:
+        """Descarta dados de pagamento e jobs velhos.
+
+        O ``result`` de uma consulta de fatura carrega valor, linha digitável e
+        PIX em texto claro, e este arquivo fica ao lado de um dashboard sem
+        autenticação documentada. O consumidor legítimo lê o resultado em
+        segundos, dentro do timeout do job; guardá-lo por mais tempo não serve a
+        ninguém e a fila crescia sem limite — dezenas de faturas acumuladas.
+        O registro do job continua, para auditoria; só o conteúdo sai.
+        """
+        changed = False
+        for job in list(self._jobs.values()):
+            if job.status not in TERMINAL_STATES:
+                continue
+            age = now - job.updated_at
+            if age > self.retention_seconds:
+                del self._jobs[job.job_id]
+                changed = True
+            elif job.result and age > self.result_grace_seconds:
+                job.result = None
+                changed = True
+        return changed
+
     def _sweep(self, now: float) -> bool:
         """Expire dead jobs and return abandoned leases to the queue.
 
@@ -141,8 +168,8 @@ class PocoNodeService:
         second chance inside the same request. The agent deduplicates by ``job_id``,
         so a redelivered job is never executed twice.
         """
-        changed = False
-        for job in self._jobs.values():
+        changed = self._prune(now)
+        for job in list(self._jobs.values()):
             if job.status in {"queued", "accepted", "running"} and job.expires_at <= now:
                 job.status = "expired"
                 job.updated_at = now
@@ -176,7 +203,7 @@ class PocoNodeService:
             job = self._jobs.get(job_id)
             if not job:
                 raise KeyError(job_id)
-            if job.status in TERMINAL_STATES:
+            if job.status in TERMINAL_STATES and job.status != "expired":
                 return job
             allowed = {
                 # A lease can be requeued while the node is still working on it; its
@@ -185,6 +212,10 @@ class PocoNodeService:
                 "queued": {"running", "completed", "failed"},
                 "accepted": {"running", "completed", "failed"},
                 "running": {"completed", "failed"},
+                # O nó pode concluir depois do TTL e só então conseguir entregar.
+                # Recusar aqui fazia o agente tratar como rejeição definitiva e
+                # descartar uma leitura real que custou minutos de automação.
+                "expired": {"completed", "failed"},
             }
             if status not in allowed.get(job.status, set()):
                 raise ValueError(f"Invalid transition: {job.status} -> {status}")

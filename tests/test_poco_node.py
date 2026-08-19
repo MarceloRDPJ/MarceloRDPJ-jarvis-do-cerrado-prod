@@ -179,3 +179,66 @@ def test_lease_requeue_never_resurrects_a_terminal_job(tmp_path):
 
     assert service.next_job() is None
     assert service.get_job(created.job_id).status == "completed"
+
+
+def test_payment_data_does_not_linger_in_the_queue_file(tmp_path):
+    """Valor, código de barras e PIX não podem ficar guardados indefinidamente.
+
+    O arquivo da fila fica ao lado de um dashboard sem autenticação documentada, e
+    o consumidor legítimo lê o resultado em segundos. Faturas acumulavam ali desde
+    o primeiro dia de uso, em texto claro.
+    """
+    now = [1000.0]
+    service = PocoNodeService(
+        tmp_path / "poco.json",
+        shared_secret="x",
+        result_grace_seconds=600,
+        clock=lambda: now[0],
+    )
+    created = service.enqueue("refresh_equatorial_bills", ttl_seconds=600)
+    service.next_job()
+    service.update_job(created.job_id, "completed", {"amount": "10,00", "barcode": "8" * 48})
+    assert service.get_job(created.job_id).result is not None
+
+    now[0] += 601
+    service.next_job()  # a varredura roda junto com a entrega do próximo job
+
+    assert service.get_job(created.job_id).result is None
+    assert service.get_job(created.job_id).status == "completed"
+    assert "barcode" not in (tmp_path / "poco.json").read_text(encoding="utf-8")
+
+
+def test_old_terminal_jobs_leave_the_queue_entirely(tmp_path):
+    now = [1000.0]
+    service = PocoNodeService(
+        tmp_path / "poco.json", shared_secret="x", retention_seconds=3600, clock=lambda: now[0]
+    )
+    created = service.enqueue("device_status", ttl_seconds=60)
+    service.next_job()
+    service.update_job(created.job_id, "completed", {"battery_level": 80})
+
+    now[0] += 3601
+    service.next_job()
+
+    assert service.get_job(created.job_id) is None
+
+
+def test_a_result_arriving_after_the_ttl_is_not_thrown_away(tmp_path):
+    """Uma leitura real custa minutos de automação; recusá-la a descartava.
+
+    O nó guarda o resultado na fila local e pode só conseguir entregá-lo depois do
+    TTL. Responder recusa fazia o agente tratar como rejeição definitiva e apagar
+    a leitura da própria fila.
+    """
+    now = [1000.0]
+    service = PocoNodeService(tmp_path / "poco.json", shared_secret="x", clock=lambda: now[0])
+    created = service.enqueue("refresh_equatorial_bills", ttl_seconds=30)
+    service.next_job()
+    now[0] += 31
+    service.next_job()  # varredura expira o job
+    assert service.get_job(created.job_id).status == "expired"
+
+    recovered = service.update_job(created.job_id, "completed", {"amount": "10,00"})
+
+    assert recovered.status == "completed"
+    assert recovered.result == {"amount": "10,00"}
