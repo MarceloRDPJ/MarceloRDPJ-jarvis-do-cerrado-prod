@@ -1,45 +1,171 @@
 package br.com.jarviscerrado.poco;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * Leitura determinística da página da Equatorial. Função pura, sem Android.
+ *
+ * O ROD precisa de cinco dados: valor, vencimento, referência, e código de barras
+ * ou PIX. Nada além disso é extraído. O estado da página é classificado antes de
+ * tentar qualquer extração, porque uma tela de login e uma fatura vazia exigem
+ * respostas diferentes: a primeira pede login manual, a segunda é falha de leitura.
+ *
+ * A regra que governa as decisões abaixo: na dúvida, não devolver valor. Uma
+ * fatura reportada como ilegível custa uma nova consulta; uma linha digitável
+ * inventada ou um valor trocado custam dinheiro do proprietário.
+ */
 final class EquatorialTextParser {
-    private EquatorialTextParser() { }
-    static Map<String,String> parse(String raw) {
-        String text = raw == null ? "" : raw.replace('\u00a0', ' ');
-        String lower = text.toLowerCase();
-        if (isHumanCheck(lower))
-            throw new IllegalStateException("Equatorial exige verificacao humana no Poco");
-        Map<String,String> out = new LinkedHashMap<>();
-        out.put("amount", capture(text, "(?i)R\\$\\s*([0-9.]+,[0-9]{2})"));
-        out.put("due_date", capture(text, "(?i)(?:vencimento|vence em)\\s*:?\\s*([0-9]{2}/[0-9]{2}/[0-9]{4})"));
-        out.put("reference", capture(text, "(?i)(?:refer.ncia|m.s de refer.ncia)\\s*:?\\s*([0-9]{2}/[0-9]{4})"));
-        if (out.get("amount").isEmpty() || out.get("due_date").isEmpty())
-            throw new IllegalStateException("Fatura Equatorial nao encontrada na tela atual");
-        return out;
+
+    enum State {
+        /** Página autenticada com fatura legível. */
+        BILL,
+        /** Sessão caiu: o portal devolveu a tela de autenticação. */
+        AUTH_REQUIRED,
+        /** Desafio antibot de fato apresentado ao usuário. */
+        HUMAN_CHECK,
+        /** Autenticado, mas sem fatura legível com segurança nesta tela. */
+        NO_BILL
     }
+
+    static final class Page {
+        final State state;
+        final Map<String, String> fields;
+
+        Page(State state, Map<String, String> fields) {
+            this.state = state;
+            this.fields = Collections.unmodifiableMap(fields);
+        }
+
+        String get(String key) {
+            String value = fields.get(key);
+            return value == null ? "" : value;
+        }
+    }
+
+    /** Marcadores comprovados da tela de autenticação do portal. */
+    private static final String[] LOGIN_MARKERS = {
+        "logingo", "txtuc", "txtdocumento",
+        "unidade consumidora *", "cpf ou cnpj *"
+    };
+
     /**
-     * Bloqueio antibot real, e nao o selo passivo do reCAPTCHA.
+     * Bloqueio antibot real, e não o selo passivo do reCAPTCHA.
      *
-     * Procurar apenas por "captcha" acusava verificacao humana em qualquer pagina
-     * do portal: o rodape carrega sempre "protegido por reCAPTCHA". So contam os
-     * textos de um desafio de fato apresentado ao usuario.
+     * Procurar apenas por "captcha" acusava verificação humana em qualquer página
+     * do portal: o rodapé carrega sempre "protegido por reCAPTCHA".
      */
-    private static boolean isHumanCheck(String lower) {
-        String[] markers = {
-            "access denied", "error 15",
-            "verifique que voce", "verifique que você",
-            "nao sou um robo", "não sou um robô", "i'm not a robot",
-            "resolva o desafio", "confirme que voce", "confirme que você",
-            "verificacao de seguranca", "verificação de segurança"
-        };
+    private static final String[] HUMAN_CHECK_MARKERS = {
+        "access denied", "error 15",
+        "verifique que voce", "verifique que você",
+        "nao sou um robo", "não sou um robô", "i'm not a robot",
+        "resolva o desafio", "confirme que voce", "confirme que você",
+        "verificacao de seguranca", "verificação de segurança"
+    };
+
+    /** Aceita 1.234,56 e também 1234,56: o portal renderiza das duas formas. */
+    private static final String MONEY = "(?:[0-9]{1,3}(?:\\.[0-9]{3})+|[0-9]+),[0-9]{2}";
+
+    /** O total costuma vir rotulado; é a única leitura confiável quando há juros na tela. */
+    private static final Pattern AMOUNT_LABELED = Pattern.compile(
+        "(?i)(?:total a pagar|valor a pagar|valor do documento|valor da fatura|valor total|total)"
+            + "\\s*:?\\s*R\\$\\s*(" + MONEY + ")");
+    private static final Pattern AMOUNT_ANY = Pattern.compile("(?i)R\\$\\s*(" + MONEY + ")");
+
+    private static final Pattern DUE_DATE =
+        Pattern.compile("(?i)(?:vencimento|vence em|venc\\.)\\s*:?\\s*([0-9]{2}/[0-9]{2}/[0-9]{4})");
+    private static final Pattern REFERENCE =
+        Pattern.compile("(?i)(?:refer.ncia|m.s de refer.ncia|compet.ncia)\\s*:?\\s*([0-9]{2}/[0-9]{4})");
+
+    /**
+     * Linha digitável de concessionária: 44 a 48 dígitos numa única linha.
+     *
+     * Os separadores aceitos são espaço, tabulação, ponto e hífen — jamais quebra
+     * de linha. A árvore de acessibilidade é juntada com "\n", e permitir \s aqui
+     * colava números independentes da página (protocolo, medidor, histórico) numa
+     * linha digitável que não existe. Entregar isso como pagável seria pior do que
+     * não achar nada.
+     */
+    private static final Pattern DIGITABLE_LINE =
+        Pattern.compile("((?:\\d[ \\t.-]*){44,48})");
+
+    /** PIX copia e cola: payload EMV, sempre iniciado por 000201. */
+    private static final Pattern PIX =
+        Pattern.compile("(000201[0-9A-Za-z*.\\-:/+]{20,})");
+
+    private static final Pattern UNIT =
+        Pattern.compile("(?i)(?:unidade consumidora|\\buc\\b)\\s*:?\\s*(\\d{5,})");
+
+    private EquatorialTextParser() { }
+
+    static Page parse(String raw) {
+        String text = raw == null ? "" : raw.replace(' ', ' ');
+        String lower = text.toLowerCase();
+
+        // A ordem importa: um desafio antibot pode aparecer sobre a tela de login,
+        // e nesse caso o operador precisa saber que é o desafio, não a sessão.
+        if (containsAny(lower, HUMAN_CHECK_MARKERS)) return new Page(State.HUMAN_CHECK, empty());
+        if (containsAny(lower, LOGIN_MARKERS)) return new Page(State.AUTH_REQUIRED, empty());
+
+        Map<String, String> fields = new LinkedHashMap<>();
+        fields.put("amount", amount(text));
+        fields.put("due_date", capture(text, DUE_DATE));
+        fields.put("reference", capture(text, REFERENCE));
+        fields.put("barcode", digitableLine(text));
+        fields.put("pix", capture(text, PIX));
+        fields.put("uc", capture(text, UNIT));
+
+        // Valor e vencimento são o mínimo que identifica uma fatura. Sem eles a
+        // tela é outra coisa, e inventar campos ausentes seria pior que falhar.
+        if (fields.get("amount").isEmpty() || fields.get("due_date").isEmpty())
+            return new Page(State.NO_BILL, fields);
+        return new Page(State.BILL, fields);
+    }
+
+    /**
+     * Valor da fatura, preferindo sempre o que estiver rotulado.
+     *
+     * Pegar o primeiro "R$" da tela devolvia o valor dos juros numa página que
+     * mostrava juros antes do total. Sem rótulo, só aceitamos quando a tela tem um
+     * único valor: havendo vários e nenhum rotulado, a leitura é ambígua e é mais
+     * honesto devolver vazio do que escolher um deles.
+     */
+    private static String amount(String text) {
+        String labeled = capture(text, AMOUNT_LABELED);
+        if (!labeled.isEmpty()) return labeled;
+
+        Set<String> distinct = new LinkedHashSet<>();
+        Matcher matcher = AMOUNT_ANY.matcher(text);
+        while (matcher.find()) distinct.add(matcher.group(1).trim());
+        return distinct.size() == 1 ? distinct.iterator().next() : "";
+    }
+
+    /** A linha digitável circula com pontos, espaços e hifens; guardamos só os dígitos. */
+    private static String digitableLine(String text) {
+        Matcher matcher = DIGITABLE_LINE.matcher(text);
+        while (matcher.find()) {
+            String digits = matcher.group(1).replaceAll("\\D", "");
+            if (digits.length() >= 44 && digits.length() <= 48) return digits;
+        }
+        return "";
+    }
+
+    private static Map<String, String> empty() {
+        return new LinkedHashMap<>();
+    }
+
+    private static boolean containsAny(String lower, String[] markers) {
         for (String marker : markers) if (lower.contains(marker)) return true;
         return false;
     }
 
-    private static String capture(String text, String regex) {
-        Matcher m = Pattern.compile(regex).matcher(text); return m.find() ? m.group(1).trim() : "";
+    private static String capture(String text, Pattern pattern) {
+        Matcher matcher = pattern.matcher(text);
+        return matcher.find() ? matcher.group(1).trim() : "";
     }
 }

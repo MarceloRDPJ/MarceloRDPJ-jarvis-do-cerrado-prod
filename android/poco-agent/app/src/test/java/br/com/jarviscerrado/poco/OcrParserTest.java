@@ -1,8 +1,6 @@
 package br.com.jarviscerrado.poco;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
 import java.util.Map;
 import org.junit.Test;
 
@@ -26,15 +24,17 @@ public class OcrParserTest {
             + "R$ 210,44\n"
             + "protegido por reCAPTCHA\n"
             + "Este site esta excedendo a cota gratuita do reCAPTCHA Enterprise";
-        Map<String, String> result = EquatorialTextParser.parse(page);
+        EquatorialTextParser.Page result = EquatorialTextParser.parse(page);
+        assertEquals(EquatorialTextParser.State.BILL, result.state);
         assertEquals("210,44", result.get("amount"));
         assertEquals("18/08/2026", result.get("due_date"));
     }
 
     @Test public void realChallengeStillStopsTheAutomation() {
+        // O parser deixou de lancar excecao: agora classifica a pagina. O bloqueio
+        // real continua tendo que ser distinguido de uma pagina legivel.
         String blocked = "Access Denied\nError 15\nVerifique que voce e humano";
-        IllegalStateException error = assertThrows(IllegalStateException.class,
-            () -> EquatorialTextParser.parse(blocked));
-        assertTrue(error.getMessage().contains("verificacao humana"));
+        EquatorialTextParser.Page result = EquatorialTextParser.parse(blocked);
+        assertEquals(EquatorialTextParser.State.HUMAN_CHECK, result.state);
     }
 }

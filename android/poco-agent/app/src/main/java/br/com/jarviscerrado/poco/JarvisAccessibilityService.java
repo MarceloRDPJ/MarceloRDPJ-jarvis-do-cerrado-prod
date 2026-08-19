@@ -33,6 +33,10 @@ public class JarvisAccessibilityService extends AccessibilityService {
     static final String PREFS_BRIDGE = "accessibility_bridge";
     private static final String SANEAGO = "br.com.saneago";
     private static final String CHROME = "com.android.chrome";
+    /** Prazo total para a pagina da Equatorial assentar num estado legivel. */
+    private static final long PAGE_SETTLE_MILLIS = 25_000L;
+    /** Intervalo entre releituras da arvore enquanto a pagina carrega. */
+    private static final long PAGE_POLL_MILLIS = 600L;
 
     private final BroadcastReceiver bridge = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -54,12 +58,10 @@ public class JarvisAccessibilityService extends AccessibilityService {
                     openEquatorial(request, 0);
                 } else if (operation.equals("dismiss_equatorial")) {
                     dismissEquatorialOverlay(request);
-                } else if (operation.equals("fill_equatorial")) {
-                    fillEquatorial(request, intent.getStringExtra("cpf"), intent.getStringExtra("birth"), intent.getStringExtra("unit"));
-                } else if (operation.equals("login_equatorial")) {
-                    loginEquatorial(request, intent.getStringExtra("cpf"), intent.getStringExtra("unit"));
+                } else if (operation.equals("select_equatorial")) {
+                    selectEquatorialContract(request, intent.getStringExtra("unit"), 0);
                 } else if (operation.equals("read_equatorial")) {
-                    readEquatorial(request);
+                    readEquatorial(request, intent.getStringExtra("unit"));
                 } else reply(request, false, null, "Operacao nao permitida");
             } catch (Exception error) {
                 reply(request, false, null, error.getClass().getSimpleName() + ": " + error.getMessage());
@@ -189,42 +191,6 @@ public class JarvisAccessibilityService extends AccessibilityService {
         }
     }
 
-    private void fillEquatorial(String request, String cpf, String birth, String unit) throws Exception {
-        AccessibilityNodeInfo root = packageRoot(CHROME);
-        if (root == null) { reply(request, false, null, "Portal Equatorial nao encontrado no Chrome"); return; }
-        // O portal abre com o aviso de privacidade por cima. Enquanto ele estiver
-        // aberto nada da pagina responde. Fechamos o aviso; nao clicamos em
-        // "Enviar", que submeteria um consentimento no lugar do proprietario.
-        dismissOverlay(root);
-        List<AccessibilityNodeInfo> editors = new ArrayList<>();
-        collectPageEditors(root, editors);
-        RodLog.step("home", "campos da pagina encontrados: " + editors.size());
-        if (editors.isEmpty()) {
-            root.recycle();
-            reply(request, false, null, "Campos Equatorial indisponiveis ou verificacao humana ativa");
-            return;
-        }
-        // A home do portal pede somente o CPF; nascimento e unidade aparecem nas
-        // telas seguintes. Preenchemos o que a tela atual realmente oferece.
-        String[] values = editors.size() >= 3
-            ? new String[]{cpf, birth, unit}
-            : (editors.size() == 2 ? new String[]{cpf, unit} : new String[]{cpf});
-        for (int i = 0; i < values.length && i < editors.size(); i++)
-            setNodeText(editors.get(i), values[i] == null ? "" : values[i]);
-        // Gesto primeiro, pelo mesmo motivo do aviso de privacidade: em conteudo
-        // web ACTION_CLICK devolve true sem que a pagina reaja, e a tela nunca avanca.
-        boolean clicked = gestureClickLabel(root, "acessar", "continuar", "consultar", "avancar");
-        RodLog.step("home", "clique por gesto: " + clicked);
-        if (!clicked) {
-            clicked = clickFirst(root, "acessar", "continuar", "consultar", "entrar", "avancar");
-            RodLog.step("home", "clique por ACTION_CLICK: " + clicked);
-        }
-        for (AccessibilityNodeInfo editor : editors) editor.recycle();
-        root.recycle();
-        reply(request, clicked, new JSONObject().put("fields_filled", values.length),
-            clicked ? null : "Botao de consulta Equatorial nao encontrado");
-    }
-
     /**
      * Fecha o aviso de privacidade e confirma que ele saiu.
      *
@@ -282,24 +248,6 @@ public class JarvisAccessibilityService extends AccessibilityService {
     }
 
     /**
-     * Campos da pagina, sem os do proprio navegador.
-     *
-     * A varredura antiga pegava a barra de endereco do Chrome como se fosse um
-     * campo do formulario e escrevia a unidade consumidora nela. Tudo que tem
-     * viewIdResourceName do pacote do Chrome e cromo do navegador, nao conteudo.
-     */
-    private static void collectPageEditors(AccessibilityNodeInfo node, List<AccessibilityNodeInfo> result) {
-        String viewId = node.getViewIdResourceName();
-        boolean browserChrome = viewId != null && viewId.startsWith(CHROME + ":id/");
-        if (!browserChrome && (node.isEditable() || "android.widget.EditText".contentEquals(node.getClassName())))
-            result.add(AccessibilityNodeInfo.obtain(node));
-        for (int i = 0; i < node.getChildCount(); i++) {
-            AccessibilityNodeInfo child = node.getChild(i);
-            if (child != null) { collectPageEditors(child, result); child.recycle(); }
-        }
-    }
-
-    /**
      * Agencia Virtual da Equatorial: unidade consumidora e CPF.
      *
      * A home so pede o CPF e leva para esta tela. Aqui os campos tem
@@ -349,78 +297,6 @@ public class JarvisAccessibilityService extends AccessibilityService {
         new Handler(Looper.getMainLooper()).postDelayed(() -> openEquatorial(request, attempt + 1), 1500);
     }
 
-    private void loginEquatorial(String request, String cpf, String unit) {
-        AccessibilityNodeInfo root = packageRoot(CHROME);
-        if (root == null) { reply(request, false, null, "Portal Equatorial nao encontrado no Chrome"); return; }
-        AccessibilityNodeInfo unitField = findByViewId(root, "WEBDOOR_headercorporativogo_txtUC");
-        AccessibilityNodeInfo documentField = findByViewId(root, "WEBDOOR_headercorporativogo_txtDocumento");
-        RodLog.step("agencia", "campo unidade=" + (unitField != null)
-            + " campo documento=" + (documentField != null)
-            + " cpf=" + RodLog.describe(cpf) + " unidade=" + RodLog.describe(unit));
-        if (unitField == null || documentField == null) {
-            if (unitField != null) unitField.recycle();
-            if (documentField != null) documentField.recycle();
-            root.recycle();
-            reply(request, false, null, "Tela de acesso da Agencia Virtual nao encontrada");
-            return;
-        }
-        setNodeText(unitField, unit == null ? "" : unit);
-        setNodeText(documentField, cpf == null ? "" : cpf);
-        unitField.recycle();
-        documentField.recycle();
-        root.recycle();
-        // Escrever num campo dispara JS que limpa o outro: na primeira tentativa a
-        // unidade entrava e o CPF ficava vazio. Conferimos e reaplicamos antes de
-        // enviar, para nunca clicar em ENTRAR com formulario incompleto.
-        new Handler(Looper.getMainLooper()).postDelayed(() -> submitEquatorial(request, cpf, unit, 0), 900);
-    }
-
-    private void submitEquatorial(String request, String cpf, String unit, int attempt) {
-        AccessibilityNodeInfo root = packageRoot(CHROME);
-        if (root == null) { reply(request, false, null, "Portal Equatorial nao encontrado no Chrome"); return; }
-        AccessibilityNodeInfo unitField = findByViewId(root, "WEBDOOR_headercorporativogo_txtUC");
-        AccessibilityNodeInfo documentField = findByViewId(root, "WEBDOOR_headercorporativogo_txtDocumento");
-        if (unitField == null || documentField == null) {
-            if (unitField != null) unitField.recycle();
-            if (documentField != null) documentField.recycle();
-            root.recycle();
-            reply(request, false, null, "Campos da Agencia Virtual sumiram antes do envio");
-            return;
-        }
-        boolean unitOk = filled(unitField, unit);
-        boolean documentOk = filled(documentField, cpf);
-        RodLog.step("agencia", "tentativa " + attempt + " unidade_ok=" + unitOk
-            + " documento_ok=" + documentOk);
-        if (!unitOk) setNodeText(unitField, unit == null ? "" : unit);
-        if (!documentOk) setNodeText(documentField, cpf == null ? "" : cpf);
-        unitField.recycle();
-        documentField.recycle();
-        if (!unitOk || !documentOk) {
-            root.recycle();
-            if (attempt >= 3) {
-                reply(request, false, null, "Nao consegui preencher unidade e CPF na Agencia Virtual");
-                return;
-            }
-            new Handler(Looper.getMainLooper()).postDelayed(
-                () -> submitEquatorial(request, cpf, unit, attempt + 1), 900);
-            return;
-        }
-        boolean clicked = gestureClickLabel(root, "entrar");
-        RodLog.step("agencia", "ENTRAR por gesto: " + clicked);
-        if (!clicked) {
-            clicked = clickFirst(root, "entrar");
-            RodLog.step("agencia", "ENTRAR por ACTION_CLICK: " + clicked);
-        }
-        root.recycle();
-        reply(request, clicked, new JSONObject(), clicked ? null : "Botao ENTRAR da Agencia Virtual nao encontrado");
-    }
-
-    private static boolean filled(AccessibilityNodeInfo field, String expected) {
-        if (expected == null || expected.isEmpty()) return true;
-        CharSequence current = field.getText();
-        return current != null && digits(current.toString()).equals(digits(expected));
-    }
-
     private static AccessibilityNodeInfo findByViewId(AccessibilityNodeInfo node, String suffix) {
         String viewId = node.getViewIdResourceName();
         if (viewId != null && viewId.endsWith(suffix)) return AccessibilityNodeInfo.obtain(node);
@@ -435,21 +311,188 @@ public class JarvisAccessibilityService extends AccessibilityService {
         return null;
     }
 
-    private void readEquatorial(String request) {
+    /**
+     * Abre o seletor de imovel da area autenticada.
+     *
+     * A home autenticada mostra "Selecione Unidade Consumidora" com o contrato
+     * corrente. O portal identifica cada imovel por conta contrato, que e um
+     * numero diferente da unidade consumidora guardada no cofre, entao a
+     * correspondencia e tentada pelos dois: primeiro pelos digitos configurados,
+     * e so entao abrindo a lista para inspecao.
+     */
+    private void selectEquatorialContract(String request, String expectedUnit, int attempt) {
         AccessibilityNodeInfo root = packageRoot(CHROME);
-        if (root == null) { reply(request, false, null, "Portal Equatorial nao encontrado"); return; }
-        List<String> values = new ArrayList<>();
-        collect(root, values);
+        if (root == null) { reply(request, false, null, "Portal Equatorial nao encontrado no Chrome"); return; }
+
+        boolean chooser = containsLabel(root, "selecione unidade consumidora");
+        if (!chooser) {
+            // Ja estamos fora da home; a leitura decide o que fazer com a tela.
+            root.recycle();
+            RodLog.step("contrato", "sem seletor de imovel nesta tela");
+            reply(request, true, new JSONObject(), null);
+            return;
+        }
+
+        String expected = expectedUnit == null ? "" : expectedUnit.replaceAll("\\D", "");
+        boolean matched = !expected.isEmpty() && containsDigits(root, expected);
+        RodLog.step("contrato", "seletor presente, imovel configurado visivel=" + matched);
+
+        boolean opened;
+        if (matched) {
+            opened = gestureClickDigits(root, expected);
+        } else {
+            AccessibilityNodeInfo selector = findByViewId(root, "conta_contrato");
+            if (selector == null) selector = findByViewId(root, "select-contract");
+            opened = selector != null && gestureClickNode(selector);
+            if (selector != null) selector.recycle();
+        }
         root.recycle();
-        RodLog.step("leitura", "rotulos na tela: " + values.size());
-        for (int i = 0; i < Math.min(values.size(), 25); i++)
-            RodLog.step("leitura", "  [" + i + "] " + values.get(i));
+
+        if (!opened && attempt >= 2) {
+            reply(request, false, null, "Nao consegui abrir o seletor de imovel da Equatorial");
+            return;
+        }
+        RodLog.step("contrato", "seletor acionado na tentativa " + attempt);
+        new Handler(Looper.getMainLooper()).postDelayed(
+            () -> resolveContractDialog(request, expected), 2000);
+    }
+
+    /**
+     * Resolve a lista de contratos, que o Chrome desenha como dialogo do sistema.
+     *
+     * O <select> do portal nao vira conteudo web: vira um dialogo nativo, fora da
+     * janela do Chrome. Deixar esse dialogo aberto fazia o passo seguinte falhar
+     * com "portal nao encontrado", porque a raiz do Chrome some enquanto ele
+     * estiver na frente. Aqui ele sempre termina fechado, escolhendo o imovel
+     * quando ha correspondencia e voltando atras quando nao ha.
+     */
+    private void resolveContractDialog(String request, String expectedDigits) {
+        AccessibilityNodeInfo dialog = getRootInActiveWindow();
+        boolean isChrome = belongsTo(dialog, CHROME);
+        if (dialog == null || isChrome) {
+            // A lista nem chegou a abrir, ou ja se fechou sozinha.
+            if (dialog != null) dialog.recycle();
+            RodLog.step("contrato", "sem lista de contratos aberta");
+            reply(request, true, new JSONObject(), null);
+            return;
+        }
+        boolean picked = !expectedDigits.isEmpty() && gestureClickDigits(dialog, expectedDigits);
+        RodLog.step("contrato", "imovel escolhido na lista=" + picked);
+        dialog.recycle();
+        if (!picked) {
+            // Sem correspondencia nao da para adivinhar qual contrato e o imovel
+            // pedido; fechar e falhar e melhor do que ler a fatura de outro.
+            performGlobalAction(GLOBAL_ACTION_BACK);
+            new Handler(Looper.getMainLooper()).postDelayed(() -> reply(request, false, null,
+                "EQUATORIAL_UC_NAO_ENCONTRADA: o imovel configurado nao aparece na lista de contratos do portal"),
+                1200);
+            return;
+        }
+        new Handler(Looper.getMainLooper()).postDelayed(
+            () -> reply(request, true, new JSONObject(), null), 2000);
+    }
+
+    /** Toque no centro de um no ja localizado. */
+    private boolean gestureClickNode(AccessibilityNodeInfo node) {
+        Rect bounds = new Rect();
+        node.getBoundsInScreen(bounds);
+        if (bounds.isEmpty()) return false;
+        Path path = new Path();
+        path.moveTo(bounds.exactCenterX(), bounds.exactCenterY());
+        return dispatchGesture(new GestureDescription.Builder()
+            .addStroke(new GestureDescription.StrokeDescription(path, 0, 120)).build(), null, null);
+    }
+
+    /**
+     * Espera a pagina assentar num estado reconhecivel e le somente o necessario.
+     *
+     * dispatchGesture e ACTION_CLICK devolvem true sem que a pagina tenha reagido,
+     * entao nao da para confiar no retorno de uma acao: o que vale e reobservar a
+     * arvore. Sessao expirada e desafio antibot sao terminais na hora, porque
+     * insistir cegamente neles so gasta bateria e atrasa o aviso ao proprietario.
+     */
+    private void readEquatorial(String request, String expectedUnit) {
+        settleEquatorial(request, expectedUnit, System.currentTimeMillis() + PAGE_SETTLE_MILLIS);
+    }
+
+    private void settleEquatorial(String request, String expectedUnit, long deadline) {
         try {
-            Map<String,String> parsed = EquatorialTextParser.parse(String.join("\n", values));
-            JSONObject result = new JSONObject().put("source", "equatorial_chrome_accessibility");
-            for (Map.Entry<String,String> entry : parsed.entrySet()) result.put(entry.getKey(), entry.getValue());
+            AccessibilityNodeInfo root = packageRoot(CHROME);
+            if (root == null) {
+                if (System.currentTimeMillis() < deadline) {
+                    retryEquatorial(request, expectedUnit, deadline);
+                    return;
+                }
+                reply(request, false, null, "Portal Equatorial nao encontrado no Chrome");
+                return;
+            }
+            List<String> values = new ArrayList<>();
+            collect(root, values);
+            root.recycle();
+            // O conteudo nunca entra na trilha: a tela carrega valor, vencimento,
+            // linha digitavel e PIX.
+            EquatorialTextParser.Page page = EquatorialTextParser.parse(String.join("\n", values));
+
+            if (page.state == EquatorialTextParser.State.AUTH_REQUIRED) {
+                RodLog.step("equatorial", "portal devolveu a tela de autenticacao");
+                reply(request, false, null,
+                    "EQUATORIAL_AUTH_REQUIRED: a sessao da Equatorial expirou no Poco");
+                return;
+            }
+            if (page.state == EquatorialTextParser.State.HUMAN_CHECK) {
+                RodLog.step("equatorial", "portal exibiu desafio de verificacao humana");
+                reply(request, false, null,
+                    "EQUATORIAL_HUMAN_CHECK: a Equatorial pediu verificacao humana");
+                return;
+            }
+            if (page.state == EquatorialTextParser.State.NO_BILL) {
+                if (System.currentTimeMillis() < deadline) {
+                    retryEquatorial(request, expectedUnit, deadline);
+                    return;
+                }
+                RodLog.step("equatorial", "sessao valida, porem sem fatura nesta tela");
+                reply(request, false, null, "Nenhuma fatura da Equatorial visivel nesta tela");
+                return;
+            }
+
+            // Confirmar a unidade antes de atribuir a fatura ao imovel pedido.
+            // Atribuir por confianca poria a conta de um imovel no nome de outro.
+            String shown = page.get("uc").replaceAll("\\D", "");
+            String expected = expectedUnit == null ? "" : expectedUnit.replaceAll("\\D", "");
+            RodLog.found("equatorial", "unidade na tela", !shown.isEmpty());
+            if (shown.isEmpty()) {
+                reply(request, false, null,
+                    "Nao consegui confirmar a unidade consumidora na tela; nao vou atribuir esta fatura");
+                return;
+            }
+            if (!expected.isEmpty() && !shown.equals(expected)) {
+                reply(request, false, null,
+                    "A tela da Equatorial mostra outra unidade consumidora; selecione o imovel correto");
+                return;
+            }
+
+            RodLog.found("equatorial", "valor", !page.get("amount").isEmpty());
+            RodLog.found("equatorial", "vencimento", !page.get("due_date").isEmpty());
+            RodLog.found("equatorial", "referencia", !page.get("reference").isEmpty());
+            RodLog.found("equatorial", "codigo de barras", !page.get("barcode").isEmpty());
+            RodLog.found("equatorial", "pix", !page.get("pix").isEmpty());
+
+            JSONObject result = new JSONObject()
+                .put("source", "equatorial_chrome_session")
+                .put("amount", page.get("amount"))
+                .put("due_date", page.get("due_date"))
+                .put("reference", page.get("reference"))
+                .put("barcode", page.get("barcode"))
+                .put("pix", page.get("pix"));
             reply(request, true, result, null);
-        } catch (Exception error) { reply(request, false, null, error.getMessage()); }
+        } catch (Exception error) {
+            reply(request, false, null, error.getClass().getSimpleName() + ": " + error.getMessage());
+        }
+    }
+
+    private void retryEquatorial(String request, String expectedUnit, long deadline) {
+        new Handler(Looper.getMainLooper()).postDelayed(
+            () -> settleEquatorial(request, expectedUnit, deadline), PAGE_POLL_MILLIS);
     }
 
     private static void collectEditors(AccessibilityNodeInfo node, List<AccessibilityNodeInfo> result) {

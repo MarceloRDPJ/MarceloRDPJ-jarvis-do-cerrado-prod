@@ -955,16 +955,36 @@ class Executor:
         )
         if error:
             fallback = await self._poco_bill_cache_note("equatorial", property_key)
-            if any(marker in error.lower() for marker in ("captcha", "imperva", "verificacao humana")):
+            error_text = str(error).strip()
+            # Erros tipados do agente Android vêm antes da heurística por palavra-chave.
+            # Sessão expirada não é falha de infraestrutura: pedir login humano uma vez
+            # é mais honesto (e mais barato) do que repetir tentativas cegas no Poco.
+            if error_text.startswith("EQUATORIAL_AUTH_REQUIRED"):
+                return (
+                    "A sessão da Equatorial expirou no Poco. Abra o Chrome do Poco e faça "
+                    "login novamente na Equatorial; depois repita a consulta." + fallback
+                )
+            if error_text.startswith("EQUATORIAL_HUMAN_CHECK") or any(
+                marker in error_text.lower() for marker in ("captcha", "imperva", "verificacao humana")
+            ):
                 return "A Equatorial pediu verificação humana no Poco. Resolva a tela uma vez e repita a consulta; o ROD não tenta contornar o bloqueio." + fallback
             return f"Não consegui consultar a Equatorial agora: {error}" + fallback
-        return (
-            "Equatorial — consulta real pelo portal oficial\n"
-            f"Imóvel: {property_key.replace('_', ' ').title()}\n"
-            f"Fatura: {result.get('amount', 'indisponível')}\n"
-            f"Referência: {result.get('reference', 'indisponível')}\n"
-            f"Vencimento: {result.get('due_date', 'indisponível')}"
-        )
+        lines = [
+            "Equatorial — consulta real pelo portal oficial",
+            f"Imóvel: {property_key.replace('_', ' ').title()}",
+            f"Fatura: {result.get('amount', 'indisponível')}",
+            f"Referência: {result.get('reference', 'indisponível')}",
+            f"Vencimento: {result.get('due_date', 'indisponível')}",
+        ]
+        # Código de barras e PIX existem só em parte das faturas. Ausente é ausente:
+        # nenhuma linha inventada e nenhum rótulo que o usuário possa ler como leitura real.
+        barcode = str(result.get("barcode") or "").strip()
+        if barcode:
+            lines.append(f"Código de barras: {barcode}")
+        pix = str(result.get("pix") or "").strip()
+        if pix:
+            lines.append(f"PIX: {pix}")
+        return "\n".join(lines)
 
     def _cancel_action(self, chat_id: int) -> str:
         if chat_id in self.pending_actions:
