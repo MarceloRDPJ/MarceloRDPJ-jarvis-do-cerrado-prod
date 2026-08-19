@@ -21,10 +21,25 @@ import org.json.JSONObject;
  * segundos ora corta o carregamento no meio.
  */
 final class EquatorialReader {
-    /** Cobre o pior caso do fluxo inteiro; a tela precisa ficar acesa até o fim. */
-    private static final long SCREEN_BUDGET_MILLIS = 180_000L;
     /** Cada passo já espera por estado internamente; esta é a rede de segurança. */
-    private static final long CALL_TIMEOUT_MILLIS = 60_000L;
+    static final long CALL_TIMEOUT_MILLIS = 60_000L;
+    /** abrir, fechar aviso, selecionar imóvel, ler: cada um pode gastar o timeout inteiro. */
+    static final int FLOW_STEPS = 4;
+    /** Margem para o broadcast, o despertar da tela e a montagem da resposta. */
+    private static final long BUDGET_MARGIN_MILLIS = 30_000L;
+    /**
+     * Cobre o pior caso do fluxo inteiro; a tela precisa ficar acesa até o fim.
+     *
+     * Eram 180 s fixos para quatro chamadas de 60 s: no pior caso o wake lock caía
+     * antes do último passo, e a leitura falhava por tela apagada e não por portal.
+     * O valor agora é derivado, para não voltar a divergir do fluxo.
+     */
+    static final long SCREEN_BUDGET_MILLIS =
+        screenBudget(CALL_TIMEOUT_MILLIS, FLOW_STEPS, BUDGET_MARGIN_MILLIS);
+
+    static long screenBudget(long callTimeout, int steps, long margin) {
+        return callTimeout * steps + margin;
+    }
 
     private EquatorialReader() { }
 
