@@ -15,6 +15,11 @@ from jarvis.modules.system import SystemModule
 from jarvis.modules.network import NetworkModule
 from jarvis.modules.hydration import HydrationModule
 from jarvis.modules.adguard import AdGuardClient
+from jarvis.services.equatorial_providers import (
+    WEB_SESSION,
+    EquatorialProviderChain,
+    equatorial_code,
+)
 from datetime import datetime
 from jarvis.config import Config
 import os
@@ -60,6 +65,14 @@ BILL_ARTIFACT_UNAVAILABLE_MESSAGE = (
     "Não recebi o arquivo do Poco. Nenhum pagamento foi realizado; tente novamente em "
     "alguns minutos."
 )
+# A última leitura que eu tenho é antiga e está rotulada como antiga. Entregar o
+# Pix ou o boleto guardado dela seria apresentar dado velho como cobrança de agora
+# — o erro mais caro desta tela, porque quem paga não tem como perceber.
+BILL_STALE_ONLY_MESSAGE = (
+    "A última informação que tenho dessa conta é uma leitura guardada, não a fatura de "
+    "agora. Toque em ATUALIZAR para eu buscar de novo; não vou entregar um código de "
+    "pagamento antigo. Nenhum pagamento foi realizado."
+)
 PROVIDER_LABELS = {"equatorial": "Equatorial", "saneago": "Saneago"}
 
 
@@ -91,6 +104,14 @@ class Executor:
         # Referência da última leitura confirmada, para provar que o artefato
         # entregue é da mesma fatura que está na tela.
         self._bill_reference: Dict[tuple, str] = {}
+        # (concessionária, imóvel) cuja informação mais recente é CACHE rotulado.
+        # Enquanto estiver marcado, nenhum artefato de pagamento sai daqui.
+        self._bill_stale_only: Dict[tuple, bool] = {}
+        # Cadeia de canais oficiais da Equatorial. Uma instância por executor: a
+        # memória de saúde só serve para algo se sobreviver entre consultas.
+        self._equatorial_providers = EquatorialProviderChain(
+            default_timeout_seconds=Config.POCO_BILL_JOB_TIMEOUT_SECONDS
+        )
         logger.info("Executor inicializado com sucesso.")
 
     async def execute(self, intent_data: Dict[str, Any], chat_id: int) -> str:
@@ -902,9 +923,12 @@ class Executor:
         registrados em produção, nenhum começava com ``EQUATORIAL_`` e todos
         começavam com o nome da exceção. Procurar o código em qualquer posição
         sobrevive a qualquer embrulho que o Android venha a usar.
+
+        A extração vive em ``services.equatorial_providers`` porque a cadeia de
+        canais decide cooldown pelo mesmo código. Duas expressões regulares para o
+        mesmo contrato divergiriam no primeiro código novo.
         """
-        match = re.search(r"\b(EQUATORIAL_[A-Z_]+)", error_text or "")
-        return match.group(1) if match else ""
+        return equatorial_code(error_text)
 
     async def _poco_bill_cache_note(self, provider: str, property_key: str) -> str:
         """Última leitura confirmada guardada no Poco.
@@ -917,6 +941,18 @@ class Executor:
         )
         if error or not result:
             return ""
+        return self._cache_note_text(result)
+
+    @staticmethod
+    def _cache_note_text(result: dict | None) -> str:
+        """Rótulo da leitura guardada: valor, vencimento e IDADE explícita.
+
+        Só estes três campos. Código de barras e Pix existem em parte dos caches e
+        não podem aparecer aqui em nenhuma hipótese: seriam um código de pagamento
+        antigo colado ao lado de um valor antigo, o que qualquer pessoa leria como
+        a cobrança de agora.
+        """
+        result = result or {}
         age = result.get("cache_age_seconds")
         if not isinstance(age, (int, float)) or age < 0:
             when = "em data desconhecida"
@@ -998,22 +1034,37 @@ class Executor:
         mensagem editada no fim, e um aviso intermediário aqui deixava duas.
         """
         property_key = (params or {}).get("property", "casa")
-        result, failure = await self._equatorial_bill_read(property_key)
-        if failure:
-            return failure
-        return self._format_equatorial_bill(property_key, result)
+        outcome = await self._equatorial_chain_read(property_key)
+        return self._equatorial_outcome_text(property_key, outcome)
 
-    async def _equatorial_bill_read(self, property_key: str):
-        """(resultado, mensagem de falha já humanizada)."""
-        result, error = await self._run_poco_job(
-            "refresh_equatorial_bills",
-            Config.POCO_BILL_JOB_TIMEOUT_SECONDS,
-            {"property": property_key},
+    async def _equatorial_chain_read(self, property_key: str):
+        """Percorre os canais oficiais até um entregar a fatura.
+
+        A cadeia é política pura: quem executa continua sendo ``_run_poco_job``,
+        passado como ``runner``. Isso mantém um único ponto de contato com a fila
+        do Poco e deixa a decisão testável sem telefone.
+        """
+        outcome = await self._equatorial_providers.read(property_key, self._run_poco_job)
+        # Trilha com nome de canal e código tipado: material de log. A tela do dono
+        # nunca recebe nome de canal — ele pediu a conta, não o mapa da automação.
+        logger.info("Cadeia Equatorial concluída | %s", outcome.trail)
+        return outcome
+
+    def _equatorial_outcome_text(self, property_key: str, outcome) -> str:
+        """Texto final da consulta, sem nomear canal interno.
+
+        Três desfechos e nenhum meio-termo: leitura ao vivo, leitura guardada
+        (rotulada, com o motivo acionável de a consulta de agora não ter vindo) ou
+        só a falha humanizada.
+        """
+        if outcome.ok:
+            return self._format_equatorial_bill(property_key, outcome.result)
+        failure = self._equatorial_failure_message(
+            str(outcome.failure_text or "").strip(), property_key
         )
-        if error:
-            fallback = await self._poco_bill_cache_note("equatorial", property_key)
-            return None, self._equatorial_failure_message(str(error).strip(), property_key) + fallback
-        return result or {}, None
+        if outcome.informational:
+            return failure + self._cache_note_text(outcome.result)
+        return failure
 
     def _equatorial_failure_message(self, error_text: str, property_key: str) -> str:
         """Traduz a falha para uma frase que o dono pode agir a respeito.
@@ -1280,18 +1331,40 @@ class Executor:
         return None
 
     async def _equatorial_bill_card(self, property_key: str):
-        """(texto, deu_certo). Nunca levanta: o single-flight é compartilhado."""
+        """(texto, pode_pagar). Nunca levanta: o single-flight é compartilhado.
+
+        ``pode_pagar`` decide os botões PIX e BOLETO, e por isso é ``False`` também
+        quando a leitura veio do cache: oferecer pagamento sobre leitura antiga é o
+        contrário do que esses botões prometem.
+        """
         try:
-            result, failure = await self._equatorial_bill_read(property_key)
+            outcome = await self._equatorial_chain_read(property_key)
         except Exception:
             logger.exception("Falha inesperada na consulta da Equatorial")
             return BILL_GENERIC_FAILURE_MESSAGE, False
-        if failure:
-            return failure, False
-        self._remember_bill_property("equatorial", property_key)
-        reference = str((result or {}).get("reference") or "").strip()
-        self._bill_reference[("equatorial", property_key)] = reference
-        return self._format_equatorial_bill(property_key, result), True
+        text = self._equatorial_outcome_text(property_key, outcome)
+        key = ("equatorial", property_key)
+        if outcome.ok:
+            self._remember_bill_property("equatorial", property_key)
+            self._bill_reference[key] = str((outcome.result or {}).get("reference") or "").strip()
+            self._bill_stale_only[key] = False
+            return text, True
+        if outcome.informational:
+            self._forget_bill_payment_state("equatorial", property_key)
+        return text, False
+
+    def _forget_bill_payment_state(self, provider: str, property_key: str) -> None:
+        """Cache virou a informação mais recente: nada de pagamento sobrevive.
+
+        A referência confirmada e os artefatos em memória descrevem uma fatura que
+        eu não consigo mais confirmar. Mantê-los deixaria um toque em PIX de uma
+        mensagem antiga entregar código de pagamento como se fosse o de agora.
+        """
+        key = (provider, property_key)
+        self._bill_reference.pop(key, None)
+        for kind in ("pix", "boleto"):
+            self._bill_artifacts.pop((provider, property_key, kind), None)
+        self._bill_stale_only[key] = True
 
     # ---------- ARTEFATOS DE PAGAMENTO (PIX / BOLETO) ----------
     async def _run_poco_bill_action(self, action: str, property_key: str):
@@ -1299,7 +1372,19 @@ class Executor:
 
         Enquanto a fila do Poco não aceitar a ação, ``enqueue`` levanta
         ``ValueError``; o dono precisa de uma frase honesta, não de um traceback.
+
+        As duas ações de artefato de hoje saem da sessão web. Se ela acabou de ter
+        o acesso RECUSADO, enfileirar de novo é vender ao dono minutos de espera
+        para entregar a mesma recusa: o cooldown responde na hora, com a mesma
+        orientação. Só a recusa dispensa a tentativa — um tropeço de portal lento
+        não, porque ele pode não repetir e transformá-lo em "não posso" seria
+        mentira. O resultado da tentativa realimenta a saúde do canal, então uma
+        recusa no Pix também poupa a próxima consulta.
         """
+        remembered = self._equatorial_providers.refusal_reason(WEB_SESSION)
+        if remembered:
+            logger.info("Ação de artefato dispensada: canal em cooldown (%s)", remembered)
+            return None, self._equatorial_failure_message(remembered, property_key)
         try:
             result, error = await self._run_poco_job(
                 action,
@@ -1313,7 +1398,9 @@ class Executor:
             logger.exception("Falha ao enfileirar ação de artefato no Poco")
             return None, POCO_UNAVAILABLE_MESSAGE
         if error:
+            self._equatorial_providers.record_failure(WEB_SESSION, error)
             return None, self._equatorial_failure_message(str(error).strip(), property_key)
+        self._equatorial_providers.record_success(WEB_SESSION)
         return result or {}, None
 
     @staticmethod
@@ -1405,8 +1492,14 @@ class Executor:
         if time.time() - cached.get("captured_at", 0) > BILL_ARTIFACT_TTL_SECONDS:
             self._bill_artifacts.pop((provider, property_key, kind), None)
             return None
+        # Reaproveitar exige PROVA de que é a mesma fatura: as duas referências
+        # presentes e iguais. Antes bastava não haver contradição, e o silêncio
+        # passava por permissão — um canal que devolve valor sem referência, ou uma
+        # leitura ainda não confirmada, deixava o código do mês anterior valer como
+        # o de agora. Sem prova, buscar de novo custa um job; errar custa um
+        # pagamento.
         current = self._bill_reference.get((provider, property_key), "")
-        if current and cached.get("reference") and cached["reference"] != current:
+        if not current or cached.get("reference") != current:
             self._bill_artifacts.pop((provider, property_key, kind), None)
             return None
         return cached
@@ -1450,9 +1543,21 @@ class Executor:
             )
         return payload, reference, None
 
+    def _only_stale_reading(self, provider: str, property_key: str) -> bool:
+        """A informação mais recente desta conta é leitura guardada?
+
+        Estado desconhecido (nenhuma consulta nesta execução) NÃO conta: nesse caso
+        o artefato é buscado ao vivo agora, e recusar seria inventar um problema.
+        O que se recusa é o caso provado: já sei que só tenho leitura antiga.
+        """
+        return bool(self._bill_stale_only.get((provider, property_key)))
+
     async def _send_bill_pix(self, chat_id: int, property_key: str, query=None):
         provider = "equatorial"
         label = self._property_label(property_key)
+        if self._only_stale_reading(provider, property_key):
+            await self._send_bill_text(chat_id, BILL_STALE_ONLY_MESSAGE)
+            return None
         if self._flight_in_progress(provider, property_key, "pix"):
             await self._send_bill_text(
                 chat_id, f"⏳ Já estou buscando o Pix da Equatorial — {label}. Aguarde."
@@ -1529,6 +1634,9 @@ class Executor:
     async def _send_bill_boleto(self, chat_id: int, property_key: str, query=None):
         provider = "equatorial"
         label = self._property_label(property_key)
+        if self._only_stale_reading(provider, property_key):
+            await self._send_bill_text(chat_id, BILL_STALE_ONLY_MESSAGE)
+            return None
         if self._flight_in_progress(provider, property_key, "boleto"):
             await self._send_bill_text(
                 chat_id, f"⏳ Já estou buscando o boleto da Equatorial — {label}. Aguarde."
