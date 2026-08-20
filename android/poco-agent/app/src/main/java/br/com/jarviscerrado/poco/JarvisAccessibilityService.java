@@ -40,23 +40,25 @@ public class JarvisAccessibilityService extends AccessibilityService {
      * pagina que realmente emite, e abri-la por Intent preserva os cookies, o que
      * elimina todos os cliques intermediarios.
      */
-    private static final String SEGUNDA_VIA_HOST = "goias.equatorialenergia.com.br";
+    /**
+     * Rota exata da segunda via, capturada do location.href com a sessao viva.
+     *
+     * Uma tentativa anterior concluiu que este caminho nao era alcancavel por URL.
+     * A conclusao estava errada: os testes rodaram com a sessao da Agencia Virtual
+     * ja expirada, entao o que falhava era a sessao, nao a rota. Com sessao valida
+     * o Intent abre a pagina autenticada direto, o que dispensa navegar por menus.
+     *
+     * Este host mantem sessao propria, separada do portal institucional: estar
+     * logado la nao vale aqui.
+     */
+    private static final String SEGUNDA_VIA_URL =
+        "https://goias.equatorialenergia.com.br/AgenciaGO/Servi%C3%A7os/aberto/SegundaVia.aspx";
 
     /**
-     * Entrada da Agencia Virtual, onde a fatura de fato existe.
-     *
-     * A rota profunda da segunda via nao e alcancavel por URL: tres formas dela
-     * foram testadas e todas caem na pagina de sistema indisponivel, porque o
-     * portal so roteia esse caminho a partir da navegacao interna. Entrando pela
-     * porta, uma sessao viva leva a area autenticada e uma sessao morta mostra o
-     * formulario de login, que a leitura reconhece e reporta como tal.
-     *
-     * Vale notar que este host tem sessao propria, separada do portal
-     * institucional: estar logado la nao significa estar logado aqui.
+     * Abre a segunda via e confirma que o Chrome ficou visivel.
      */
     private static Uri segundaViaUri() {
-        return new Uri.Builder().scheme("https").authority(SEGUNDA_VIA_HOST)
-            .appendPath("LoginGO.aspx").build();
+        return Uri.parse(SEGUNDA_VIA_URL);
     }
     /** Prazo total para a pagina da Equatorial assentar num estado legivel. */
     private static final long PAGE_SETTLE_MILLIS = 25_000L;
@@ -379,35 +381,70 @@ public class JarvisAccessibilityService extends AccessibilityService {
      * ha o mesmo numero escrito de dois jeitos.
      */
     private void selectEquatorialContract(String request, String expectedUnit, int attempt) {
-        // Conferir a sessao antes de procurar o combo. Sem isso a tela de login
-        // era reportada como "pagina nao carregou o seletor", escondendo do dono
-        // a unica acao que resolve: entrar de novo na Agencia Virtual.
-        AccessibilityNodeInfo pagina = packageRoot(CHROME);
-        if (pagina != null) {
-            List<String> textos = new ArrayList<>();
-            collect(pagina, textos);
-            pagina.recycle();
-            EquatorialTextParser.Page estado = EquatorialTextParser.parse(String.join(System.lineSeparator(), textos));
-            if (estado.state == EquatorialTextParser.State.AUTH_REQUIRED) {
-                RodLog.step("contrato", "Agencia Virtual pediu autenticacao");
-                reply(request, false, null,
-                    "EQUATORIAL_AUTH_REQUIRED: a sessao da Agencia Virtual expirou no Poco");
-                return;
-            }
-            if (estado.state == EquatorialTextParser.State.HUMAN_CHECK) {
-                reply(request, false, null,
-                    "EQUATORIAL_HUMAN_CHECK: a Equatorial pediu verificacao humana");
-                return;
-            }
-        }
         String expected = expectedUnit == null ? "" : digits(expectedUnit);
         if (expected.isEmpty()) {
             reply(request, false, null,
                 "EQUATORIAL_PROPERTY_NOT_MAPPED: nenhuma unidade consumidora configurada para este imovel");
             return;
         }
-        pickSelectDigits(request, "CONTENT_comboBoxUC", expected, 0,
-            () -> reply(request, true, new JSONObject(), null));
+        awaitBillPage(request, expected, System.currentTimeMillis() + CHOOSER_RENDER_MILLIS);
+    }
+
+    /**
+     * Aguarda a pagina de segunda via renderizar antes de julgar o estado.
+     *
+     * Chrome ficar visivel nao quer dizer que a pagina carregou: a arvore ainda
+     * mostra a navegacao anterior por algumas centenas de milissegundos. Decidir
+     * ali reportava sessao expirada tendo sessao valida, que e o pior tipo de
+     * erro: manda o dono resolver um problema que nao existe. So depois do prazo,
+     * com a tela de login ainda na frente, a sessao e dada como caida.
+     */
+    private void awaitBillPage(String request, String expected, long deadline) {
+        AccessibilityNodeInfo pagina = packageRoot(CHROME);
+        if (pagina == null) {
+            if (System.currentTimeMillis() < deadline) {
+                new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> awaitBillPage(request, expected, deadline), UI_POLL_MILLIS);
+                return;
+            }
+            reply(request, false, null, "EQUATORIAL_PORTAL_TIMEOUT: portal nao ficou visivel");
+            return;
+        }
+        AccessibilityNodeInfo combo = findByViewId(pagina, "CONTENT_comboBoxUC");
+        boolean pronta = combo != null;
+        if (combo != null) combo.recycle();
+
+        List<String> textos = new ArrayList<>();
+        collect(pagina, textos);
+        pagina.recycle();
+        EquatorialTextParser.Page estado =
+            EquatorialTextParser.parse(String.join(System.lineSeparator(), textos));
+
+        if (pronta) {
+            RodLog.step("contrato", "pagina de segunda via pronta");
+            pickSelectDigits(request, "CONTENT_comboBoxUC", expected, 0,
+                () -> reply(request, true, new JSONObject(), null));
+            return;
+        }
+        if (estado.state == EquatorialTextParser.State.HUMAN_CHECK) {
+            reply(request, false, null,
+                "EQUATORIAL_HUMAN_CHECK: a Equatorial pediu verificacao humana");
+            return;
+        }
+        if (System.currentTimeMillis() < deadline) {
+            new Handler(Looper.getMainLooper()).postDelayed(
+                () -> awaitBillPage(request, expected, deadline), UI_POLL_MILLIS);
+            return;
+        }
+        if (estado.state == EquatorialTextParser.State.AUTH_REQUIRED) {
+            RodLog.step("contrato", "Agencia Virtual continuou pedindo autenticacao");
+            reply(request, false, null,
+                "EQUATORIAL_AUTH_REQUIRED: a sessao da Agencia Virtual expirou no Poco");
+            return;
+        }
+        RodLog.fail("contrato", "combo de unidade ausente apos o prazo");
+        reply(request, false, null,
+            "EQUATORIAL_BILL_NOT_FOUND: a pagina de segunda via nao carregou o seletor de unidade");
     }
 
     /** Escolhe num <select> a opcao cujos digitos, normalizados, casam com o esperado. */
@@ -572,7 +609,11 @@ public class JarvisAccessibilityService extends AccessibilityService {
      * confirma fechado.
      */
     private void emitEquatorial(String request) {
-        pickSelect(request, "CONTENT_cbTipoEmissao", new String[]{"fatura completa"}, 0,
+        // "Fatura completa" navega para SegundaViaDownload.aspx e produz um PDF, que
+        // nao serve para leitura pela arvore. "Apenas codigo de barras" e a opcao
+        // que renderiza o dado de pagamento na propria tela, que e o que o ROD
+        // precisa entregar.
+        pickSelect(request, "CONTENT_cbTipoEmissao", new String[]{"codigo de barras", "código de barras"}, 0,
             () -> pickSelect(request, "CONTENT_cbMotivo", new String[]{"outros"}, 0,
                 () -> pressEmitir(request, 0)));
     }
@@ -682,11 +723,21 @@ public class JarvisAccessibilityService extends AccessibilityService {
             () -> reply(request, true, new JSONObject(), null), 2500);
     }
 
-    /** Toque no centro de um no ja localizado. */
+    /**
+     * Toque no centro de um no ja localizado.
+     *
+     * Um elemento abaixo da dobra existe na arvore mas chega sem retangulo, e o
+     * gesto nao tem onde cair. Pedir ao Chrome que o traga para a viewport e
+     * devolver falso faz a tentativa seguinte encontra-lo ja visivel, em vez de
+     * repetir o mesmo toque no vazio.
+     */
     private boolean gestureClickNodeCenter(AccessibilityNodeInfo node) {
         Rect bounds = new Rect();
         node.getBoundsInScreen(bounds);
-        if (bounds.isEmpty()) return false;
+        if (bounds.isEmpty() || !node.isVisibleToUser()) {
+            node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
+            return false;
+        }
         Path path = new Path();
         path.moveTo(bounds.exactCenterX(), bounds.exactCenterY());
         return dispatchGesture(new GestureDescription.Builder()
