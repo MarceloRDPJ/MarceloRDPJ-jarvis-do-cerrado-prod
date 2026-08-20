@@ -300,6 +300,217 @@ final class EquatorialWebEngine {
         return seen;
     }
 
+    // ------------------------------------------------ Agência Web (host go.*)
+
+    /**
+     * Autentica na Agência Web, o portal do host {@code go.*}.
+     *
+     * É outro portal, não outra rota: o ASPX do host {@code goias.*} é guardado
+     * pelo Transmit Security DRS, que recusou a automação em silêncio, e aqui o
+     * portão é reCAPTCHA v3. O que este método faz é preencher o formulário e
+     * acionar o botão visível — o token de reCAPTCHA é produzido pela PRÓPRIA
+     * página, no {@code submit} que o {@code auth-go.js} intercepta. Nada de
+     * token fabricado, repetido ou montado à mão, e nenhuma chamada direta ao
+     * endpoint de autenticação. Se a pontuação recusar, é recusa legítima.
+     *
+     * Devolve o estado observado; não navega para a consulta. Quem decide o
+     * próximo passo é {@link EquatorialSession}.
+     */
+    static JSONObject loginAgenciaWeb(Context context, String unit, String document, long deadline)
+            throws Exception {
+        EquatorialWebEngine engine = new EquatorialWebEngine();
+        try {
+            return engine.runAgenciaWeb(context.getApplicationContext(), unit, document, deadline);
+        } finally {
+            engine.destroy();
+        }
+    }
+
+    private JSONObject runAgenciaWeb(Context context, String unit, String document, long deadline)
+            throws Exception {
+        create(context);
+        load(AgenciaWebLogin.LOGIN_URL, deadline);
+
+        JSONObject seen = observeAgenciaWeb();
+        EquatorialSession.State state = EquatorialSession.classifyAgenciaWeb(
+            seen.optBoolean("jwt", false), seen.optBoolean("err", false),
+            seen.optBoolean("form", false), respondingAgenciaWeb(seen), false);
+        RodLog.step("agenciaweb", "estado inicial=" + state);
+        // Sessão já viva: não há motivo para enviar credencial de novo, e cada
+        // envio evitado é uma tentativa que não se gasta contra a conta do dono.
+        if (state == EquatorialSession.State.SESSION_VALID)
+            return outcomeAgenciaWeb(state, true);
+
+        String doc = AgenciaWebLogin.document(document);
+        String uc = AgenciaWebLogin.unit(unit);
+        RodLog.step("agenciaweb", "credenciais do cofre documento="
+            + RodLog.describe(doc) + " unidade=" + RodLog.describe(uc));
+        if (!AgenciaWebLogin.ready(doc, uc))
+            throw new IllegalStateException(EquatorialSession.errorFor(
+                EquatorialSession.Decision.FAIL_NO_CREDENTIALS));
+
+        closeLgpdNotice();
+        fillAgenciaWeb(doc, uc);
+        submitAgenciaWeb();
+        return awaitAgenciaWebOutcome(
+            Math.min(deadline, System.currentTimeMillis() + LOGIN_WAIT_MILLIS));
+    }
+
+    /**
+     * Observa a página por marcador estrutural.
+     *
+     * O JWT sai como BOOLEANO. Ele é credencial portadora: quem tem o token
+     * entra na conta, então ele não atravessa esta fronteira nem para virar
+     * tamanho em log.
+     */
+    private JSONObject observeAgenciaWeb() throws Exception {
+        String script =
+            "(function(){"
+            + "var j=null;try{j=localStorage.getItem('jwt');}catch(e){}"
+            + "var f=document.querySelector('" + AgenciaWebLogin.FORM + "');"
+            + "var eb=document.querySelector('" + AgenciaWebLogin.ERROR_BOX + "');"
+            + "var vis=false;"
+            + "if(eb){var cs=getComputedStyle(eb);"
+            + "vis=(cs.display!=='none'&&cs.visibility!=='hidden'"
+            + "&&(eb.innerText||'').trim().length>0);}"
+            + "return JSON.stringify({jwt:!!(j&&j.length>0),form:!!f,err:vis,"
+            + "len:(document.body?document.body.innerText.length:0)});"
+            + "})()";
+        return new JSONObject(evalJson(script));
+    }
+
+    private boolean respondingAgenciaWeb(JSONObject seen) {
+        return !failed.get() && (seen.optBoolean("form", false)
+            || seen.optBoolean("jwt", false) || seen.optInt("len", 0) > 0);
+    }
+
+    /**
+     * Fecha o aviso de LGPD sem consentir com ele.
+     *
+     * O aviso cobre o formulário, então sair dele é pré-requisito. O outro botão
+     * do mesmo aviso é {@code #lgpd_accept}, rotulado "Enviar", e ele SUBMETE o
+     * consentimento — o ROD não tem autorização para consentir em nome do
+     * proprietário, então o alvo é só o "Fechar". Ausente conta como fechado:
+     * o aviso não aparece em toda visita.
+     */
+    private void closeLgpdNotice() throws Exception {
+        String script =
+            "(function(){"
+            + "var b=document.querySelector('" + AgenciaWebLogin.LGPD_CLOSE + "');"
+            + "if(!b) return JSON.stringify({present:false,closed:true});"
+            + "var r=b.getBoundingClientRect();"
+            + "if(r.width===0||r.height===0) return JSON.stringify({present:false,closed:true});"
+            + "b.click();"
+            + "var a=document.querySelector('" + AgenciaWebLogin.LGPD_CLOSE + "');"
+            + "var ar=a?a.getBoundingClientRect():null;"
+            + "return JSON.stringify({present:true,closed:(!ar||ar.width===0||ar.height===0)});"
+            + "})()";
+        JSONObject shut = new JSONObject(evalJson(script));
+        RodLog.step("agenciaweb", "aviso lgpd presente=" + shut.optBoolean("present", false)
+            + " fechado=" + shut.optBoolean("closed", false));
+    }
+
+    /**
+     * Preenche os dois campos que o handler realmente lê.
+     *
+     * A UC vai em {@code #senha-identificador} ({@code name=senha}), porque é
+     * dali que o {@code auth-go.js} tira o campo {@code uc} do JSON. Os campos
+     * {@code #identificador-conta-contrato} e {@code #identificador-2} existem no
+     * HTML, estão invisíveis e não são lidos: preenchê-los mandaria a UC vazia
+     * com aparência de formulário completo.
+     *
+     * Escreve, reobserva e reescreve — a mesma lição do outro portal: a máscara
+     * de entrada reformata o campo depois do primeiro evento, e conferir só o
+     * que foi escrito daria preenchido a um campo que a máscara esvaziou.
+     */
+    private void fillAgenciaWeb(String document, String unit) throws Exception {
+        String script =
+            "(function(){"
+            + "var d=document.querySelector('" + AgenciaWebLogin.FIELD_DOCUMENT + "');"
+            + "var u=document.querySelector('" + AgenciaWebLogin.FIELD_UNIT + "');"
+            + "if(!d||!u) return JSON.stringify({fields:false});"
+            + "function put(el,v){el.focus();el.value=v;"
+            + "el.dispatchEvent(new Event('input',{bubbles:true}));"
+            + "el.dispatchEvent(new Event('change',{bubbles:true}));}"
+            + "put(d," + JSONObject.quote(document) + ");"
+            + "put(u," + JSONObject.quote(unit) + ");"
+            + "put(d," + JSONObject.quote(document) + ");"
+            + "put(u," + JSONObject.quote(unit) + ");"
+            + "var s=document.querySelector('" + AgenciaWebLogin.FIELD_SERVICE + "');"
+            + "return JSON.stringify({fields:true,"
+            + "doc:d.value.replace(/\\D/g,'').length,uc:u.value.replace(/\\D/g,'').length,"
+            + "service:(s?(s.value||''):'')});"
+            + "})()";
+        JSONObject filled = new JSONObject(evalJson(script));
+        // Contagem de dígitos, nunca o valor: é CPF e unidade consumidora.
+        RodLog.step("agenciaweb", "campos presentes=" + filled.optBoolean("fields", false)
+            + " digitos_documento=" + filled.optInt("doc", 0)
+            + " digitos_unidade=" + filled.optInt("uc", 0)
+            + " servico=" + RodLog.sanitize(filled.optString("service", "")));
+        if (!filled.optBoolean("fields", false))
+            throw new IllegalStateException(
+                "EQUATORIAL_PORTAL_TIMEOUT: o formulario da Agencia Web nao apareceu no motor WebView");
+        if (filled.optInt("doc", 0) == 0 || filled.optInt("uc", 0) == 0)
+            throw new IllegalStateException(
+                "EQUATORIAL_PORTAL_TIMEOUT: os campos da Agencia Web nao aceitaram o preenchimento");
+    }
+
+    /**
+     * Aciona o botão visível de acessar, e nada além disso.
+     *
+     * O clique dispara o {@code submit} do formulário, e é o próprio
+     * {@code auth-go.js} que chama {@code grecaptcha.execute} e monta a
+     * requisição. Registrar se o {@code grecaptcha} carregou é o que separa
+     * "antifraude recusou" de "o reCAPTCHA nem existia neste motor" — sem isso o
+     * defeito seria procurado no lugar errado, como já aconteceu com o SDK de
+     * risco do portal ASPX.
+     */
+    private void submitAgenciaWeb() throws Exception {
+        String script =
+            "(function(){"
+            + "var f=document.querySelector('" + AgenciaWebLogin.FORM + "');"
+            + "var g=(typeof grecaptcha!=='undefined'&&!!grecaptcha.execute);"
+            + "if(!f) return JSON.stringify({clicked:false,recaptcha:g});"
+            + "var b=f.querySelector('button[type=submit]');"
+            + "if(!b||!b.offsetParent) return JSON.stringify({clicked:false,recaptcha:g});"
+            + "b.click();"
+            + "return JSON.stringify({clicked:true,recaptcha:g});"
+            + "})()";
+        JSONObject sent = new JSONObject(evalJson(script));
+        RodLog.step("agenciaweb", "acessar acionado=" + sent.optBoolean("clicked", false)
+            + " recaptcha carregado=" + sent.optBoolean("recaptcha", false));
+        if (!sent.optBoolean("clicked", false))
+            throw new IllegalStateException(
+                "EQUATORIAL_PORTAL_TIMEOUT: botao Acessar ausente no motor WebView");
+    }
+
+    /**
+     * Espera o veredito por estado, com prazo.
+     *
+     * O caminho é assíncrono de ponta a ponta — o token do reCAPTCHA é uma
+     * promessa e o login é um {@code fetch} — então observar uma vez logo depois
+     * do clique daria "sem veredito" um instante antes de o veredito existir.
+     */
+    private JSONObject awaitAgenciaWebOutcome(long limit) throws Exception {
+        EquatorialSession.State state = EquatorialSession.State.LOGIN_IN_PROGRESS;
+        boolean jwt = false;
+        while (System.currentTimeMillis() < limit) {
+            JSONObject seen = observeAgenciaWeb();
+            jwt = seen.optBoolean("jwt", false);
+            state = EquatorialSession.classifyAgenciaWeb(jwt, seen.optBoolean("err", false),
+                seen.optBoolean("form", false), respondingAgenciaWeb(seen), true);
+            if (state != EquatorialSession.State.LOGIN_IN_PROGRESS) break;
+            Thread.sleep(POLL_MILLIS * 2);
+        }
+        RodLog.step("agenciaweb", "estado apos envio=" + state);
+        return outcomeAgenciaWeb(state, jwt);
+    }
+
+    private JSONObject outcomeAgenciaWeb(EquatorialSession.State state, boolean jwt)
+            throws Exception {
+        return new JSONObject().put("state", state.name()).put("jwt", jwt);
+    }
+
     /** Escolhe a unidade no combo da segunda via, casando dígitos como o outro motor. */
     private void selectUnit(String unit, long deadline) throws Exception {
         String script =

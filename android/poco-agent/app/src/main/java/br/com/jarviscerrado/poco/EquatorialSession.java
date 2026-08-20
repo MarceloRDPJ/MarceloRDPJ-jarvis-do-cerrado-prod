@@ -38,6 +38,19 @@ final class EquatorialSession {
         LOGIN_OK,
         /** O portal afirmou que unidade, documento ou titular não conferem. */
         LOGIN_REJECTED,
+        /**
+         * O portal recusou e não disse por quê.
+         *
+         * Estado próprio porque a Agência Web ({@code go.*}) responde a mesma
+         * mensagem genérica para credencial errada e para pontuação de reCAPTCHA
+         * reprovada — o {@code auth-go.js} escreve o código {@code #gh678} para
+         * qualquer status diferente de 200. Chamar isso de credencial recusada
+         * mandaria o proprietário conferir o cofre quando o problema pode ser o
+         * antifraude, e chamar de verificação humana diria que houve desafio na
+         * tela quando não houve. É terminal como os dois, e honesto sobre a
+         * dúvida.
+         */
+        LOGIN_REFUSED_OPAQUE,
         /** Desafio antibot real na frente. Nunca se tenta contornar. */
         HUMAN_CHECK,
         /** O navegador não entregou página nenhuma: aba morta, guia trocada, WebView vazio. */
@@ -58,6 +71,8 @@ final class EquatorialSession {
         FALLBACK_WEBVIEW,
         /** Terminal: o portal recusou a credencial. */
         FAIL_LOGIN_REJECTED,
+        /** Terminal: o portal recusou sem dizer o motivo (credencial ou antifraude). */
+        FAIL_REFUSED_OPAQUE,
         /** Terminal: verificação humana em todos os motores. */
         FAIL_HUMAN_CHECK,
         /** Terminal: acabaram as tentativas permitidas. */
@@ -102,6 +117,10 @@ final class EquatorialSession {
             case LOGIN_REJECTED:
                 // Terminal por segurança, não por desistência.
                 return Decision.FAIL_LOGIN_REJECTED;
+            case LOGIN_REFUSED_OPAQUE:
+                // Também terminal: sem saber SE foi a credencial, repetir seria
+                // arriscar força bruta contra a conta do dono no escuro.
+                return Decision.FAIL_REFUSED_OPAQUE;
             case HUMAN_CHECK:
                 if (!webViewTried) return Decision.FALLBACK_WEBVIEW;
                 return Decision.FAIL_HUMAN_CHECK;
@@ -132,6 +151,9 @@ final class EquatorialSession {
             case FAIL_LOGIN_REJECTED:
                 return "EQUATORIAL_LOGIN_REJECTED: o portal recusou a unidade consumidora "
                     + "ou o documento cadastrados no cofre";
+            case FAIL_REFUSED_OPAQUE:
+                return "EQUATORIAL_LOGIN_REFUSED: a Agencia Web recusou o acesso sem dizer o "
+                    + "motivo; pode ser a credencial do cofre ou a pontuacao do reCAPTCHA";
             case FAIL_HUMAN_CHECK:
                 return "EQUATORIAL_HUMAN_CHECK: a Equatorial pediu verificacao humana nos dois motores";
             case FAIL_NO_CREDENTIALS:
@@ -146,6 +168,7 @@ final class EquatorialSession {
 
     static boolean terminal(Decision decision) {
         return decision == Decision.FAIL_LOGIN_REJECTED
+            || decision == Decision.FAIL_REFUSED_OPAQUE
             || decision == Decision.FAIL_HUMAN_CHECK
             || decision == Decision.FAIL_EXHAUSTED
             || decision == Decision.FAIL_NO_CREDENTIALS;
@@ -249,6 +272,37 @@ final class EquatorialSession {
         }
         // Página que não é login, não é fatura e não tem o seletor: navegador em
         // estado ruim (aba errada, erro de rede, página em branco).
+        return State.BROWSER_STALE;
+    }
+
+    /**
+     * Estado da sessão na Agência Web ({@code go.*}), por marcador ESTRUTURAL.
+     *
+     * O portal ASPX obriga a ler texto de tela, e texto engana: o rodapé carrega
+     * palavras de login em toda página, e foi assim que a classificação errou uma
+     * vez. Aqui existe algo melhor: o {@code auth-go.js} só grava
+     * {@code localStorage.jwt} depois de um 200 do servidor. Presença do JWT é,
+     * portanto, prova de sessão viva — não indício.
+     *
+     * O que este método NÃO faz: distinguir credencial errada de reCAPTCHA
+     * reprovado. A página não tem essa informação, e inventá-la aqui seria pior
+     * do que admitir a dúvida. Quem quiser o status HTTP tem de olhar a rede.
+     *
+     * @param jwtPresent       {@code localStorage.jwt} existe e não está vazio
+     * @param errorVisible     a caixa de erro do formulário está visível
+     * @param loginFormPresent o formulário do titular está no DOM
+     * @param browserResponding o motor entregou alguma página
+     * @param afterSubmit      a observação é posterior a um envio
+     */
+    static State classifyAgenciaWeb(boolean jwtPresent, boolean errorVisible,
+                                    boolean loginFormPresent, boolean browserResponding,
+                                    boolean afterSubmit) {
+        if (!browserResponding) return State.BROWSER_STALE;
+        if (jwtPresent) return afterSubmit ? State.LOGIN_OK : State.SESSION_VALID;
+        // Só depois do envio um erro visível é veredito. Antes dele, a caixa
+        // pode ter sobrado de uma tentativa anterior na mesma aba.
+        if (errorVisible && afterSubmit) return State.LOGIN_REFUSED_OPAQUE;
+        if (loginFormPresent) return afterSubmit ? State.LOGIN_IN_PROGRESS : State.SESSION_EXPIRED;
         return State.BROWSER_STALE;
     }
 
