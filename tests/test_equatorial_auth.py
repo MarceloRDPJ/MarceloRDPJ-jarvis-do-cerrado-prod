@@ -118,7 +118,7 @@ async def test_unknown_error_keeps_the_generic_failure_message(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_barcode_is_shown_and_absent_pix_is_never_mentioned(monkeypatch):
+async def test_the_barcode_never_reaches_the_message_text(monkeypatch):
     executor = build_executor(
         monkeypatch,
         result={
@@ -131,12 +131,18 @@ async def test_barcode_is_shown_and_absent_pix_is_never_mentioned(monkeypatch):
 
     response = await executor._poco_equatorial_bills({"property": "casa"})
 
-    assert "Código de barras: 82640000001-8 79900210442-3" in response
-    assert "pix" not in response.lower()
+    # Trava invertida de proposito. Antes isto EXIGIA o codigo dentro do texto,
+    # e enquanto exigia existia um formatador que sabia imprimi-lo. Texto fica no
+    # historico do Telegram para sempre, e esse caminho contornava de uma vez
+    # todas as travas de frescor — TTL, referencia igual e trava de leitura
+    # antiga protegem os BOTOES, nao o texto. O codigo sai por botao ou nao sai.
+    assert "82640000001" not in response
+    assert "digo de barras" not in response
+    assert "R$ 187,90" in response
 
 
 @pytest.mark.asyncio
-async def test_pix_is_shown_when_present(monkeypatch):
+async def test_the_pix_payload_never_reaches_the_message_text(monkeypatch):
     executor = build_executor(
         monkeypatch,
         result={
@@ -149,8 +155,9 @@ async def test_pix_is_shown_when_present(monkeypatch):
 
     response = await executor._poco_equatorial_bills({"property": "casa"})
 
-    assert "PIX: 00020126580014BR.GOV.BCB.PIX" in response
-    assert "Código de barras" not in response
+    assert "00020126580014" not in response
+    assert "pix" not in response.lower()
+    assert "R$ 187,90" in response
 
 
 @pytest.mark.asyncio
@@ -166,7 +173,7 @@ async def test_missing_barcode_and_pix_are_simply_omitted(monkeypatch):
     assert "Código de barras" not in response
     assert "pix" not in response.lower()
     assert "R$ 187,90" in response
-    assert response.strip().endswith("Vencimento: 12/08/2026")
+    assert "Vencimento: 12/08/2026" in response
 
 
 @pytest.mark.asyncio

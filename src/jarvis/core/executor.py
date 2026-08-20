@@ -1103,30 +1103,30 @@ class Executor:
         logger.info("Cadeia Equatorial concluída | %s", outcome.trail)
         return outcome
 
-    def _equatorial_outcome_text(self, property_key: str, outcome, *, screen: bool = False) -> str:
+    def _equatorial_outcome_text(self, property_key: str, outcome) -> str:
         """Texto final da consulta, sem nomear canal interno.
 
         Três desfechos e nenhum meio-termo: leitura ao vivo, leitura guardada
         (rotulada, com o motivo acionável de a consulta de agora não ter vindo) ou
         só a falha humanizada.
 
-        ``screen=True`` é o cartão que vai para o Telegram, no formato literal que
-        o dono pediu. ``screen=False`` é a forma longa e antiga do texto da
-        leitura, que hoje só sai por ``_poco_equatorial_bills`` — nenhuma mensagem
-        do bot passa por ela. Ela sobrevive porque os testes da cadeia e da sessão
-        a usam como saída observável do pipeline de leitura, e esses arquivos não
-        são meus. LEIA O ALERTA em ``_format_equatorial_bill``: essa forma imprime
-        código de pagamento e não pode voltar para a tela.
+        Existe UMA forma do texto da leitura, e ela é o cartão. Havia uma segunda,
+        longa, que sobreviveu por um tempo porque os testes a liam como saída
+        observável do pipeline — e ela colava o Pix e o código de barras no TEXTO
+        da mensagem. Texto vive no histórico do chat para sempre, e aquele caminho
+        contornava de uma vez todas as travas de frescor: TTL, referência igual e
+        trava de leitura antiga protegem os BOTÕES. Um mês depois o dono rolaria a
+        conversa, encontraria o Pix ao lado de um valor e pagaria a fatura do mês
+        passado sem ter como perceber. Um formatador que ninguém chama mas que
+        sabe imprimir código de pagamento é uma arma carregada guardada em casa.
         """
         if outcome.ok:
-            if screen:
-                return bill_screen.render_bill_card(
-                    "equatorial",
-                    self._property_label(property_key),
-                    outcome.result,
-                    read_at=self._clock(),
-                )
-            return self._format_equatorial_bill(property_key, outcome.result)
+            return bill_screen.render_bill_card(
+                "equatorial",
+                self._property_label(property_key),
+                outcome.result,
+                read_at=self._clock(),
+            )
         failure = self._equatorial_failure_message(
             str(outcome.failure_text or "").strip(), property_key
         )
@@ -1271,43 +1271,6 @@ class Executor:
             return PORTAL_UNAVAILABLE_MESSAGE
 
         return BILL_GENERIC_FAILURE_MESSAGE
-
-    def _format_equatorial_bill(self, property_key: str, result: dict | None) -> str:
-        """FORMA ANTIGA DO TEXTO DA LEITURA — NÃO PODE VOLTAR PARA A TELA.
-
-        Nenhuma mensagem do bot passa por aqui: o Telegram usa
-        ``bill_screen.render_bill_card``. Isto continua existindo porque os testes
-        da cadeia de canais e da sessão leem ``_poco_equatorial_bills`` como saída
-        observável do pipeline, e esses arquivos são de outro agente.
-
-        Três motivos para ela nunca voltar à tela, e o terceiro é o caro:
-
-        1. ``Equatorial — consulta real pelo portal oficial`` é o mapa da
-           automação; o dono pediu a conta.
-        2. ``Vencimento: indisponível`` é rótulo com cara de leitura real para um
-           dado que a fatura não trouxe.
-        3. O Pix e o código de barras ficavam no TEXTO da mensagem. O texto vive
-           no histórico do chat para sempre; o código de pagamento vale uma fatura.
-           Era um caminho por fora que contornava TODAS as travas de frescor
-           (TTL, referência igual, trava de leitura antiga): um mês depois o dono
-           rola a conversa, encontra o Pix colado num valor e paga a fatura do mês
-           passado sem ter como perceber.
-        """
-        result = result or {}
-        lines = [
-            "Equatorial — consulta real pelo portal oficial",
-            f"Imóvel: {self._property_label(property_key)}",
-            f"Fatura: {result.get('amount', 'indisponível')}",
-            f"Referência: {result.get('reference', 'indisponível')}",
-            f"Vencimento: {result.get('due_date', 'indisponível')}",
-        ]
-        barcode = str(result.get("barcode") or "").strip()
-        if barcode:
-            lines.append(f"Código de barras: {barcode}")
-        pix = str(result.get("pix") or "").strip()
-        if pix:
-            lines.append(f"PIX: {pix}")
-        return "\n".join(lines)
 
     @staticmethod
     def _clock() -> str:
@@ -1578,7 +1541,7 @@ class Executor:
         except Exception:
             logger.exception("Falha inesperada na consulta da Equatorial")
             return BILL_GENERIC_FAILURE_MESSAGE, False
-        text = self._equatorial_outcome_text(property_key, outcome, screen=True)
+        text = self._equatorial_outcome_text(property_key, outcome)
         key = ("equatorial", property_key)
         if outcome.ok:
             self._remember_bill_property("equatorial", property_key)
