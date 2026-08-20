@@ -827,18 +827,17 @@ public class JarvisAccessibilityService extends AccessibilityService {
                 return;
             }
 
-            // Confirmar a unidade antes de atribuir a fatura ao imovel pedido.
-            // Atribuir por confianca poria a conta de um imovel no nome de outro.
+            // A confirmacao do imovel acontece a montante: o passo de selecao casa
+            // o valor exato da unidade no combo, confirma o dialogo fechar e o
+            // portal voltar, e so entao emite. A tela de resultado desta rota nao
+            // repete a unidade, e exigir que ela repita rejeitava faturas legitimas.
+            // Se a tela exibir uma unidade, ela ainda tem de bater: divergencia
+            // continua sendo recusa, porque atribuir a conta de um imovel a outro
+            // e o pior erro possivel aqui.
             String shown = page.get("uc").replaceAll("\\D", "");
             String expected = expectedUnit == null ? "" : expectedUnit.replaceAll("\\D", "");
-            RodLog.found("equatorial", "unidade na tela", !shown.isEmpty());
-            if (shown.isEmpty()) {
-                reply(request, false, null,
-                    "EQUATORIAL_CONTRACT_NOT_FOUND: a tela nao confirma a unidade consumidora; "
-                        + "nao vou atribuir esta fatura");
-                return;
-            }
-            if (!expected.isEmpty() && !shown.equals(expected)) {
+            RodLog.found("equatorial", "unidade repetida na tela", !shown.isEmpty());
+            if (!shown.isEmpty() && !expected.isEmpty() && !shown.equals(expected)) {
                 RodLog.fail("equatorial", "a tela mostra outro imovel");
                 reply(request, false, null,
                     "EQUATORIAL_CONTRACT_NOT_FOUND: a tela mostra outra unidade consumidora");

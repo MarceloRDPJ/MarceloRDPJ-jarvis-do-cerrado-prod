@@ -408,4 +408,32 @@ public class EquatorialParserTest {
         assertEquals(EquatorialTextParser.State.BILL, result.state);
         assertEquals("1.234,56", result.get("amount"));
     }
+
+    @Test
+    public void openBillListingWithReferenceButNoDueDateIsStillABill() {
+        // Falha real: a listagem de faturas em aberto do portal traz mes de
+        // referencia e valor, e nenhum vencimento. Exigir vencimento fazia uma
+        // fatura verdadeira ser reportada como inexistente.
+        String page = "Mes/Ano de referencia Valor Download Pagamento via PIX\n"
+            + "Referencia 07/2026\n"
+            + "R$ 210,44\n"
+            + "Download";
+
+        EquatorialTextParser.Page result = EquatorialTextParser.parse(page);
+
+        assertEquals(EquatorialTextParser.State.BILL, result.state);
+        assertEquals("210,44", result.get("amount"));
+        assertEquals("07/2026", result.get("reference"));
+        assertEquals("", result.get("due_date"));
+    }
+
+    @Test
+    public void amountWithNoTemporalAnchorIsStillRefused() {
+        // Contraprova: um R$ solto nao vira fatura. Sem vencimento nem referencia
+        // nao ha como saber de que conta se trata.
+        EquatorialTextParser.Page result =
+            EquatorialTextParser.parse("Promocao Energia em Dia\nR$ 210,44\nSaiba mais");
+
+        assertEquals(EquatorialTextParser.State.NO_BILL, result.state);
+    }
 }

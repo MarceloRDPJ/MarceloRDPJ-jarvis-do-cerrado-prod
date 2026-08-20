@@ -83,6 +83,20 @@ final class EquatorialTextParser {
         Pattern.compile("(?i)(?:refer.ncia|m.s de refer.ncia|compet.ncia)\\s*:?\\s*([0-9]{2}/[0-9]{4})");
 
     /**
+     * Referência com o mês abreviado, como JUL/2026.
+     *
+     * A listagem de faturas em aberto do portal escreve assim, e o rótulo
+     * "Mês/Ano de referência" fica no cabeçalho da tabela, longe do valor. Exigir
+     * rótulo adjacente e mês em dígitos fazia a referência da fatura real passar
+     * batido, e a fatura inteira ser reportada como inexistente.
+     */
+    private static final Pattern REFERENCE_MONTH_NAME = Pattern.compile(
+        "(?i)\\b(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)[./-]\\s*(\\d{4})\\b");
+
+    private static final String[] MONTHS =
+        {"JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"};
+
+    /**
      * Linha digitável de concessionária: 44 a 48 dígitos numa única linha.
      *
      * Os separadores aceitos são espaço, tabulação, ponto e hífen — jamais quebra
@@ -115,14 +129,18 @@ final class EquatorialTextParser {
         Map<String, String> fields = new LinkedHashMap<>();
         fields.put("amount", amount(text));
         fields.put("due_date", capture(text, DUE_DATE));
-        fields.put("reference", capture(text, REFERENCE));
+        fields.put("reference", reference(text));
         fields.put("barcode", digitableLine(text));
         fields.put("pix", capture(text, PIX));
         fields.put("uc", capture(text, UNIT));
 
-        // Valor e vencimento são o mínimo que identifica uma fatura. Sem eles a
-        // tela é outra coisa, e inventar campos ausentes seria pior que falhar.
-        if (fields.get("amount").isEmpty() || fields.get("due_date").isEmpty())
+        // O valor sozinho nao identifica uma fatura: qualquer tela do portal pode
+        // exibir um R$. Exige-se o valor mais uma ancora temporal — vencimento ou
+        // referencia. Exigir o vencimento especificamente descartava a listagem de
+        // faturas em aberto do proprio portal, que traz mes de referencia e valor
+        // mas nao data de vencimento; uma fatura real era reportada como ausente.
+        boolean temAncora = !fields.get("due_date").isEmpty() || !fields.get("reference").isEmpty();
+        if (fields.get("amount").isEmpty() || !temAncora)
             return new Page(State.NO_BILL, fields);
         return new Page(State.BILL, fields);
     }
@@ -143,6 +161,18 @@ final class EquatorialTextParser {
         Matcher matcher = AMOUNT_ANY.matcher(text);
         while (matcher.find()) distinct.add(matcher.group(1).trim());
         return distinct.size() == 1 ? distinct.iterator().next() : "";
+    }
+
+    /** Referencia normalizada para MM/AAAA, venha o mes em digitos ou abreviado. */
+    private static String reference(String text) {
+        String rotulada = capture(text, REFERENCE);
+        if (!rotulada.isEmpty()) return rotulada;
+        Matcher matcher = REFERENCE_MONTH_NAME.matcher(text);
+        if (!matcher.find()) return "";
+        String mes = matcher.group(1).toUpperCase();
+        for (int i = 0; i < MONTHS.length; i++)
+            if (MONTHS[i].equals(mes)) return String.format("%02d/%s", i + 1, matcher.group(2));
+        return "";
     }
 
     /** A linha digitável circula com pontos, espaços e hifens; guardamos só os dígitos. */
