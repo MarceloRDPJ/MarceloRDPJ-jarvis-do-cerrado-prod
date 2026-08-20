@@ -188,6 +188,78 @@ async def test_a_refused_login_is_not_retried_thirty_seconds_later():
 
 
 @pytest.mark.asyncio
+async def test_a_live_channel_returning_a_stored_reading_is_demoted_to_informational():
+    """O RESULTADO decide se é leitura de agora, não a expectativa do canal.
+
+    Declarar isso no ``ProviderSpec`` bastava enquanto só o canal de cache
+    devolvia dado guardado. Um canal ao vivo que devolva a última leitura que ele
+    mesmo tinha era apresentado como consulta de agora — com hora exata na tela e
+    PIX/BOLETO liberados sobre dado que o próprio payload declarava velho.
+    """
+    chain = build_chain()
+    guardado = bill_result(cache_age_seconds=86400)
+    outcome = await chain.read("casa", Runner({ACTIONS[WEB_SESSION]: (guardado, None)}))
+
+    assert outcome.has_reading
+    assert outcome.informational, "payload declarou idade; não é leitura de agora"
+    assert not outcome.ok, "leitura guardada não pode liberar PIX/BOLETO"
+
+
+@pytest.mark.asyncio
+async def test_from_cache_alone_is_enough_to_demote_a_live_channel():
+    """``from_cache`` sem idade também é o canal dizendo que não é de agora."""
+    chain = build_chain()
+    guardado = bill_result(from_cache=True)
+    outcome = await chain.read("casa", Runner({ACTIONS[WEB_SESSION]: (guardado, None)}))
+
+    assert not outcome.ok
+
+
+@pytest.mark.asyncio
+async def test_a_reading_without_declared_age_still_counts_as_live():
+    """Sem esta contraparte, a proteção custaria o produto.
+
+    Exigir prova de frescor de todo canal deixaria a sessão web — a única
+    provada, e que não carimba idade — sem poder entregar Pix nunca.
+    """
+    chain = build_chain()
+    outcome = await chain.read("casa", Runner({ACTIONS[WEB_SESSION]: (bill_result(), None)}))
+
+    assert outcome.ok
+
+
+@pytest.mark.asyncio
+async def test_refresh_pressed_during_a_running_query_still_tries_the_channel(monkeypatch):
+    """ATUALIZAR apertado no meio de uma consulta não pode herdar o voo antigo.
+
+    Cenário real: o dono manda a consulta, ela demora, ele se impacienta e aperta
+    ATUALIZAR. Antes, o segundo toque aderia ao voo em curso — que respeitou o
+    cooldown — e o canal preferido NUNCA era tentado. Ele recebia a recusa
+    lembrada com a impressão, correta, de que o botão não fez nada.
+    """
+    clock = FakeClock()
+    executor = build_executor(
+        monkeypatch,
+        jobs={ACTIONS[WEB_SESSION]: (None, wire("EQUATORIAL_LOGIN_FAILED"))},
+        clock=clock,
+        delays={ACTIONS[WEB_SESSION]: 0.05},
+    )
+    # Primeira recusa: o canal entra em cooldown.
+    await executor._equatorial_bill_flow(1, "casa")
+    executor.poco_calls.clear()
+
+    # Consulta comum em voo, e o dono aperta ATUALIZAR enquanto ela corre.
+    comum = asyncio.ensure_future(executor._equatorial_bill_flow(1, "casa"))
+    await asyncio.sleep(0)
+    await executor.handle_bill_callback(1, "bill_refresh:equatorial:casa", FakeQuery(99))
+    await comum
+
+    assert job_calls(executor, ACTIONS[WEB_SESSION]), (
+        "o ATUALIZAR do dono aderiu ao voo não forçado e não tentou o canal"
+    )
+
+
+@pytest.mark.asyncio
 async def test_the_owner_pressing_refresh_gets_a_fresh_attempt_despite_the_cooldown():
     """ATUALIZAR do dono desmente a suposição do cooldown.
 

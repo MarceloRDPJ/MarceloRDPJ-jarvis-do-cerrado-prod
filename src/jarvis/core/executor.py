@@ -103,6 +103,10 @@ class Executor:
         # O Poco executa um job por vez, então dois toques rápidos no mesmo botão
         # não criavam duas leituras — criavam uma fila que dobrava a espera.
         self._bill_flights: Dict[tuple, Any] = {}
+        # Se o voo em curso nasceu de um ATUALIZAR do dono. Sem lembrar
+        # disso, um toque forçado herdava o resultado de uma consulta que
+        # não forçou nada.
+        self._bill_flight_forced: Dict[tuple, bool] = {}
         # Artefato de pagamento em memória, nunca em disco e nunca em log.
         self._bill_artifacts: Dict[tuple, Dict[str, Any]] = {}
         # Referência da última leitura confirmada, para provar que o artefato
@@ -1325,7 +1329,9 @@ class Executor:
         task = self._bill_flights.get((provider, property_key, action))
         return task is not None and not task.done()
 
-    async def _single_flight(self, provider: str, property_key: str, action: str, factory):
+    async def _single_flight(
+        self, provider: str, property_key: str, action: str, factory, *, forced: bool = False
+    ):
         """Uma automação por (concessionária, imóvel, ação).
 
         O Poco executa um job por vez. Dois toques rápidos no mesmo botão criavam
@@ -1334,19 +1340,36 @@ class Executor:
         que já existe. O ``shield`` evita que um chamador que desistiu (timeout do
         Telegram, mensagem apagada) cancele o job de quem ainda espera.
 
+        ``forced`` é o ATUALIZAR apertado pelo dono, e ele NÃO adere a um voo que
+        não foi forçado. O caso é concreto: a consulta demora minutos, o dono se
+        impacienta e aperta ATUALIZAR — e antes ele herdava o resultado da consulta
+        antiga, que respeitou o cooldown. O canal preferido nunca chegava a ser
+        tentado, e ele recebia a recusa lembrada com a impressão, correta, de que
+        o botão não fez nada. Espera-se o voo em curso terminar (o telefone é um
+        só) e AÍ se faz a tentativa nova, em vez de disputar o aparelho com ele.
+
         Devolve ``(resultado, reaproveitado)``.
         """
         key = (provider, property_key, action)
-        existing = self._bill_flights.get(key)
-        if existing is not None and not existing.done():
-            return await asyncio.shield(existing), True
+        while True:
+            existing = self._bill_flights.get(key)
+            if existing is None or existing.done():
+                break
+            outcome = await asyncio.shield(existing)
+            if not forced or self._bill_flight_forced.get(key, False):
+                return outcome, True
+            # Reobserva: outro toque forçado pode ter começado enquanto esperávamos,
+            # e nesse caso aderir a ELE é o certo — dois jobs forçados seguidos só
+            # fariam o dono esperar duas vezes pela mesma resposta.
         task = asyncio.ensure_future(factory())
         self._bill_flights[key] = task
+        self._bill_flight_forced[key] = forced
         try:
             return await asyncio.shield(task), False
         finally:
             if self._bill_flights.get(key) is task and task.done():
                 self._bill_flights.pop(key, None)
+                self._bill_flight_forced.pop(key, None)
 
     @staticmethod
     def _telegram_keyboard_classes():
@@ -1497,6 +1520,7 @@ class Executor:
             property_key,
             query=query,
             card=lambda: self._equatorial_bill_card(property_key, forced=forced),
+            forced=forced,
         )
 
     async def _saneago_bill_flow(self, chat_id: int, property_key: str, query=None):
@@ -1514,7 +1538,9 @@ class Executor:
             card=lambda: self._saneago_bill_card(property_key),
         )
 
-    async def _bill_flow(self, chat_id: int, provider: str, property_key: str, *, query, card):
+    async def _bill_flow(
+        self, chat_id: int, provider: str, property_key: str, *, query, card, forced: bool = False
+    ):
         """Consulta com UMA mensagem: abre com o aviso e termina editando-a.
 
         O aviso agora diz quanto tempo isso costuma levar e que a resposta chega
@@ -1530,7 +1556,9 @@ class Executor:
         else:
             message_id = await self._send_bill_text(chat_id, header)
 
-        (text, ok), _reused = await self._single_flight(provider, property_key, "bills", card)
+        (text, ok), _reused = await self._single_flight(
+            provider, property_key, "bills", card, forced=forced
+        )
         # Água não tem entrega de artefato hoje: oferecer PIX ali seria um botão
         # que só sabe dizer "não habilitado".
         payment = ok and provider == "equatorial"

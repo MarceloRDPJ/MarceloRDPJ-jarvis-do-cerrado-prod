@@ -217,6 +217,26 @@ def classify_failure(error_text: Any) -> str:
     return FAILURE_TRANSIENT
 
 
+def _declares_age(result: Any) -> bool:
+    """O próprio resultado se declara guardado?
+
+    ``cache_age_seconds`` e ``from_cache`` fazem parte do vocabulário que o
+    agente Android já fala. Um canal que os preencha está dizendo, com as
+    palavras dele, que aquilo não é a fatura de agora — e essa afirmação vale
+    mais do que a expectativa estática de quem escreveu a cadeia.
+
+    Idade ausente ou zero conta como leitura de agora: exigir prova de frescor
+    de todo canal deixaria a sessão web, que é a única provada, sem poder
+    entregar Pix — e aí a proteção custaria o produto.
+    """
+    if not isinstance(result, Mapping):
+        return False
+    age = result.get("cache_age_seconds")
+    if isinstance(age, (int, float)) and not isinstance(age, bool) and age > 0:
+        return True
+    return bool(result.get("from_cache"))
+
+
 def cooldown_for(kind: str) -> float:
     if kind == FAILURE_STRUCTURAL:
         return float(STRUCTURAL_COOLDOWN_SECONDS)
@@ -595,23 +615,37 @@ class EquatorialProviderChain:
                 continue
 
             self.record_success(spec.name)
-            attempts.append(f"{spec.name}:ok")
+            # O RESULTADO tem a última palavra sobre ser leitura de agora.
+            # Declarar isso no ``ProviderSpec`` bastava enquanto só o canal de
+            # cache devolvia dado guardado; qualquer canal ao vivo que devolva a
+            # última leitura que ele mesmo tinha era apresentado como consulta de
+            # agora — com hora exata na tela e PIX/BOLETO liberados sobre um dado
+            # que o próprio payload declarava velho. O canal não é quem sabe: o
+            # payload é. Quem diz a idade dela é obedecido.
+            stale = _declares_age(result)
+            informational = spec.informational or stale
+            if stale and not spec.informational:
+                logger.info(
+                    "Canal %s devolveu leitura guardada; rebaixada a informativa",
+                    spec.name,
+                )
+            attempts.append(f"{spec.name}:ok" if not stale else f"{spec.name}:ok_guardado")
             logger.info(
                 "Fatura da Equatorial obtida | canal=%s informativo=%s | %s",
                 spec.name,
-                spec.informational,
+                informational,
                 " → ".join(attempts),
             )
             # Falha do canal preferido continua sendo a orientação útil quando o
             # que chegou é só cache. Sem isso o dono veria a leitura antiga sem
             # saber por que a consulta de agora não veio.
             reason = ""
-            if spec.informational:
+            if informational:
                 reason = definitive or first_failure or self._remembered_reason()
             return ChainOutcome(
                 provider=spec.name,
                 result=result or {},
-                informational=spec.informational,
+                informational=informational,
                 failure_text=reason,
                 failure_kind=classify_failure(reason) if reason else "",
                 attempts=tuple(attempts),
