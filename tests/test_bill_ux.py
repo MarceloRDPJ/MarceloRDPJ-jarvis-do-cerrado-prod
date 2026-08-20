@@ -11,13 +11,14 @@ inventadas, e os testes verificam estrutura e presença, nunca conteúdo de fatu
 
 import asyncio
 import sys
+import time
 import types
 
 import pytest
 
 from jarvis.config import Config
 from jarvis.core import router
-from jarvis.core.executor import Executor
+from jarvis.core.executor import BILL_ARTIFACT_TTL_SECONDS, Executor
 
 FAKE_PIX = "PIXFAKEPAYLOAD-0000-TESTE"
 FAKE_PDF = b"%PDF-1.4 fake boleto de teste"
@@ -912,3 +913,478 @@ async def test_another_provider_is_not_silently_treated_as_equatorial(monkeypatc
 
     assert executor.poco_calls == []
     assert executor.app.bot.documents == []
+
+
+# =====================================================
+# C8 — O CARTÃO QUE O DONO PEDIU
+# =====================================================
+@pytest.mark.asyncio
+async def test_card_follows_the_layout_the_owner_asked_for(monkeypatch):
+    """Título com a concessionária e o imóvel, Valor e Referência. Nada de canal."""
+    executor = build_executor(
+        monkeypatch, jobs={"refresh_equatorial_bills": (bill_result(), None)}
+    )
+
+    await executor._equatorial_bill_flow(1, "casa")
+
+    text = executor.app.bot.edited[-1]["text"]
+    assert text.startswith("⚡ Equatorial — Casa")
+    assert "💰 Valor: R$ 187,90" in text
+    assert "🧾 Referência: 07/2026" in text
+    # Rótulo de canal é o mapa da automação, não a conta.
+    assert "portal" not in text.lower()
+    assert "Imóvel:" not in text
+
+
+@pytest.mark.asyncio
+async def test_absent_field_is_not_written_as_unavailable(monkeypatch):
+    """Fatura sem vencimento não ganha uma linha de vencimento inventada."""
+    executor = build_executor(
+        monkeypatch,
+        jobs={
+            "refresh_equatorial_bills": (
+                {"amount": "R$ 187,90", "reference": "07/2026"},
+                None,
+            )
+        },
+    )
+
+    await executor._equatorial_bill_flow(1, "casa")
+
+    text = executor.app.bot.edited[-1]["text"]
+    assert "Vencimento" not in text
+    assert "indisponível" not in text.lower()
+
+
+@pytest.mark.asyncio
+async def test_payment_code_never_lands_in_the_card_text(monkeypatch):
+    """O cartão fica no histórico para sempre; o código de pagamento vale um mês.
+
+    Escrever o Pix e o código de barras no texto contornava por fora TODAS as
+    travas de frescor: um mês depois o dono rola a conversa, encontra o código ao
+    lado de um valor e paga a fatura do mês passado sem ter como perceber.
+    """
+    executor = build_executor(
+        monkeypatch,
+        jobs={
+            "refresh_equatorial_bills": (
+                bill_result(pix=FAKE_PIX, barcode="84660000000-1 11110000000-2"),
+                None,
+            )
+        },
+    )
+
+    await executor._equatorial_bill_flow(1, "casa")
+
+    text = executor.app.bot.edited[-1]["text"]
+    assert FAKE_PIX not in text
+    assert "84660000000" not in text
+    assert "Código de barras" not in text
+
+
+@pytest.mark.asyncio
+async def test_live_reading_is_labelled_as_live(monkeypatch):
+    executor = build_executor(
+        monkeypatch, jobs={"refresh_equatorial_bills": (bill_result(), None)}
+    )
+
+    await executor._equatorial_bill_flow(1, "casa")
+
+    assert "🟢 Leitura de agora" in executor.app.bot.edited[-1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_kept_reading_is_labelled_as_kept_and_dated(monkeypatch):
+    """Leitura guardada precisa se anunciar como guardada, sem jargão."""
+    executor = build_executor(
+        monkeypatch,
+        jobs={"refresh_equatorial_bills": (None, wire("EQUATORIAL_PORTAL_TIMEOUT"))},
+        cache={"amount": "R$ 150,00", "cache_age_seconds": 7200},
+    )
+
+    await executor._equatorial_bill_flow(1, "casa")
+
+    text = executor.app.bot.edited[-1]["text"]
+    assert "🟠 Última leitura confirmada (de há 2 h)" in text
+    assert "valor R$ 150,00" in text
+    assert "ATUALIZAR" in text
+    # A leitura guardada não trouxe vencimento, então não existe linha de
+    # vencimento: "vencimento indisponível" era rótulo inventado.
+    assert "vencimento" not in text.lower()
+
+
+@pytest.mark.asyncio
+async def test_kept_reading_never_carries_a_payment_code(monkeypatch):
+    executor = build_executor(
+        monkeypatch,
+        jobs={"refresh_equatorial_bills": (None, wire("EQUATORIAL_PORTAL_TIMEOUT"))},
+        cache={"amount": "R$ 150,00", "cache_age_seconds": 60, "pix": FAKE_PIX},
+    )
+
+    await executor._equatorial_bill_flow(1, "casa")
+
+    assert FAKE_PIX not in executor.app.bot.edited[-1]["text"]
+
+
+# =====================================================
+# C9 — O TECLADO NÃO OFERECE O IMPOSSÍVEL
+# =====================================================
+@pytest.mark.asyncio
+async def test_kept_reading_card_offers_no_payment_button(monkeypatch):
+    """Pagamento sobre leitura guardada é o erro caro: o botão não existe."""
+    install_telegram_stub(monkeypatch)
+    executor = build_executor(
+        monkeypatch,
+        jobs={"refresh_equatorial_bills": (None, wire("EQUATORIAL_PORTAL_TIMEOUT"))},
+        cache={"amount": "R$ 150,00", "cache_age_seconds": 60},
+    )
+
+    await executor._equatorial_bill_flow(1, "casa")
+
+    data = callback_data(executor.app.bot.edited[-1]["reply_markup"])
+    assert "bill_pix:equatorial:casa" not in data
+    assert "bill_boleto:equatorial:casa" not in data
+    assert "bill_refresh:equatorial:casa" in data
+
+
+@pytest.mark.asyncio
+async def test_pix_tap_on_a_card_that_went_stale_repairs_that_card(monkeypatch):
+    """O cartão foi desenhado ao vivo e continuou oferecendo PIX depois.
+
+    Recusar por mensagem nova deixava dois botões impossíveis na tela e uma
+    recusa sem nenhum caminho até ATUALIZAR.
+    """
+    install_telegram_stub(monkeypatch)
+    executor = build_executor(
+        monkeypatch,
+        jobs={"get_equatorial_pix": ({"reference": "07/2026", "pix_payload": FAKE_PIX}, None)},
+    )
+    executor._bill_stale_only[("equatorial", "casa")] = True
+
+    await executor.handle_bill_callback(1, "bill_pix:equatorial:casa", FakeQuery(77))
+
+    assert job_calls(executor, "get_equatorial_pix") == []
+    refusal = executor.app.bot.sent[-1]
+    assert "leitura guardada" in refusal["text"]
+    assert callback_data(refusal["reply_markup"]) == [
+        "bill_refresh:equatorial:casa",
+        "menu_contas",
+    ]
+    edited = executor.app.bot.edited[-1]
+    assert edited["message_id"] == 77
+    assert "⚡ Equatorial — Casa" in edited["text"]
+    assert "envelheceu" in edited["text"]
+    assert callback_data(edited["reply_markup"]) == [
+        "bill_refresh:equatorial:casa",
+        "menu_contas",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_boleto_tap_on_a_stale_card_repairs_it_too(monkeypatch):
+    install_telegram_stub(monkeypatch)
+    executor = build_executor(monkeypatch)
+    executor._bill_stale_only[("equatorial", "casa")] = True
+
+    await executor.handle_bill_callback(1, "bill_boleto:equatorial:casa", FakeQuery(88))
+
+    assert executor.poco_calls == []
+    assert callback_data(executor.app.bot.edited[-1]["reply_markup"]) == [
+        "bill_refresh:equatorial:casa",
+        "menu_contas",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_pix_refusal_keeps_the_boleto_within_reach(monkeypatch):
+    """Quando o Pix não está na tela, o boleto costuma estar."""
+    install_telegram_stub(monkeypatch)
+    executor = build_executor(
+        monkeypatch, jobs={"get_equatorial_pix": (None, wire("EQUATORIAL_PIX_NOT_FOUND"))}
+    )
+
+    await executor.handle_bill_callback(1, "bill_pix:equatorial:casa", FakeQuery(77))
+
+    data = callback_data(executor.app.bot.sent[-1]["reply_markup"])
+    assert "bill_boleto:equatorial:casa" in data
+    assert "bill_pix:equatorial:casa" not in data  # repetir o que falhou é vender espera
+    assert "bill_refresh:equatorial:casa" in data
+
+
+@pytest.mark.asyncio
+async def test_boleto_refusal_keeps_the_pix_within_reach(monkeypatch):
+    install_telegram_stub(monkeypatch)
+    executor = build_executor(
+        monkeypatch, jobs={"get_equatorial_boleto": (None, wire("EQUATORIAL_BOLETO_NOT_FOUND"))}
+    )
+
+    await executor.handle_bill_callback(1, "bill_boleto:equatorial:casa", FakeQuery(77))
+
+    data = callback_data(executor.app.bot.sent[-1]["reply_markup"])
+    assert "bill_pix:equatorial:casa" in data
+    assert "bill_boleto:equatorial:casa" not in data
+
+
+@pytest.mark.asyncio
+async def test_unknown_button_still_offers_a_way_out(monkeypatch):
+    """Botão de mensagem antiga não pode virar beco sem saída."""
+    install_telegram_stub(monkeypatch)
+    executor = build_executor(monkeypatch)
+
+    await executor.handle_bill_callback(1, "bill_pagar:equatorial:casa", FakeQuery())
+
+    message = executor.app.bot.sent[-1]
+    assert "mensagem antiga" in message["text"]
+    assert callback_data(message["reply_markup"]) == ["menu_contas"]
+
+
+@pytest.mark.asyncio
+async def test_payment_on_another_provider_is_refused_with_a_way_out(monkeypatch):
+    install_telegram_stub(monkeypatch)
+    executor = build_executor(monkeypatch)
+
+    await executor.handle_bill_callback(1, "bill_pix:saneago:casa", FakeQuery())
+
+    assert executor.poco_calls == []
+    assert callback_data(executor.app.bot.sent[-1]["reply_markup"]) == ["menu_contas"]
+
+
+# =====================================================
+# C10 — ATALHOS: MENOS VOLTAS NO MENU
+# =====================================================
+@pytest.mark.asyncio
+async def test_energy_card_offers_water_of_the_same_property(monkeypatch):
+    """Água do mesmo imóvel custava quatro toques a partir do cartão de energia."""
+    install_telegram_stub(monkeypatch)
+    executor = build_executor(
+        monkeypatch,
+        jobs={
+            "refresh_equatorial_bills": (bill_result(), None),
+            "refresh_saneago_bills": (bill_result(consumption="12 m3"), None),
+        },
+    )
+
+    await executor._saneago_bill_flow(1, "casa")  # confirma a água
+    await executor._equatorial_bill_flow(1, "casa")
+
+    data = callback_data(executor.app.bot.edited[-1]["reply_markup"])
+    assert "bill_refresh:saneago:casa" in data
+
+
+@pytest.mark.asyncio
+async def test_card_does_not_offer_a_provider_that_was_never_confirmed(monkeypatch):
+    """Atalho para o que eu não sei ler seria botão que só sabe falhar."""
+    install_telegram_stub(monkeypatch)
+    executor = build_executor(
+        monkeypatch, jobs={"refresh_equatorial_bills": (bill_result(), None)}
+    )
+
+    await executor._equatorial_bill_flow(1, "casa")
+
+    assert callback_data(executor.app.bot.edited[-1]["reply_markup"]) == [
+        "bill_pix:equatorial:casa",
+        "bill_boleto:equatorial:casa",
+        "bill_refresh:equatorial:casa",
+        "menu_contas",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_neighbour_property_is_one_tap_from_the_card(monkeypatch):
+    install_telegram_stub(monkeypatch)
+    executor = build_executor(
+        monkeypatch, jobs={"refresh_equatorial_bills": (bill_result(), None)}
+    )
+
+    await executor._equatorial_bill_flow(1, "kitnet_01")
+    await executor._equatorial_bill_flow(1, "casa")
+
+    data = callback_data(executor.app.bot.edited[-1]["reply_markup"])
+    assert "bill_refresh:equatorial:kitnet_01" in data
+    assert "bill_refresh:equatorial:casa" in data  # o próprio ATUALIZAR continua lá
+
+
+@pytest.mark.asyncio
+async def test_property_menu_reaches_the_neighbour_without_going_back(monkeypatch):
+    install_telegram_stub(monkeypatch)
+    executor = build_executor(
+        monkeypatch, jobs={"refresh_equatorial_bills": (bill_result(), None)}
+    )
+
+    await executor._equatorial_bill_flow(1, "casa")
+    await executor._equatorial_bill_flow(1, "kitnet_01")
+
+    data = callback_data(executor._bill_property_menu("casa")["reply_markup"])
+    assert "bill_menu:kitnet_01" in data
+
+
+# =====================================================
+# C11 — ÁGUA NA MESMA TELA DA ENERGIA
+# =====================================================
+@pytest.mark.asyncio
+async def test_water_consultation_sends_one_message_and_edits_it(monkeypatch):
+    """A água mandava um aviso solto e um resultado, e terminava sem botão."""
+    install_telegram_stub(monkeypatch)
+    executor = build_executor(
+        monkeypatch,
+        jobs={"refresh_saneago_bills": (bill_result(consumption="12 m3"), None)},
+    )
+
+    response = await executor.execute(
+        {"intent": "saneago_bills", "action": "read", "params": {"property": "casa"}}, 1
+    )
+
+    assert response is None
+    assert len(executor.app.bot.sent) == 1
+    assert executor.app.bot.sent[0]["text"].startswith("💧 Consultando Saneago — Casa...")
+    text = executor.app.bot.edited[-1]["text"]
+    assert text.startswith("💧 Saneago — Casa")
+    assert "💰 Valor: R$ 187,90" in text
+    assert "📊 Consumo: 12 m3" in text
+
+
+@pytest.mark.asyncio
+async def test_water_card_ends_with_buttons_and_no_payment_offer(monkeypatch):
+    """Saneago não entrega artefato hoje: PIX ali só saberia dizer não."""
+    install_telegram_stub(monkeypatch)
+    executor = build_executor(
+        monkeypatch, jobs={"refresh_saneago_bills": (bill_result(), None)}
+    )
+
+    await executor._saneago_bill_flow(1, "casa")
+
+    data = callback_data(executor.app.bot.edited[-1]["reply_markup"])
+    assert data == ["bill_refresh:saneago:casa", "menu_contas"]
+
+
+@pytest.mark.asyncio
+async def test_a_finished_water_reading_confirms_the_property(monkeypatch):
+    """Sem este registro o botão de água não podia nascer em nenhuma hipótese."""
+    install_telegram_stub(monkeypatch)
+    executor = build_executor(
+        monkeypatch, jobs={"refresh_saneago_bills": (bill_result(), None)}
+    )
+
+    await executor._saneago_bill_flow(1, "casa")
+
+    data = callback_data(executor._bill_property_menu("casa")["reply_markup"])
+    assert "bill_refresh:saneago:casa" in data
+    assert "bill_menu:casa" in callback_data(executor._bills_menu()["reply_markup"])
+
+
+@pytest.mark.asyncio
+async def test_a_failed_water_reading_confirms_nothing(monkeypatch):
+    install_telegram_stub(monkeypatch)
+    executor = build_executor(
+        monkeypatch,
+        jobs={"refresh_saneago_bills": (None, "A unidade nao apareceu no seletor da Saneago.")},
+    )
+
+    await executor._saneago_bill_flow(1, "casa")
+
+    assert callback_data(executor._bills_menu()["reply_markup"]) == ["help"]
+
+
+@pytest.mark.asyncio
+async def test_water_failure_never_shows_the_raw_error(monkeypatch):
+    """A saída antiga colava o texto cru do telefone na tela do dono."""
+    executor = build_executor(
+        monkeypatch,
+        jobs={
+            "refresh_saneago_bills": (
+                None,
+                "java.lang.IllegalStateException: SANEAGO_BOOM at Reader.java:88",
+            )
+        },
+    )
+
+    await executor._saneago_bill_flow(1, "casa")
+
+    text = executor.app.bot.edited[-1]["text"]
+    assert "Exception" not in text
+    assert ".java:" not in text
+    assert "SANEAGO_BOOM" not in text
+    assert "Não consegui consultar a Saneago agora" in text
+
+
+@pytest.mark.asyncio
+async def test_water_button_from_the_menu_edits_the_open_message(monkeypatch):
+    """O botão de água dava a volta pelo roteador de texto e abria mensagem nova."""
+    executor = build_executor(
+        monkeypatch, jobs={"refresh_saneago_bills": (bill_result(), None)}
+    )
+
+    await executor.handle_bill_callback(1, "bill_refresh:saneago:casa", FakeQuery(55))
+
+    assert executor.app.bot.sent == []
+    assert [edit["message_id"] for edit in executor.app.bot.edited] == [55, 55]
+    assert "💧 Saneago — Casa" in executor.app.bot.edited[-1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_two_water_taps_create_a_single_job(monkeypatch):
+    executor = build_executor(
+        monkeypatch,
+        jobs={"refresh_saneago_bills": (bill_result(), None)},
+        delays={"refresh_saneago_bills": 0.05},
+    )
+
+    await asyncio.gather(
+        executor._saneago_bill_flow(1, "casa"),
+        executor._saneago_bill_flow(1, "casa"),
+    )
+
+    assert len(job_calls(executor, "refresh_saneago_bills")) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_payment_artifact_expires_even_within_the_same_bill(monkeypatch):
+    """A referência igual não basta: o artefato guardado também vence.
+
+    O prazo é a segunda linha de defesa do reaproveitamento — a que segura o caso
+    em que a referência continua a mesma e o código já não. Ele existia e não
+    tinha teste nenhum: desligá-lo não quebrava nada.
+    """
+    executor = build_executor(
+        monkeypatch,
+        jobs={"get_equatorial_pix": ({"reference": "07/2026", "pix_payload": FAKE_PIX}, None)},
+    )
+    executor._bill_reference[("equatorial", "casa")] = "07/2026"
+    executor._bill_artifacts[("equatorial", "casa", "pix")] = {
+        "payload": "PIXFAKEPAYLOAD-VENCIDO",
+        "reference": "07/2026",
+        "captured_at": time.time() - BILL_ARTIFACT_TTL_SECONDS - 1,
+    }
+
+    await executor._send_bill_pix(1, "casa")
+
+    assert len(job_calls(executor, "get_equatorial_pix")) == 1
+    delivered = executor.app.bot.sent[-1]["text"]
+    assert "PIXFAKEPAYLOAD-VENCIDO" not in delivered
+    assert FAKE_PIX in delivered
+
+
+@pytest.mark.asyncio
+async def test_expired_session_says_it_cannot_renew_and_points_at_the_button(monkeypatch):
+    """É a falha mais frequente desta tela: ela precisa terminar num próximo passo.
+
+    O ROD entra no portal de acesso mas a sessão que consegue não alcança o host
+    das faturas — não existe renovação automática hoje. Sem dizer isso, o dono
+    fica tocando ATUALIZAR à espera de uma recuperação que não vem.
+    """
+    install_telegram_stub(monkeypatch)
+    executor = build_executor(
+        monkeypatch,
+        jobs={"refresh_equatorial_bills": (None, wire("EQUATORIAL_AUTH_REQUIRED"))},
+    )
+
+    await executor._equatorial_bill_flow(1, "casa")
+
+    final = executor.app.bot.edited[-1]
+    assert "não consigo renovar" in final["text"]
+    assert "ATUALIZAR" in final["text"]
+    assert "EQUATORIAL_" not in final["text"]
+    assert callback_data(final["reply_markup"]) == [
+        "bill_refresh:equatorial:casa",
+        "menu_contas",
+    ]

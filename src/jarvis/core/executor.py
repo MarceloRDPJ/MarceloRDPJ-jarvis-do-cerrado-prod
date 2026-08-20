@@ -10,6 +10,7 @@ from jarvis.core.context import ContextEngine
 from jarvis.core.context_reader import ContextReader
 from jarvis.core.flows import RemindersFlow
 from jarvis.core.personality import Personality
+from jarvis.core import bill_screen
 
 from jarvis.modules.system import SystemModule
 from jarvis.modules.network import NetworkModule
@@ -56,6 +57,9 @@ HUMAN_CHECK_ALL_CHANNELS_MESSAGE = (
 )
 BILL_GENERIC_FAILURE_MESSAGE = (
     "Não consegui consultar a Equatorial agora. Tente novamente em alguns minutos."
+)
+SANEAGO_GENERIC_FAILURE_MESSAGE = (
+    "Não consegui consultar a Saneago agora. Tente novamente em alguns minutos."
 )
 BILL_ACTION_UNAVAILABLE_MESSAGE = (
     "Essa opção ainda não está habilitada no Poco. A consulta continua funcionando e "
@@ -552,7 +556,7 @@ class Executor:
         if intent == "poco_network_check":
             return await self._poco_network_check()
         if intent == "saneago_bills":
-            return await self._poco_saneago_bills(params)
+            return await self._saneago_bill_flow(chat_id, (params or {}).get("property", "casa"))
         if intent == "equatorial_bills":
             return await self._equatorial_bill_flow(chat_id, (params or {}).get("property", "casa"))
         if intent == "fan_control":
@@ -947,27 +951,18 @@ class Executor:
     def _cache_note_text(result: dict | None) -> str:
         """Rótulo da leitura guardada: valor, vencimento e IDADE explícita.
 
-        Só estes três campos. Código de barras e Pix existem em parte dos caches e
-        não podem aparecer aqui em nenhuma hipótese: seriam um código de pagamento
-        antigo colado ao lado de um valor antigo, o que qualquer pessoa leria como
-        a cobrança de agora.
+        Só estes campos, e só se vieram. Código de barras e Pix existem em parte
+        das leituras guardadas e não podem aparecer aqui em nenhuma hipótese:
+        seriam um código de pagamento antigo colado ao lado de um valor antigo, o
+        que qualquer pessoa leria como a cobrança de agora.
+
+        O rótulo "Última leitura confirmada ... cache do Poco" é contrato de
+        outro agente e fica. O que sai é o defeito: ``vencimento indisponível``,
+        rótulo inventado para um dado que a leitura não trouxe. Entram o marcador
+        🟠, que separa esta parte do cartão ao vivo, e a linha que diz o que fazer
+        a respeito.
         """
-        result = result or {}
-        age = result.get("cache_age_seconds")
-        if not isinstance(age, (int, float)) or age < 0:
-            when = "em data desconhecida"
-        elif age < 3600:
-            when = f"há {int(age // 60)} min"
-        elif age < 86400:
-            when = f"há {int(age // 3600)} h"
-        else:
-            when = f"há {int(age // 86400)} dia(s)"
-        amount = result.get("amount", "indisponível")
-        due = result.get("due_date", "indisponível")
-        return (
-            f"\n\nÚltima leitura confirmada ({when}): fatura {amount}, "
-            f"vencimento {due}. Isso é cache do Poco, não a consulta de agora."
-        )
+        return bill_screen.render_stale_block(result)
 
     async def _poco_status(self) -> str:
         from jarvis.api.app import get_poco_service
@@ -992,40 +987,92 @@ class Executor:
         return "Validação pelo Poco: Wi-Fi desconectado."
 
     async def _poco_saneago_bills(self, params: dict | None = None) -> str:
+        """Texto da consulta de água, sem tocar no Telegram.
+
+        Quem manda mensagem é ``_saneago_bill_flow``: a UX pede UMA mensagem
+        editada no fim, e o aviso que ficava aqui deixava duas.
+        """
+        property_key = (params or {}).get("property", "casa")
+        text, _ok = await self._saneago_bill_card(property_key)
+        return text
+
+    async def _saneago_bill_card(self, property_key: str):
+        """(texto, deu_certo). Nunca levanta: o single-flight é compartilhado."""
         try:
-            await self.app.bot.send_message(
-                chat_id=Config.ALLOWED_USER_ID,
-                text="Consultando a Saneago no Poco pelo app oficial. Pode levar alguns minutos; aviso assim que terminar.",
+            result, error = await self._run_poco_job(
+                "refresh_saneago_bills",
+                Config.POCO_BILL_JOB_TIMEOUT_SECONDS,
+                {"property": property_key},
             )
         except Exception:
-            logger.debug("Não foi possível enviar o aviso intermediário da Saneago", exc_info=True)
-        property_key = (params or {}).get("property", "casa")
-        result, error = await self._run_poco_job(
-            "refresh_saneago_bills",
-            Config.POCO_BILL_JOB_TIMEOUT_SECONDS,
-            {"property": property_key},
-        )
+            logger.exception("Falha inesperada na consulta da Saneago")
+            return SANEAGO_GENERIC_FAILURE_MESSAGE, False
         if error:
-            fallback = await self._poco_bill_cache_note("saneago", property_key)
-            if "acessibilidade nao respondeu" in error.lower() or "acessibilidade não respondeu" in error.lower():
-                return "A automação do ROD está desativada no Poco. Abra Configurações > Acessibilidade > Aplicativos baixados e ative ROD — automação local." + fallback
-            if "Sessao Saneago expirada" in error:
-                return "A sessão da Saneago expirou. O ROD tentará entrar novamente usando o cofre local do Poco." + fallback
-            if "numero da conta" in error.lower():
-                return "Li a tela da Saneago mas não consegui confirmar o número da conta. Não vou atribuir essa fatura a nenhum imóvel sem essa confirmação." + fallback
-            if "nao apareceu no seletor" in error.lower():
-                name = property_key.replace("_", " ").title()
-                return f"A unidade {name} não aparece entre as contas vinculadas a este login da Saneago. Não usei dados de outro imóvel."
-            return f"Não consegui consultar a Saneago agora: {error}" + fallback
+            text = self._saneago_failure_message(str(error), property_key)
+            note = await self._poco_bill_cache_note("saneago", property_key)
+            if note:
+                self._bill_stale_only[("saneago", property_key)] = True
+            return text + note, False
+        # Só uma leitura concluída prova que esta unidade existe no cofre do Poco.
+        # Sem este registro, o menu do imóvel prometia "peça a conta de água uma
+        # vez para eu confirmar" e nunca confirmava: o botão 💧 Água não podia
+        # nascer em nenhuma hipótese, porque nada gravava a água como confirmada.
+        self._remember_bill_property("saneago", property_key)
+        self._bill_stale_only[("saneago", property_key)] = False
         return (
-            "Saneago — consulta real pelo app oficial\n"
-            f"Imóvel: {property_key.replace('_', ' ').title()}\n"
-            f"Conta: {result.get('account', 'indisponível')}\n"
-            f"Fatura: {result.get('amount', 'indisponível')}\n"
-            f"Referência: {result.get('reference', 'indisponível')}\n"
-            f"Vencimento: {result.get('due_date', 'indisponível')}\n"
-            f"Consumo: {result.get('consumption', 'indisponível')}"
+            bill_screen.render_bill_card(
+                "saneago",
+                self._property_label(property_key),
+                result,
+                read_at=self._clock(),
+            ),
+            True,
         )
+
+    def _saneago_failure_message(self, error_text: str, property_key: str) -> str:
+        """Falha de água traduzida para uma frase com próximo passo.
+
+        A saída antiga terminava em ``: {error}`` — o texto cru do telefone na
+        tela do dono, com nome de exceção e detalhe de automação. Isso fica no
+        log, que é onde serve para algo.
+        """
+        text = str(error_text or "")
+        lowered = text.lower()
+        logger.info("Falha na Saneago classificada para a tela do dono")
+        if "acessibilidade nao respondeu" in lowered or "acessibilidade não respondeu" in lowered:
+            return (
+                "A automação do ROD está desativada no Poco. Abra Configurações > "
+                "Acessibilidade > Aplicativos baixados e ative ROD — automação local."
+            )
+        if "sessao saneago expirada" in lowered or "sessão saneago expirada" in lowered:
+            return (
+                "A sessão da Saneago expirou. O ROD tentará entrar novamente usando o "
+                "cofre local do Poco."
+            )
+        if "numero da conta" in lowered or "número da conta" in lowered:
+            return (
+                "Li a tela da Saneago mas não consegui confirmar qual conta é esta. "
+                "Não vou atribuir essa fatura a nenhum imóvel sem essa confirmação."
+            )
+        if "nao apareceu no seletor" in lowered or "não apareceu no seletor" in lowered:
+            return (
+                f"A unidade {self._property_label(property_key)} não aparece entre as contas "
+                "vinculadas a este login da Saneago. Não usei dados de outro imóvel."
+            )
+        if any(
+            marker in lowered
+            for marker in (
+                "poco está offline",
+                "poco esta offline",
+                "sem heartbeat",
+                "nó poco está desativado",
+                "no poco esta desativado",
+                "não confirmou o início",
+                "nao confirmou o inicio",
+            )
+        ):
+            return POCO_UNAVAILABLE_MESSAGE
+        return SANEAGO_GENERIC_FAILURE_MESSAGE
 
     async def _poco_equatorial_bills(self, params: dict | None = None) -> str:
         """Texto da consulta, sem tocar no Telegram.
@@ -1052,14 +1099,29 @@ class Executor:
         logger.info("Cadeia Equatorial concluída | %s", outcome.trail)
         return outcome
 
-    def _equatorial_outcome_text(self, property_key: str, outcome) -> str:
+    def _equatorial_outcome_text(self, property_key: str, outcome, *, screen: bool = False) -> str:
         """Texto final da consulta, sem nomear canal interno.
 
         Três desfechos e nenhum meio-termo: leitura ao vivo, leitura guardada
         (rotulada, com o motivo acionável de a consulta de agora não ter vindo) ou
         só a falha humanizada.
+
+        ``screen=True`` é o cartão que vai para o Telegram, no formato literal que
+        o dono pediu. ``screen=False`` é a forma longa e antiga do texto da
+        leitura, que hoje só sai por ``_poco_equatorial_bills`` — nenhuma mensagem
+        do bot passa por ela. Ela sobrevive porque os testes da cadeia e da sessão
+        a usam como saída observável do pipeline de leitura, e esses arquivos não
+        são meus. LEIA O ALERTA em ``_format_equatorial_bill``: essa forma imprime
+        código de pagamento e não pode voltar para a tela.
         """
         if outcome.ok:
+            if screen:
+                return bill_screen.render_bill_card(
+                    "equatorial",
+                    self._property_label(property_key),
+                    outcome.result,
+                    read_at=self._clock(),
+                )
             return self._format_equatorial_bill(property_key, outcome.result)
         failure = self._equatorial_failure_message(
             str(outcome.failure_text or "").strip(), property_key
@@ -1089,9 +1151,15 @@ class Executor:
             return HUMAN_CHECK_ALL_CHANNELS_MESSAGE
 
         if code == "EQUATORIAL_AUTH_REQUIRED":
+            # É a falha que o dono mais encontra: o ROD entra no portal de acesso,
+            # mas a sessão que ele consegue não alcança o host das faturas, então
+            # não há renovação automática possível hoje. Dizer isso de frente evita
+            # que ele fique repetindo ATUALIZAR à espera de uma recuperação sozinha,
+            # e o próximo passo aponta o botão exato em vez de "repita a consulta".
             return (
-                "A sessão da Equatorial expirou no Poco. Abra o Chrome do Poco e faça "
-                "login novamente na Equatorial; depois repita a consulta."
+                "A sessão da Equatorial expirou no Poco e eu não consigo renovar essa "
+                "sessão sozinho. Abra o Chrome do Poco, faça login novamente na Equatorial "
+                "e toque em ATUALIZAR aqui — a resposta vem nesta mesma mensagem."
             )
         if code == "EQUATORIAL_HUMAN_CHECK" or any(
             marker in lowered for marker in ("captcha", "imperva", "verificacao humana")
@@ -1201,6 +1269,26 @@ class Executor:
         return BILL_GENERIC_FAILURE_MESSAGE
 
     def _format_equatorial_bill(self, property_key: str, result: dict | None) -> str:
+        """FORMA ANTIGA DO TEXTO DA LEITURA — NÃO PODE VOLTAR PARA A TELA.
+
+        Nenhuma mensagem do bot passa por aqui: o Telegram usa
+        ``bill_screen.render_bill_card``. Isto continua existindo porque os testes
+        da cadeia de canais e da sessão leem ``_poco_equatorial_bills`` como saída
+        observável do pipeline, e esses arquivos são de outro agente.
+
+        Três motivos para ela nunca voltar à tela, e o terceiro é o caro:
+
+        1. ``Equatorial — consulta real pelo portal oficial`` é o mapa da
+           automação; o dono pediu a conta.
+        2. ``Vencimento: indisponível`` é rótulo com cara de leitura real para um
+           dado que a fatura não trouxe.
+        3. O Pix e o código de barras ficavam no TEXTO da mensagem. O texto vive
+           no histórico do chat para sempre; o código de pagamento vale uma fatura.
+           Era um caminho por fora que contornava TODAS as travas de frescor
+           (TTL, referência igual, trava de leitura antiga): um mês depois o dono
+           rola a conversa, encontra o Pix colado num valor e paga a fatura do mês
+           passado sem ter como perceber.
+        """
         result = result or {}
         lines = [
             "Equatorial — consulta real pelo portal oficial",
@@ -1209,8 +1297,6 @@ class Executor:
             f"Referência: {result.get('reference', 'indisponível')}",
             f"Vencimento: {result.get('due_date', 'indisponível')}",
         ]
-        # Código de barras e PIX existem só em parte das faturas. Ausente é ausente:
-        # nenhuma linha inventada e nenhum rótulo que o usuário possa ler como leitura real.
         barcode = str(result.get("barcode") or "").strip()
         if barcode:
             lines.append(f"Código de barras: {barcode}")
@@ -1219,17 +1305,21 @@ class Executor:
             lines.append(f"PIX: {pix}")
         return "\n".join(lines)
 
+    @staticmethod
+    def _clock() -> str:
+        """Hora local para datar a leitura. Sem hora, "agora" mente no histórico."""
+        try:
+            return datetime.now(Config.TZ).strftime("%H:%M")
+        except Exception:
+            logger.debug("Não consegui ler a hora local", exc_info=True)
+            return ""
+
     # =====================================================
     # CONTAS & FATURAS — UX NO TELEGRAM
     # =====================================================
     @staticmethod
     def _property_label(property_key: str) -> str:
         return str(property_key or "casa").replace("_", " ").strip().title()
-
-    @staticmethod
-    def _property_phrase(property_key: str) -> str:
-        """Frase que o roteador reconhece de volta (`kitnet_01` → `kitnet 01`)."""
-        return str(property_key or "casa").replace("_", " ").strip()
 
     def _flight_in_progress(self, provider: str, property_key: str, action: str) -> bool:
         task = self._bill_flights.get((provider, property_key, action))
@@ -1258,26 +1348,105 @@ class Executor:
             if self._bill_flights.get(key) is task and task.done():
                 self._bill_flights.pop(key, None)
 
-    def _bill_keyboard(self, provider: str, property_key: str, *, payment: bool = True):
+    @staticmethod
+    def _telegram_keyboard_classes():
+        """``(Markup, Button)`` ou ``(None, None)``. Falta de lib não derruba a UX."""
         try:
             from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+
+            return InlineKeyboardMarkup, InlineKeyboardButton
         except ImportError:
+            return None, None
+
+    def _bill_keyboard(
+        self,
+        provider: str,
+        property_key: str,
+        *,
+        payment: bool = True,
+        pix: bool | None = None,
+        boleto: bool | None = None,
+        shortcuts: bool = True,
+    ):
+        """Teclado do cartão. Só oferece o que é possível NESTE estado.
+
+        ``pix``/``boleto`` existem para o caso em que uma das duas entregas acabou
+        de falhar: repetir o botão que falhou é convidar o dono a esperar o mesmo
+        erro, e esconder os dois o deixa sem próximo passo. Então a recusa do Pix
+        mantém BOLETO, e a do boleto mantém PIX.
+        """
+        InlineKeyboardMarkup, InlineKeyboardButton = self._telegram_keyboard_classes()
+        if InlineKeyboardButton is None:
             return None
+        show_pix = payment if pix is None else pix
+        show_boleto = payment if boleto is None else boleto
         rows = []
-        if payment:
-            rows.append(
-                [
-                    InlineKeyboardButton("💠 PIX", callback_data=f"bill_pix:{provider}:{property_key}"),
-                    InlineKeyboardButton("📄 BOLETO", callback_data=f"bill_boleto:{provider}:{property_key}"),
-                ]
+        payment_row = []
+        if show_pix:
+            payment_row.append(
+                InlineKeyboardButton("💠 PIX", callback_data=f"bill_pix:{provider}:{property_key}")
             )
+        if show_boleto:
+            payment_row.append(
+                InlineKeyboardButton("📄 BOLETO", callback_data=f"bill_boleto:{provider}:{property_key}")
+            )
+        if payment_row:
+            rows.append(payment_row)
         rows.append(
             [
                 InlineKeyboardButton("🔄 ATUALIZAR", callback_data=f"bill_refresh:{provider}:{property_key}"),
                 InlineKeyboardButton("🔙 VOLTAR", callback_data="menu_contas"),
             ]
         )
+        if shortcuts:
+            rows.extend(self._bill_shortcut_rows(provider, property_key, InlineKeyboardButton))
         return InlineKeyboardMarkup(rows)
+
+    def _bill_shortcut_rows(self, provider: str, property_key: str, button_class):
+        """Atalhos que economizam voltas no menu.
+
+        Do cartão de energia da casa até a conta de água da casa eram quatro
+        toques (VOLTAR → imóvel → menu do imóvel → Água) para uma informação da
+        MESMA tela. Trocar de imóvel custava o mesmo. Aqui vira um toque, e só
+        aparece para o que uma consulta concluída já provou existir — atalho para
+        imóvel que eu não sei ler seria botão que só sabe falhar.
+        """
+        rows = []
+        confirmed = self._confirmed_bill_properties()
+        other = "saneago" if provider == "equatorial" else "equatorial"
+        if property_key in confirmed.get(other, []):
+            rows.append(
+                [
+                    button_class(
+                        bill_screen.shortcut_label(other),
+                        callback_data=f"bill_refresh:{other}:{property_key}",
+                    )
+                ]
+            )
+        siblings = [key for key in confirmed.get(provider, []) if key != property_key]
+        row = []
+        for key in bill_screen.limited(siblings):
+            row.append(
+                button_class(
+                    bill_screen.shortcut_label(provider, key),
+                    callback_data=f"bill_refresh:{provider}:{key}",
+                )
+            )
+            if len(row) == 2:
+                rows.append(row)
+                row = []
+        if row:
+            rows.append(row)
+        return rows
+
+    def _bill_back_keyboard(self):
+        """Só VOLTAR. Para a mensagem que só precisa não ser um beco sem saída."""
+        InlineKeyboardMarkup, InlineKeyboardButton = self._telegram_keyboard_classes()
+        if InlineKeyboardButton is None:
+            return None
+        return InlineKeyboardMarkup(
+            [[InlineKeyboardButton("🔙 VOLTAR", callback_data="menu_contas")]]
+        )
 
     async def _send_bill_text(self, chat_id: int, text: str, reply_markup=None, parse_mode=None):
         kwargs = {"chat_id": chat_id, "text": text}
@@ -1317,28 +1486,55 @@ class Executor:
     async def _equatorial_bill_flow(
         self, chat_id: int, property_key: str, query=None, *, forced: bool = False
     ):
+        """Consulta de energia. ``forced`` = o dono APERTOU ATUALIZAR.
+
+        Aí a cadeia tenta o canal preferido mesmo em cooldown, porque o dedo dele
+        é a informação nova que o cooldown supunha não existir.
+        """
+        return await self._bill_flow(
+            chat_id,
+            "equatorial",
+            property_key,
+            query=query,
+            card=lambda: self._equatorial_bill_card(property_key, forced=forced),
+        )
+
+    async def _saneago_bill_flow(self, chat_id: int, property_key: str, query=None):
+        """Consulta de água pela MESMA tela da energia.
+
+        Antes a água era o patinho feio: duas mensagens (um aviso solto e um
+        resultado), nenhum botão no fim — o dono tinha que digitar de novo para
+        repetir — e o texto do erro do telefone copiado cru na tela.
+        """
+        return await self._bill_flow(
+            chat_id,
+            "saneago",
+            property_key,
+            query=query,
+            card=lambda: self._saneago_bill_card(property_key),
+        )
+
+    async def _bill_flow(self, chat_id: int, provider: str, property_key: str, *, query, card):
         """Consulta com UMA mensagem: abre com o aviso e termina editando-a.
 
-        ``forced`` chega quando o dono APERTOU ATUALIZAR. Aí a cadeia tenta o canal
-        preferido mesmo em cooldown, porque o dedo dele é a informação nova que o
-        cooldown supunha não existir.
+        O aviso agora diz quanto tempo isso costuma levar e que a resposta chega
+        nesta mesma mensagem. Sem isso, o silêncio de minutos parecia travamento e
+        o dono tocava de novo — e o segundo toque não acelera nada, porque o
+        telefone executa um job por vez.
         """
-        provider = "equatorial"
         label = self._property_label(property_key)
-        header = f"⚡ Consultando Equatorial — {label}..."
+        header = bill_screen.render_wait(provider, label)
         if query is not None:
             message_id = getattr(getattr(query, "message", None), "message_id", None)
             await self._replace_bill_message(chat_id, message_id, header)
         else:
             message_id = await self._send_bill_text(chat_id, header)
 
-        (text, ok), _reused = await self._single_flight(
-            provider,
-            property_key,
-            "bills",
-            lambda: self._equatorial_bill_card(property_key, forced=forced),
-        )
-        keyboard = self._bill_keyboard(provider, property_key, payment=ok)
+        (text, ok), _reused = await self._single_flight(provider, property_key, "bills", card)
+        # Água não tem entrega de artefato hoje: oferecer PIX ali seria um botão
+        # que só sabe dizer "não habilitado".
+        payment = ok and provider == "equatorial"
+        keyboard = self._bill_keyboard(provider, property_key, payment=payment)
         await self._replace_bill_message(chat_id, message_id, text, keyboard)
         return None
 
@@ -1354,7 +1550,7 @@ class Executor:
         except Exception:
             logger.exception("Falha inesperada na consulta da Equatorial")
             return BILL_GENERIC_FAILURE_MESSAGE, False
-        text = self._equatorial_outcome_text(property_key, outcome)
+        text = self._equatorial_outcome_text(property_key, outcome, screen=True)
         key = ("equatorial", property_key)
         if outcome.ok:
             self._remember_bill_property("equatorial", property_key)
@@ -1564,12 +1760,41 @@ class Executor:
         """
         return bool(self._bill_stale_only.get((provider, property_key)))
 
+    async def _refuse_stale_payment(self, chat_id: int, provider: str, property_key: str, query):
+        """Recusa o pagamento E conserta a tela que ofereceu o botão.
+
+        O cartão na tela foi desenhado quando a leitura era ao vivo, então ele
+        continua exibindo PIX e BOLETO depois de a leitura virar guardada. Só
+        recusar por mensagem nova deixava o dono com dois botões que não podem
+        funcionar, uma recusa sem nenhum botão e nenhum caminho até ATUALIZAR.
+        Aqui a mensagem tocada passa a dizer a verdade e a oferecer só o que
+        funciona.
+        """
+        keyboard = self._bill_keyboard(provider, property_key, payment=False)
+        await self._send_bill_text(chat_id, BILL_STALE_ONLY_MESSAGE, keyboard)
+        # E o cartão tocado deixa de oferecer o que não pode fazer. Sem isto, os
+        # dois botões continuam ali convidando o próximo toque, e o dono aprende
+        # que o bot recusa por teimosia em vez de ler que a leitura envelheceu.
+        message_id = getattr(getattr(query, "message", None), "message_id", None)
+        if message_id is not None:
+            await self._replace_bill_message(
+                chat_id,
+                message_id,
+                bill_screen.render_stale_refusal(
+                    provider,
+                    self._property_label(property_key),
+                    "🟠 Esta leitura envelheceu. Toque em ATUALIZAR para eu buscar a fatura "
+                    "de agora — não entrego código de pagamento de leitura guardada.",
+                ),
+                keyboard,
+            )
+        return None
+
     async def _send_bill_pix(self, chat_id: int, property_key: str, query=None):
         provider = "equatorial"
         label = self._property_label(property_key)
         if self._only_stale_reading(provider, property_key):
-            await self._send_bill_text(chat_id, BILL_STALE_ONLY_MESSAGE)
-            return None
+            return await self._refuse_stale_payment(chat_id, provider, property_key, query)
         if self._flight_in_progress(provider, property_key, "pix"):
             await self._send_bill_text(
                 chat_id, f"⏳ Já estou buscando o Pix da Equatorial — {label}. Aguarde."
@@ -1583,7 +1808,14 @@ class Executor:
             provider, property_key, "pix", lambda: self._fetch_pix_payload(property_key)
         )
         if failure:
-            await self._send_bill_text(chat_id, failure)
+            # A recusa do Pix não é o fim da linha: o boleto costuma existir
+            # justamente quando o Pix não aparece na tela. Mensagem sem botão
+            # obrigava o dono a rolar a conversa ou digitar de novo.
+            await self._send_bill_text(
+                chat_id,
+                failure,
+                self._bill_keyboard(provider, property_key, pix=False, boleto=True),
+            )
             return None
         self._bill_artifacts[(provider, property_key, "pix")] = {
             "payload": payload,
@@ -1647,8 +1879,7 @@ class Executor:
         provider = "equatorial"
         label = self._property_label(property_key)
         if self._only_stale_reading(provider, property_key):
-            await self._send_bill_text(chat_id, BILL_STALE_ONLY_MESSAGE)
-            return None
+            return await self._refuse_stale_payment(chat_id, provider, property_key, query)
         if self._flight_in_progress(provider, property_key, "boleto"):
             await self._send_bill_text(
                 chat_id, f"⏳ Já estou buscando o boleto da Equatorial — {label}. Aguarde."
@@ -1660,7 +1891,12 @@ class Executor:
         path = (info or {}).get("path")
         reference = (info or {}).get("reference", "")
         if failure or not path:
-            await self._send_bill_text(chat_id, failure or BILL_ARTIFACT_UNAVAILABLE_MESSAGE)
+            # Mesmo raciocínio do Pix: o botão que falhou sai, o outro fica.
+            await self._send_bill_text(
+                chat_id,
+                failure or BILL_ARTIFACT_UNAVAILABLE_MESSAGE,
+                self._bill_keyboard(provider, property_key, pix=True, boleto=False),
+            )
             return None
         filename = self._safe_bill_filename(provider, property_key, reference)
         caption = f"📄 Boleto Equatorial — {label} — referência {reference or 'indisponível'}"
@@ -1678,6 +1914,7 @@ class Executor:
                 chat_id,
                 "Não consegui entregar o boleto agora. Nenhum pagamento foi realizado; "
                 "tente novamente em alguns minutos.",
+                self._bill_keyboard(provider, property_key),
             )
         finally:
             # O Telegram já respondeu (sucesso ou erro): o PDF de pagamento não fica
@@ -1710,8 +1947,13 @@ class Executor:
             )
             return None
 
-        if provider != "equatorial":
-            await self._send_bill_text(chat_id, BILL_ACTION_UNAVAILABLE_MESSAGE)
+        # PIX e BOLETO existem só para a energia hoje. Para qualquer outra
+        # concessionária a recusa vem com VOLTAR: recusa sem botão era um beco sem
+        # saída no meio da conversa.
+        if action in ("pix", "boleto") and provider != "equatorial":
+            await self._send_bill_text(
+                chat_id, BILL_ACTION_UNAVAILABLE_MESSAGE, self._bill_back_keyboard()
+            )
             return None
 
         # Sem esta rede, uma exceção inesperada subiria até o handler genérico do
@@ -1719,20 +1961,36 @@ class Executor:
         # detalhe técnico que esta tela não pode mostrar.
         try:
             if action == "refresh":
-                return await self._equatorial_bill_flow(
-                    chat_id, property_key, query=query, forced=True
+                if provider == "saneago":
+                    return await self._saneago_bill_flow(chat_id, property_key, query=query)
+                if provider == "equatorial":
+                    return await self._equatorial_bill_flow(
+                        chat_id, property_key, query=query, forced=True
+                    )
+                await self._send_bill_text(
+                    chat_id, BILL_ACTION_UNAVAILABLE_MESSAGE, self._bill_back_keyboard()
                 )
+                return None
             if action == "pix":
                 return await self._send_bill_pix(chat_id, property_key, query=query)
             if action == "boleto":
                 return await self._send_bill_boleto(chat_id, property_key, query=query)
         except Exception:
             logger.exception("Falha inesperada no botão de fatura")
-            await self._send_bill_text(chat_id, BILL_GENERIC_FAILURE_MESSAGE)
+            await self._send_bill_text(
+                chat_id, BILL_GENERIC_FAILURE_MESSAGE, self._bill_back_keyboard()
+            )
             return None
 
+        # Botão de uma versão anterior do bot, ou callback que eu não escrevi.
+        # Sem VOLTAR, o dono ficava preso numa mensagem que só diz "não".
         logger.warning("Callback de fatura desconhecido")
-        await self._send_bill_text(chat_id, "Não reconheci esse botão de fatura.")
+        await self._send_bill_text(
+            chat_id,
+            "Não reconheci esse botão de fatura. Ele pode ser de uma mensagem antiga; "
+            "toque em VOLTAR para abrir o menu de contas.",
+            self._bill_back_keyboard(),
+        )
         return None
 
     # ---------- MENU DE CONTAS ----------
@@ -1854,10 +2112,14 @@ class Executor:
         if InlineKeyboardButton is not None:
             provider_row = []
             if water:
+                # Antes este botão mandava a FRASE "conta de agua casa" como
+                # callback: ela dava a volta pelo roteador de texto, caía no
+                # caminho genérico e a resposta vinha como mensagem nova, sem
+                # botão nenhum. Agora entra no mesmo handler da energia e termina
+                # num cartão com ATUALIZAR e VOLTAR.
                 provider_row.append(
                     InlineKeyboardButton(
-                        "💧 Água",
-                        callback_data=f"conta de agua {self._property_phrase(property_key)}",
+                        "💧 Água", callback_data=f"bill_refresh:saneago:{property_key}"
                     )
                 )
             if energy:
@@ -1868,19 +2130,44 @@ class Executor:
                 )
             if provider_row:
                 rows.append(provider_row)
+            # Trocar de imóvel exigia voltar ao menu de contas e entrar de novo.
+            # Os vizinhos confirmados ficam a um toque daqui.
+            siblings = [
+                key
+                for key in {k for keys in confirmed.values() for k in keys}
+                if key != property_key
+            ]
+            row = []
+            for key in bill_screen.limited(siblings):
+                row.append(
+                    InlineKeyboardButton(
+                        f"🏠 {self._property_label(key)}", callback_data=f"bill_menu:{key}"
+                    )
+                )
+                if len(row) == 2:
+                    rows.append(row)
+                    row = []
+            if row:
+                rows.append(row)
             rows.append([InlineKeyboardButton("🔙 VOLTAR", callback_data="menu_contas")])
             reply_markup = InlineKeyboardMarkup(rows)
         else:
             reply_markup = None
 
         lines = [f"🧾 {label}", ""]
-        if water or energy:
-            lines.append("Mostro apenas o que está confirmado para este imóvel.")
+        if water and energy:
+            lines.append("Água e energia confirmadas aqui. Toque para consultar agora.")
+        elif energy:
+            lines.append("Energia confirmada aqui. Toque para consultar agora.")
+        elif water:
+            lines.append("Água confirmada aqui. Toque para consultar agora.")
         else:
             lines.append(
                 "Nenhuma concessionária confirmada para este imóvel agora. "
                 "Peça pelo nome uma vez (conta de luz ou conta de água) para eu confirmar."
             )
+        if water or energy:
+            lines.append("A consulta pode levar alguns minutos e chega numa mensagem só.")
         return {"text": "\n".join(lines), "reply_markup": reply_markup}
 
     def _cancel_action(self, chat_id: int) -> str:
