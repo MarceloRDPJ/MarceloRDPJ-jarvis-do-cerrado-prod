@@ -78,6 +78,12 @@ public class JarvisAccessibilityService extends AccessibilityService {
      * responder — e curto o bastante para sobrar tempo de reportar a recusa.
      */
     private static final long AGENCIAWEB_BUDGET_MILLIS = 120_000L;
+    /**
+     * Prazo do experimento da ponte: mais largo que o do login porque ele faz
+     * quatro navegações — faturas antes, login, link oficial, faturas depois — e
+     * cada uma delas tem prazo próprio de carregamento.
+     */
+    private static final long BRIDGE_BUDGET_MILLIS = 240_000L;
 
     private static final long DIALOG_OPEN_MILLIS = 5_000L;
     /** Prazo para a lista nativa sair da frente depois da escolha. */
@@ -126,6 +132,8 @@ public class JarvisAccessibilityService extends AccessibilityService {
                         intent.getStringExtra("document"), 0);
                 } else if (operation.equals("agenciaweb_equatorial")) {
                     loginAgenciaWeb(request, intent.getStringExtra("property"));
+                } else if (operation.equals("bridge_equatorial")) {
+                    bridgeAgenciaWeb(request, intent.getStringExtra("property"));
                 } else if (operation.equals("probe_app_equatorial")) {
                     probeEquatorialApp(request);
                 } else if (operation.equals("recover_equatorial")) {
@@ -487,6 +495,43 @@ public class JarvisAccessibilityService extends AccessibilityService {
                 }
             }
         }, "rod-agenciaweb").start();
+    }
+
+    /**
+     * Mede a ponte entre os dois portais da concessionária, com controle.
+     *
+     * Existe separada do login porque é um EXPERIMENTO, não um passo da consulta:
+     * ela observa a área de faturas do {@code goias.*} antes, autentica no
+     * {@code go.*}, segue apenas link visível do próprio portal e observa de
+     * novo. O "antes" é o que impede a coincidência de passar por causa — uma
+     * sessão que já estivesse viva daria ponte aberta sem o login ter feito nada.
+     *
+     * Mesmas duas regras do login: thread própria, porque o motor bloqueia quem
+     * chama até o WebView responder e {@code onReceive} está na principal; e
+     * credencial do cofre, nunca de extra de Intent, que é texto legível por
+     * qualquer coisa que observe o despacho.
+     */
+    private void bridgeAgenciaWeb(final String request, final String property) {
+        final Context context = getApplicationContext();
+        final String imovel = property == null || property.trim().isEmpty() ? "casa" : property.trim();
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    BillingConfig config = BillingConfig.load(context);
+                    String document = config.value("equatorial_cpf");
+                    String unit = config.value(imovel + "_energy");
+                    RodLog.step("ponte", "imovel=" + imovel
+                        + " documento=" + RodLog.describe(document)
+                        + " unidade=" + RodLog.describe(unit));
+                    reply(request, true, EquatorialWebEngine.bridgeAgenciaWeb(
+                        context, unit, document,
+                        System.currentTimeMillis() + BRIDGE_BUDGET_MILLIS), null);
+                } catch (Exception error) {
+                    reply(request, false, null,
+                        error.getClass().getSimpleName() + ": " + error.getMessage());
+                }
+            }
+        }, "rod-ponte").start();
     }
 
     private void probeEquatorialSession(String request, boolean afterSubmit, long deadline) {

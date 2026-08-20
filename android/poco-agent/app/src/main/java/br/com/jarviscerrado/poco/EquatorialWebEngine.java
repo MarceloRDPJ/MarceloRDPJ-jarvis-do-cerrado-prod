@@ -511,6 +511,348 @@ final class EquatorialWebEngine {
         return new JSONObject().put("state", state.name()).put("jwt", jwt);
     }
 
+    // ------------------------------------------- ponte go.* -> goias.* (medida)
+
+    /**
+     * Mede se o login do {@code go.*} abre a área de faturas do {@code goias.*}.
+     *
+     * A pergunta parece de arquitetura e é experimental: os dois hosts pertencem
+     * à mesma concessionária, mas têm portões diferentes — reCAPTCHA v3 num,
+     * Transmit Security DRS no outro — e nada garante que a sessão de um valha
+     * no outro. Já erramos por inferência aqui; então o método faz o controle:
+     * observa o {@code goias.*} ANTES, autentica no {@code go.*}, navega SÓ por
+     * link visível do próprio portal, e observa o {@code goias.*} DEPOIS. Sem o
+     * "antes", uma sessão que já existia passaria por resultado do login.
+     *
+     * O cookie jar é o do WebView do ROD, o mesmo objeto entre as duas metades da
+     * medição — e é por isso que a comparação vale: se o marcador estrutural
+     * mudar, quem mudou foi o servidor, não o navegador.
+     *
+     * O que este método NÃO faz, por falta de autorização: montar URL de SSO,
+     * copiar token para outra origem, chamar endpoint interno. A navegação é a de
+     * um usuário — {@code href} de âncora visível — e se o portal não oferecer
+     * link nenhum, o resultado é ponte indisponível, que também é resposta.
+     */
+    static JSONObject bridgeAgenciaWeb(Context context, String unit, String document, long deadline)
+            throws Exception {
+        EquatorialWebEngine engine = new EquatorialWebEngine();
+        try {
+            return engine.runBridge(context.getApplicationContext(), unit, document, deadline);
+        } finally {
+            engine.destroy();
+        }
+    }
+
+    private JSONObject runBridge(Context context, String unit, String document, long deadline)
+            throws Exception {
+        create(context);
+
+        JSONObject before = probeBillArea(deadline);
+        RodLog.step("ponte", "antes do login: " + describeBillArea(before));
+
+        load(AgenciaWebLogin.LOGIN_URL, deadline);
+        JSONObject seen = observeAgenciaWeb();
+        boolean already = seen.optBoolean("jwt", false);
+        RodLog.step("ponte", "sessao go.* previa=" + already
+            + " formulario=" + seen.optBoolean("form", false));
+
+        EquatorialSession.State state;
+        if (already) {
+            state = EquatorialSession.State.SESSION_VALID;
+        } else {
+            String doc = AgenciaWebLogin.document(document);
+            String uc = AgenciaWebLogin.unit(unit);
+            RodLog.step("ponte", "credenciais do cofre documento=" + RodLog.describe(doc)
+                + " unidade=" + RodLog.describe(uc));
+            if (!AgenciaWebLogin.ready(doc, uc))
+                throw new IllegalStateException(EquatorialSession.errorFor(
+                    EquatorialSession.Decision.FAIL_NO_CREDENTIALS));
+            closeLgpdNotice();
+            fillAgenciaWeb(doc, uc);
+            submitAgenciaWeb();
+            JSONObject login = awaitAgenciaWebOutcome(
+                Math.min(deadline, System.currentTimeMillis() + LOGIN_WAIT_MILLIS));
+            state = EquatorialSession.State.valueOf(login.optString("state",
+                EquatorialSession.State.BROWSER_STALE.name()));
+        }
+
+        AgenciaWebLogin.GoOutcome outcome = AgenciaWebLogin.outcome(state);
+        boolean authenticated = outcome == AgenciaWebLogin.GoOutcome.GO_LOGIN_OK;
+        RodLog.step("ponte", "desfecho do login go.*=" + outcome);
+
+        // O JWT aparece ANTES de a navegação do script terminar: o auth-go.js grava
+        // o token e só então manda o navegador para /sua-conta/{service}. Enumerar
+        // link nesse instante lê o menu da página de LOGIN, não o da área logada —
+        // foi o que aconteceu na primeira medição, e é diferença que muda a
+        // conclusão. Então: assentar a navegação, e só depois olhar o menu.
+        JSONObject landing = new JSONObject();
+        JSONArray destinations = new JSONArray();
+        JSONArray routes = new JSONArray();
+        // "Depois" só existe se houve medição depois. Repetir o "antes" aqui
+        // pouparia um campo vazio e criaria um par before/after que parece
+        // comparação e não é — o erro exato que este método existe para evitar.
+        JSONObject after = new JSONObject();
+        AgenciaWebLogin.BridgeState bridge = AgenciaWebLogin.BridgeState.NOT_TESTED;
+
+        if (authenticated) {
+            settle(deadline);
+            landing = whereAmI();
+            if (landing.optInt("chars", 0) == 0) {
+                load(AgenciaWebLogin.ACCOUNT_URL, deadline);
+                landing = whereAmI();
+            }
+            destinations = visibleDestinations();
+            RodLog.step("ponte", "area autenticada em " + landing.optString("host", "")
+                + landing.optString("path", "") + " caracteres=" + landing.optInt("chars", 0));
+
+            JSONArray links = officialServiceLinks();
+            RodLog.step("ponte", "links oficiais de servico=" + links.length());
+            for (int i = 0; i < links.length() && System.currentTimeMillis() < deadline; i++) {
+                JSONObject landed = followOfficialLink(links.getJSONObject(i), deadline);
+                // O que a página de destino pede é o veredito do link: se ela
+                // devolve o formulário de login do ASPX, a sessão do go.* não
+                // valeu ali — e isso é diferente de "o link não existe".
+                JSONObject onLanding = probeStructure();
+                landed.put("landing_login_form", onLanding.optBoolean("login_form", false));
+                landed.put("landing_comboUC", onLanding.optBoolean("comboUC", false));
+                landed.put("landing_chars", onLanding.optInt("chars", 0));
+                landed.put("landing_notice", onLanding.optString("notice", ""));
+                routes.put(landed);
+                RodLog.step("ponte", "seguiu rotulo=" + landed.optString("word", "")
+                    + " destino=" + landed.optString("host", "") + landed.optString("path", "")
+                    + " pediu_login=" + landed.optBoolean("landing_login_form", false)
+                    + " comboUC=" + landed.optBoolean("landing_comboUC", false)
+                    + " caracteres=" + landed.optInt("landing_chars", 0));
+                after = probeBillArea(deadline);
+                bridge = classifyBillArea(true, after);
+                RodLog.step("ponte", "depois de " + landed.optString("word", "")
+                    + ": " + describeBillArea(after) + " ponte=" + bridge);
+                if (bridge == AgenciaWebLogin.BridgeState.OPEN) break;
+            }
+            if (routes.length() == 0) {
+                after = probeBillArea(deadline);
+                bridge = classifyBillArea(true, after);
+                RodLog.step("ponte", "nenhum link oficial de servico: " + describeBillArea(after)
+                    + " ponte=" + bridge);
+            }
+        }
+
+        return new JSONObject()
+            .put("go_outcome", outcome.name())
+            .put("go_state", state.name())
+            .put("go_session_was_already_open", already)
+            .put("landing", landing)
+            .put("destinations", destinations)
+            .put("cookies_goias", cookiePresence(BILL_URL))
+            .put("cookies_go", cookiePresence(AgenciaWebLogin.LOGIN_URL))
+            .put("before", before)
+            .put("after", after)
+            .put("bridge", bridge.name())
+            .put("routes", routes);
+    }
+
+    /**
+     * Olha o {@code SegundaVia.aspx} e devolve só marcadores estruturais.
+     *
+     * Nem texto de página, nem {@code location.search}: o caminho é público, mas
+     * o query string é justamente onde um portal põe identificador de sessão. O
+     * que sai daqui é booleano, host e caminho — nada que sirva para entrar em
+     * conta nenhuma.
+     */
+    private JSONObject probeBillArea(long deadline) throws Exception {
+        load(BILL_URL, deadline);
+        return probeStructure();
+    }
+
+    /**
+     * Marcadores da página que já está carregada, sem navegar.
+     *
+     * Separado do carregamento porque a mesma leitura serve para dois lugares: a
+     * área de faturas e a página em que um link oficial ATERRISSOU. Sem isso, a
+     * medição saberia que o link levou ao host das faturas mas não saberia se a
+     * página de lá pediu credencial de novo — que é exatamente a pergunta.
+     */
+    private JSONObject probeStructure() throws Exception {
+        String script =
+            "(function(){"
+            + "function q(id){return !!document.getElementById(id);}"
+            + "var t=document.body?document.body.innerText:'';"
+            + "return JSON.stringify({"
+            + "login_form:!!(document.getElementById('WEBDOOR_headercorporativogo_txtUC')"
+            + "&&document.getElementById('WEBDOOR_headercorporativogo_txtDocumento')),"
+            + "comboUC:q('CONTENT_comboBoxUC'),tipoEmissao:q('CONTENT_cbTipoEmissao'),"
+            + "motivo:q('CONTENT_cbMotivo'),emitir:q('CONTENT_btEnviar'),"
+            + "chars:t.trim().length,host:location.hostname,path:location.pathname,"
+            + "text:t.normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase()});"
+            + "})()";
+        JSONObject area = new JSONObject(evalJson(script));
+        // O texto entra, vira palavra do vocabulário e SAI do objeto. Nada de
+        // conteúdo de página sobrevive à fronteira deste método.
+        String notice = AgenciaWebLogin.noticeWord(area.optString("text", ""));
+        area.remove("text");
+        return area.put("notice", notice);
+    }
+
+    /** Onde a navegação está agora: host, caminho e tamanho. Nunca query string. */
+    private JSONObject whereAmI() throws Exception {
+        return new JSONObject(evalJson(
+            "(function(){var t=document.body?document.body.innerText:'';"
+            + "return JSON.stringify({host:location.hostname,path:location.pathname,"
+            + "chars:t.trim().length});})()"));
+    }
+
+    /**
+     * Há cookie para este host, e quantos — nada além da contagem.
+     *
+     * É a pergunta da rodada em forma estrutural: se o login do {@code go.*}
+     * criasse sessão para o {@code goias.*}, ela chegaria como cookie de domínio
+     * compartilhado, e a contagem mudaria. O VALOR nunca sai daqui: cookie de
+     * sessão é credencial portadora, e imprimi-lo seria entregar a conta do
+     * proprietário a qualquer coisa que leia o log.
+     */
+    private JSONObject cookiePresence(final String url) throws Exception {
+        final ArrayBlockingQueue<String> answer = new ArrayBlockingQueue<>(1);
+        main.post(new Runnable() {
+            @Override public void run() {
+                String raw = CookieManager.getInstance().getCookie(url);
+                answer.offer(raw == null ? "" : raw);
+            }
+        });
+        String raw = answer.poll(EVAL_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+        if (raw == null) raw = "";
+        int count = 0;
+        boolean aspSession = false;
+        for (String part : raw.split(";")) {
+            String name = part.trim();
+            int eq = name.indexOf('=');
+            if (eq > 0) name = name.substring(0, eq);
+            if (name.isEmpty()) continue;
+            count++;
+            String folded = name.toLowerCase();
+            if (folded.contains("asp.net_sessionid") || folded.contains("aspxauth")) {
+                aspSession = true;
+            }
+        }
+        return new JSONObject().put("count", count).put("asp_session", aspSession);
+    }
+
+    private static String describeBillArea(JSONObject area) {
+        return "login_form=" + area.optBoolean("login_form", false)
+            + " comboUC=" + area.optBoolean("comboUC", false)
+            + " tipoEmissao=" + area.optBoolean("tipoEmissao", false)
+            + " motivo=" + area.optBoolean("motivo", false)
+            + " emitir=" + area.optBoolean("emitir", false)
+            + " caracteres=" + area.optInt("chars", 0)
+            + " destino=" + area.optString("host", "") + area.optString("path", "")
+            + " aviso=" + area.optString("notice", "");
+    }
+
+    private static AgenciaWebLogin.BridgeState classifyBillArea(boolean authenticated,
+                                                                JSONObject area) {
+        return AgenciaWebLogin.bridge(authenticated,
+            area.optBoolean("login_form", false), area.optBoolean("comboUC", false),
+            area.optBoolean("tipoEmissao", false), area.optBoolean("motivo", false),
+            area.optBoolean("emitir", false), area.optInt("chars", 0) > 0);
+    }
+
+    /**
+     * Os links que um usuário veria e clicaria, e nada além deles.
+     *
+     * Filtra por VISIBILIDADE ({@code offsetParent} e retângulo) porque o portal
+     * carrega menu duplicado para telas pequenas e âncora escondida de rodapé;
+     * clicar no que ninguém vê não é navegação de usuário. Prioriza quem já
+     * aponta para o host das faturas — se a ponte existir declarada, é o caminho
+     * mais curto — e depois aceita link do próprio {@code go.*} cujo rótulo casa
+     * o vocabulário de serviço.
+     *
+     * O rótulo NÃO sai daqui. O que sai é a palavra genérica do vocabulário que
+     * ele casou, porque em área autenticada o menu costuma trazer o nome do
+     * titular dentro do próprio texto do link.
+     */
+    private JSONArray officialServiceLinks() throws Exception {
+        StringBuilder words = new StringBuilder();
+        for (String word : AgenciaWebLogin.SERVICE_WORDS) {
+            if (words.length() > 0) words.append(',');
+            words.append(JSONObject.quote(word));
+        }
+        String script =
+            "(function(){"
+            + "var words=[" + words + "];"
+            + "function fold(v){return (v||'').normalize('NFD')"
+            + ".replace(/[\\u0300-\\u036f]/g,'').toLowerCase();}"
+            + "function word(v){for(var i=0;i<words.length;i++)"
+            + "if(v.indexOf(words[i])>=0) return words[i];return '';}"
+            + "var out=[],seen={};"
+            + "var all=document.querySelectorAll('a[href]');"
+            + "for(var i=0;i<all.length;i++){var a=all[i];"
+            + "if(!a.offsetParent) continue;"
+            + "var r=a.getBoundingClientRect(); if(r.width===0||r.height===0) continue;"
+            + "if(!/^https?:$/.test(a.protocol||'')) continue;"
+            + "var host=a.hostname||'',path=a.pathname||'';"
+            + "var cross=(host.indexOf(" + JSONObject.quote(AgenciaWebLogin.BILL_HOST) + ")>=0);"
+            + "var w=word(fold(a.textContent))||word(fold(path));"
+            + "if(!cross&&!w) continue;"
+            + "var key=host+path; if(seen[key]) continue; seen[key]=1;"
+            + "out.push({host:host,path:path,word:(w||'host das faturas'),"
+            + "cross:cross,href:a.href});"
+            + "}"
+            + "out.sort(function(x,y){return (y.cross?1:0)-(x.cross?1:0);});"
+            + "return JSON.stringify(out.slice(0,6));"
+            + "})()";
+        return new JSONArray(evalJson(script));
+    }
+
+    /**
+     * Todos os destinos visíveis da página, por host e caminho, sem rótulo nenhum.
+     *
+     * O filtro por vocabulário existe para ESCOLHER onde clicar, e por isso ele
+     * pode esconder um link cujo rótulo ninguém previu — e concluir "o portal não
+     * oferece" a partir de uma busca por palavra seria concluir sobre a minha
+     * lista, não sobre o portal. Esta enumeração é a prova negativa: ela mostra
+     * tudo que a área autenticada oferece, e deixa o leitor conferir que nenhum
+     * dos destinos é uma entrada autenticada no host das faturas.
+     *
+     * Sai host e caminho, jamais rótulo e jamais query string: o rótulo do menu
+     * autenticado carrega o nome do titular, e o query string é onde vive token.
+     */
+    private JSONArray visibleDestinations() throws Exception {
+        String script =
+            "(function(){var out=[],seen={};"
+            + "var all=document.querySelectorAll('a[href]');"
+            + "for(var i=0;i<all.length;i++){var a=all[i];"
+            + "if(!a.offsetParent) continue;"
+            + "var r=a.getBoundingClientRect(); if(r.width===0||r.height===0) continue;"
+            + "if(!/^https?:$/.test(a.protocol||'')) continue;"
+            + "var key=(a.hostname||'')+(a.pathname||'');"
+            + "if(seen[key]) continue; seen[key]=1;"
+            + "out.push({host:a.hostname||'',path:a.pathname||''});}"
+            + "return JSON.stringify(out.slice(0,60));})()";
+        return new JSONArray(evalJson(script));
+    }
+
+    /**
+     * Segue um link como o navegador seguiria: o {@code href} que a página já tem.
+     *
+     * Nada é montado. O endereço vem da âncora visível, e redirect do servidor é
+     * bem-vindo — é justamente o que a medição quer observar. Devolve onde a
+     * navegação parou: host e caminho, jamais o query string.
+     */
+    private JSONObject followOfficialLink(JSONObject link, long deadline) throws Exception {
+        String href = link.optString("href", "");
+        if (href.isEmpty())
+            return new JSONObject().put("word", link.optString("word", ""))
+                .put("host", "").put("path", "");
+        load(href, Math.min(deadline, System.currentTimeMillis() + LOAD_TIMEOUT_MILLIS));
+        JSONObject where = new JSONObject(evalJson(
+            "JSON.stringify({host:location.hostname,path:location.pathname})"));
+        return new JSONObject()
+            .put("word", link.optString("word", ""))
+            .put("from_host", link.optString("host", ""))
+            .put("from_path", link.optString("path", ""))
+            .put("host", where.optString("host", ""))
+            .put("path", where.optString("path", ""));
+    }
+
     /** Escolhe a unidade no combo da segunda via, casando dígitos como o outro motor. */
     private void selectUnit(String unit, long deadline) throws Exception {
         String script =

@@ -184,6 +184,136 @@ final class AgenciaWebLogin {
         return "";
     }
 
+    // ------------------------------------------------------- ponte entre hosts
+
+    /**
+     * Vocabulário dos links de serviço, para achar a Agência Virtual pelo RÓTULO.
+     *
+     * O portal {@code go.*} é institucional e o {@code goias.*} é o ASPX de
+     * autoatendimento; se existir ponte entre os dois, ela aparece como link
+     * normal de menu. Procurar por rótulo é o que um usuário faz, e é a única
+     * busca que o proprietário autorizou: nada de parâmetro montado à mão nem
+     * de endpoint deduzido.
+     *
+     * As palavras vêm sem acento porque a comparação é feita sobre
+     * {@link EquatorialSession#fold(String)}.
+     */
+    static final String[] SERVICE_WORDS = {
+        "agencia virtual", "segunda via", "2a via", "2 via", "duplicata",
+        "minhas faturas", "faturas", "fatura", "debito automatico",
+        "autoatendimento", "servicos", "sua conta", "historico de consumo"
+    };
+
+    /**
+     * Palavras que o ASPX escreve quando NÃO há sessão, para nomear a página
+     * sem transportar o texto dela.
+     *
+     * O {@code SegundaVia.aspx} não devolve formulário de login: ele redireciona,
+     * e a página de destino é curta. Registrar qual destas palavras apareceu diz
+     * ao proprietário POR QUE a área recusou, e é a única forma de dizer isso sem
+     * copiar conteúdo de página para dentro do log.
+     */
+    static final String[] BILL_NOTICE_WORDS = {
+        "sessao expirada", "sessao expirou", "faca seu login", "faca login",
+        "acesso restrito", "nao autorizado", "indisponivel", "manutencao",
+        "erro", "suporte"
+    };
+
+    /** Qual palavra do aviso o texto da página contém. Devolve a palavra, não o texto. */
+    static String noticeWord(String foldedText) {
+        if (foldedText == null) return "";
+        for (String word : BILL_NOTICE_WORDS) if (foldedText.contains(word)) return word;
+        return "";
+    }
+
+    /** Host do autoatendimento ASPX, o outro lado da ponte. */
+    static final String BILL_HOST = "goias.equatorialenergia.com.br";
+
+    /**
+     * Qual palavra do vocabulário o rótulo do link contém.
+     *
+     * Devolve a PALAVRA, não o rótulo. O cabeçalho de uma área autenticada
+     * costuma trazer o nome do titular no próprio texto do link, e reduzir o
+     * rótulo ao termo genérico que ele casou é o que permite registrar a
+     * navegação na trilha sem carregar dado do proprietário para o log.
+     */
+    static String serviceWord(String foldedLabel) {
+        if (foldedLabel == null) return "";
+        for (String word : SERVICE_WORDS) if (foldedLabel.contains(word)) return word;
+        return "";
+    }
+
+    /**
+     * O que a área de faturas do {@code goias.*} mostra depois da navegação.
+     *
+     * Os cinco marcadores são estruturais e do próprio ASPX: o formulário de
+     * login do cabeçalho, e os quatro controles da segunda via. Basear a
+     * conclusão neles é o que separa "a página respondeu" de "a página
+     * respondeu AUTENTICADA" — e a diferença importa porque, sem sessão, o
+     * {@code SegundaVia.aspx} volta EM BRANCO, sem sequer oferecer login.
+     */
+    enum BridgeState {
+        /** A área de faturas veio autenticada: a ponte existe. */
+        OPEN,
+        /** A página respondeu, mas sem os controles: sessão não atravessou. */
+        CLOSED,
+        /** Página em branco: nem controles, nem login, nem texto. */
+        BLANK,
+        /** Não houve login no {@code go.*}, então não há o que medir. */
+        NOT_TESTED
+    }
+
+    /**
+     * Classifica a área de faturas por marcador estrutural, nunca por texto.
+     *
+     * A exigência de TODOS os quatro controles é deliberada. Um postback parcial
+     * do ASPX já devolveu combo sem botão, e aceitar "quase" como ponte aberta
+     * faria o ROD prometer uma consulta que não completa.
+     */
+    static BridgeState bridge(boolean authenticatedOnGo, boolean loginForm, boolean comboUnit,
+                              boolean emissionType, boolean reason, boolean emitButton,
+                              boolean anyText) {
+        if (!authenticatedOnGo) return BridgeState.NOT_TESTED;
+        if (comboUnit && emissionType && reason && emitButton && !loginForm) return BridgeState.OPEN;
+        if (!anyText && !loginForm && !comboUnit) return BridgeState.BLANK;
+        return BridgeState.CLOSED;
+    }
+
+    /**
+     * Vocabulário do relatório desta rodada, para o desfecho do login {@code go.*}.
+     *
+     * Dois estados NÃO aparecem aqui de propósito: credencial errada e reprovação
+     * de reCAPTCHA. O {@code auth-go.js} escreve a MESMA mensagem {@code #gh678}
+     * para qualquer status diferente de 200, então a página não contém a
+     * informação que os separaria. Quem lê o DOM só pode dizer "recusado", e
+     * dizer mais do que isso seria inventar diagnóstico.
+     */
+    enum GoOutcome {
+        /** JWT presente depois do envio: sessão criada pelo portal. */
+        GO_LOGIN_OK,
+        /** Recusa opaca: pode ser credencial, pode ser pontuação. */
+        GO_LOGIN_REJECTED,
+        /** O motor não obteve página nenhuma. */
+        GO_PORTAL_ERROR,
+        /** O prazo acabou sem veredito observável. */
+        GO_TIMEOUT
+    }
+
+    /** Traduz o estado da máquina de sessão no vocabulário do relatório. */
+    static GoOutcome outcome(EquatorialSession.State state) {
+        switch (state) {
+            case LOGIN_OK:
+            case SESSION_VALID:
+                return GoOutcome.GO_LOGIN_OK;
+            case LOGIN_REFUSED_OPAQUE:
+                return GoOutcome.GO_LOGIN_REJECTED;
+            case LOGIN_IN_PROGRESS:
+                return GoOutcome.GO_TIMEOUT;
+            default:
+                return GoOutcome.GO_PORTAL_ERROR;
+        }
+    }
+
     /**
      * O formulário está pronto para envio?
      *
