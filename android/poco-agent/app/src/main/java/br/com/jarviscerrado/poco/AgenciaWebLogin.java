@@ -368,15 +368,30 @@ final class AgenciaWebLogin {
      * Os cinco marcadores são estruturais e do próprio ASPX: o formulário de
      * login do cabeçalho, e os quatro controles da segunda via. Basear a
      * conclusão neles é o que separa "a página respondeu" de "a página
-     * respondeu AUTENTICADA" — e a diferença importa porque, sem sessão, o
-     * {@code SegundaVia.aspx} volta EM BRANCO, sem sequer oferecer login.
+     * respondeu AUTENTICADA".
+     *
+     * O que já foi OBSERVADO sem sessão: o {@code SegundaVia.aspx} não devolve
+     * formulário de login — ele redireciona para uma página curta de aviso
+     * ({@code Suporte.aspx}, ~100 caracteres). Ela renderiza praticamente vazia,
+     * e foi por isso que ela já foi descrita como "em branco" num motor e como
+     * "redirecionamento" noutro: é a mesma coisa vista de dois lugares. O que o
+     * servidor faz é redirecionar; o que a tela parece é vazio.
      */
     enum BridgeState {
         /** A área de faturas veio autenticada: a ponte existe. */
         OPEN,
         /** A página respondeu, mas sem os controles: sessão não atravessou. */
         CLOSED,
-        /** Página em branco: nem controles, nem login, nem texto. */
+        /**
+         * Página em branco: nem controles, nem login, nem texto.
+         *
+         * NÃO é a assinatura conhecida de "sem sessão" — essa é o
+         * redirecionamento para a página de aviso, que tem texto. Este estado
+         * existe para o caso de a página não vir de todo: render que falhou,
+         * rede que caiu, motor que não pintou. Separá-lo de {@link #CLOSED}
+         * evita mandar o dono procurar problema de credencial quando o problema
+         * foi não ter chegado resposta nenhuma.
+         */
         BLANK,
         /** Não houve login no {@code go.*}, então não há o que medir. */
         NOT_TESTED

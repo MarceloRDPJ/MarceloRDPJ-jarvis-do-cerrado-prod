@@ -172,9 +172,11 @@ public class AgenciaWebLoginTest {
 
     @Test
     public void aBlankBillPageIsItsOwnState() {
-        // Sem sessao o SegundaVia.aspx volta EM BRANCO: nao oferece nem login.
-        // Confundir isso com "fechado por credencial" mandaria o dono procurar
-        // defeito no lugar errado.
+        // Pagina que nao veio de todo: sem controles, sem login, sem texto.
+        // NAO e a assinatura de "sem sessao" — aquela e o redirecionamento para
+        // a pagina de aviso, que TEM texto. Este estado cobre render que falhou,
+        // rede que caiu, motor que nao pintou. Confundir os dois mandaria o dono
+        // procurar defeito de credencial quando nao chegou resposta nenhuma.
         assertEquals(AgenciaWebLogin.BridgeState.BLANK, AgenciaWebLogin.bridge(
             true, false, false, false, false, false, false));
     }
