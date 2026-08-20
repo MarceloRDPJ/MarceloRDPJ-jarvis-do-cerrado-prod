@@ -161,6 +161,43 @@ def wire(code, detail="detalhe tecnico"):
     return f"IllegalStateException: {code}: {detail}"
 
 
+@pytest.mark.asyncio
+async def test_pressing_refresh_retries_the_web_session_even_while_it_is_cooling(monkeypatch):
+    """O botao ATUALIZAR tem de valer mais que o cooldown do canal.
+
+    A primeira consulta recusa e poe o canal preferido em cooldown de dez
+    minutos. Se o dono entra no portal e aperta ATUALIZAR, esta segunda consulta
+    precisa BATER no canal outra vez — senao ele resolveu o problema e o ROD
+    continuaria repetindo a recusa lembrada, o que qualquer pessoa leria como
+    "esse botao nao faz nada".
+    """
+    executor = build_executor(
+        monkeypatch, jobs={"refresh_equatorial_bills": (None, wire("EQUATORIAL_LOGIN_FAILED"))}
+    )
+    await executor.handle_bill_callback(1, "bill_refresh:equatorial:casa", FakeQuery(77))
+    primeira = len(job_calls(executor, "refresh_equatorial_bills"))
+    assert primeira == 1
+
+    # Sessao restaurada pelo dono; o cooldown de 600s ainda esta correndo.
+    executor.poco_calls.clear()
+    monkeypatch.setattr(
+        executor,
+        "_run_poco_job",
+        _static_runner({"refresh_equatorial_bills": (bill_result(), None)}, executor.poco_calls),
+    )
+    await executor.handle_bill_callback(1, "bill_refresh:equatorial:casa", FakeQuery(78))
+
+    assert job_calls(executor, "refresh_equatorial_bills"), "ATUALIZAR nao tentou de novo"
+
+
+def _static_runner(jobs, calls):
+    async def runner(action, timeout_seconds=70, params=None):
+        calls.append({"action": action, "params": dict(params or {})})
+        return jobs.get(action, (None, f"acao nao configurada: {action}"))
+
+    return runner
+
+
 # =====================================================
 # C1 — ROTEADOR → EXECUTOR → JOB
 # =====================================================

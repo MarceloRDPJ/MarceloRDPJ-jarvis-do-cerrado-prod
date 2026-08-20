@@ -1037,14 +1037,16 @@ class Executor:
         outcome = await self._equatorial_chain_read(property_key)
         return self._equatorial_outcome_text(property_key, outcome)
 
-    async def _equatorial_chain_read(self, property_key: str):
+    async def _equatorial_chain_read(self, property_key: str, *, forced: bool = False):
         """Percorre os canais oficiais até um entregar a fatura.
 
         A cadeia é política pura: quem executa continua sendo ``_run_poco_job``,
         passado como ``runner``. Isso mantém um único ponto de contato com a fila
         do Poco e deixa a decisão testável sem telefone.
         """
-        outcome = await self._equatorial_providers.read(property_key, self._run_poco_job)
+        outcome = await self._equatorial_providers.read(
+            property_key, self._run_poco_job, ignore_cooldown=forced
+        )
         # Trilha com nome de canal e código tipado: material de log. A tela do dono
         # nunca recebe nome de canal — ele pediu a conta, não o mapa da automação.
         logger.info("Cadeia Equatorial concluída | %s", outcome.trail)
@@ -1312,8 +1314,15 @@ class Executor:
                 return message_id
         return await self._send_bill_text(chat_id, text, reply_markup)
 
-    async def _equatorial_bill_flow(self, chat_id: int, property_key: str, query=None):
-        """Consulta com UMA mensagem: abre com o aviso e termina editando-a."""
+    async def _equatorial_bill_flow(
+        self, chat_id: int, property_key: str, query=None, *, forced: bool = False
+    ):
+        """Consulta com UMA mensagem: abre com o aviso e termina editando-a.
+
+        ``forced`` chega quando o dono APERTOU ATUALIZAR. Aí a cadeia tenta o canal
+        preferido mesmo em cooldown, porque o dedo dele é a informação nova que o
+        cooldown supunha não existir.
+        """
         provider = "equatorial"
         label = self._property_label(property_key)
         header = f"⚡ Consultando Equatorial — {label}..."
@@ -1324,13 +1333,16 @@ class Executor:
             message_id = await self._send_bill_text(chat_id, header)
 
         (text, ok), _reused = await self._single_flight(
-            provider, property_key, "bills", lambda: self._equatorial_bill_card(property_key)
+            provider,
+            property_key,
+            "bills",
+            lambda: self._equatorial_bill_card(property_key, forced=forced),
         )
         keyboard = self._bill_keyboard(provider, property_key, payment=ok)
         await self._replace_bill_message(chat_id, message_id, text, keyboard)
         return None
 
-    async def _equatorial_bill_card(self, property_key: str):
+    async def _equatorial_bill_card(self, property_key: str, *, forced: bool = False):
         """(texto, pode_pagar). Nunca levanta: o single-flight é compartilhado.
 
         ``pode_pagar`` decide os botões PIX e BOLETO, e por isso é ``False`` também
@@ -1338,7 +1350,7 @@ class Executor:
         contrário do que esses botões prometem.
         """
         try:
-            outcome = await self._equatorial_chain_read(property_key)
+            outcome = await self._equatorial_chain_read(property_key, forced=forced)
         except Exception:
             logger.exception("Falha inesperada na consulta da Equatorial")
             return BILL_GENERIC_FAILURE_MESSAGE, False
@@ -1707,7 +1719,9 @@ class Executor:
         # detalhe técnico que esta tela não pode mostrar.
         try:
             if action == "refresh":
-                return await self._equatorial_bill_flow(chat_id, property_key, query=query)
+                return await self._equatorial_bill_flow(
+                    chat_id, property_key, query=query, forced=True
+                )
             if action == "pix":
                 return await self._send_bill_pix(chat_id, property_key, query=query)
             if action == "boleto":

@@ -510,7 +510,9 @@ class EquatorialProviderChain:
             logger.exception("Canal %s falhou de forma inesperada", spec.name)
             return None, RUNNER_TIMEOUT_MESSAGE
 
-    async def read(self, property_key: str, runner: Runner) -> ChainOutcome:
+    async def read(
+        self, property_key: str, runner: Runner, *, ignore_cooldown: bool = False
+    ) -> ChainOutcome:
         """Percorre a cadeia até alguém entregar a fatura.
 
         Regras que o desenho não pode perder de vista:
@@ -520,6 +522,14 @@ class EquatorialProviderChain:
           próximo diria a mesma coisa; o cache informativo ainda entra, rotulado;
         * cada canal é tentado no máximo UMA vez por consulta. É esta garantia,
           e não o cooldown, que impede laço entre canais.
+
+        ``ignore_cooldown`` existe para o ATUALIZAR que o dono aperta com o dedo.
+        O cooldown supõe que nada mudou desde a última recusa, e essa suposição é
+        exatamente a que um toque em ATUALIZAR desmente: quem aperta costuma ter
+        acabado de entrar no portal. Sem esta porta, o dono resolveria o problema
+        e continuaria recebendo a recusa lembrada por dez minutos — e concluiria,
+        com razão, que o ROD não olha de novo. Consulta automática não usa isto:
+        lá o cooldown é justamente o que evita queimar minutos numa porta fechada.
         """
         started = self._clock()
         attempts: list[str] = []
@@ -544,7 +554,7 @@ class EquatorialProviderChain:
             if skip_live and not spec.informational:
                 attempts.append(f"{spec.name}:dispensado")
                 continue
-            if entry.cooling(now):
+            if entry.cooling(now) and not ignore_cooldown:
                 attempts.append(f"{spec.name}:cooldown")
                 continue
 

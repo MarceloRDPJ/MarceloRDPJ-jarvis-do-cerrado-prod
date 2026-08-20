@@ -188,6 +188,42 @@ async def test_a_refused_login_is_not_retried_thirty_seconds_later():
 
 
 @pytest.mark.asyncio
+async def test_the_owner_pressing_refresh_gets_a_fresh_attempt_despite_the_cooldown():
+    """ATUALIZAR do dono desmente a suposição do cooldown.
+
+    O cooldown existe porque nada mudou desde a recusa. Quem aperta ATUALIZAR
+    normalmente acabou de entrar no portal, e sem esta porta resolveria o
+    problema e continuaria recebendo a recusa lembrada por dez minutos.
+    """
+    clock = FakeClock()
+    chain = build_chain(clock=clock)
+    recusa = Runner({ACTIONS[WEB_SESSION]: (None, wire("EQUATORIAL_LOGIN_FAILED"))})
+    await chain.read("casa", recusa)
+
+    # Um segundo depois: o dono entrou no portal e apertou ATUALIZAR.
+    clock.advance(1)
+    depois = Runner({ACTIONS[WEB_SESSION]: (bill_result(), None)})
+    outcome = await chain.read("casa", depois, ignore_cooldown=True)
+
+    assert depois.tried(WEB_SESSION), "ATUALIZAR explicito tem de tentar de novo"
+    assert outcome.ok and outcome.provider == WEB_SESSION
+
+
+@pytest.mark.asyncio
+async def test_an_automatic_query_still_respects_the_cooldown():
+    """A dispensa é só do dedo do dono; consulta automática não a herda."""
+    clock = FakeClock()
+    chain = build_chain(clock=clock)
+    await chain.read("casa", Runner({ACTIONS[WEB_SESSION]: (None, wire("EQUATORIAL_LOGIN_FAILED"))}))
+
+    clock.advance(1)
+    automatica = Runner({ACTIONS[PUBLIC_PAYMENT]: (bill_result(), None)})
+    await chain.read("casa", automatica)
+
+    assert not automatica.tried(WEB_SESSION)
+
+
+@pytest.mark.asyncio
 async def test_web_session_is_preferred_again_as_soon_as_the_cooldown_expires():
     """Q21: a sessão volta a valer sem intervenção e sem reiniciar o bot."""
     clock = FakeClock()
