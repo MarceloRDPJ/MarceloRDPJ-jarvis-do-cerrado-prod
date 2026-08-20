@@ -132,6 +132,8 @@ public class JarvisAccessibilityService extends AccessibilityService {
                         intent.getStringExtra("document"), 0);
                 } else if (operation.equals("agenciaweb_equatorial")) {
                     loginAgenciaWeb(request, intent.getStringExtra("property"));
+                } else if (operation.equals("debts_equatorial")) {
+                    readDebtsAgenciaWeb(request, intent.getStringExtra("property"));
                 } else if (operation.equals("bridge_equatorial")) {
                     bridgeAgenciaWeb(request, intent.getStringExtra("property"));
                 } else if (operation.equals("probe_app_equatorial")) {
@@ -162,6 +164,31 @@ public class JarvisAccessibilityService extends AccessibilityService {
         IntentFilter filter = new IntentFilter(ACTION_BRIDGE);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(bridge, filter, Context.RECEIVER_NOT_EXPORTED);
         else registerReceiver(bridge, filter);
+    }
+    /**
+     * Segundo caminho de religamento do agente, independente do primeiro.
+     *
+     * O sistema rebinda este servico sozinho depois de `adb install -r` e depois
+     * do boot: foi exatamente o que o `dumpsys activity services` mostrou quando
+     * o no estava offline — a acessibilidade de pe, o AgentService ausente. O
+     * rebind ja acontecia e nao era aproveitado.
+     *
+     * Vale como segundo caminho porque nao passa pelo mesmo porteiro. O autostart
+     * da MIUI e um toggle por app no Security Center, nao concedivel por codigo,
+     * e quando desligado descarta BOOT_COMPLETED — e em varias versoes
+     * MY_PACKAGE_REPLACED junto — antes de chegar a um receiver de manifesto. A
+     * permissao de acessibilidade foi concedida por outra porta e ja esta de pe.
+     *
+     * Cinto e suspensorio, nao substituicao: o BootReceiver continua sendo o
+     * mecanismo declarado, e este aqui so pega carona num bind que o sistema faz
+     * de qualquer jeito. Nao esta provado que componente ligado pelo sistema
+     * ganhe isencao de inicio de servico em primeiro plano; se nao ganhar,
+     * AgentService.start devolve false e escreve o motivo na trilha, em vez de
+     * derrubar o servico de acessibilidade junto.
+     */
+    @Override protected void onServiceConnected() {
+        super.onServiceConnected();
+        RodLog.step("autostart", "causa=acessibilidade servico_iniciado=" + AgentService.start(this));
     }
     @Override public void onAccessibilityEvent(AccessibilityEvent event) { }
     @Override public void onInterrupt() { }
@@ -495,6 +522,41 @@ public class JarvisAccessibilityService extends AccessibilityService {
                 }
             }
         }, "rod-agenciaweb").start();
+    }
+
+    /**
+     * Lê os débitos em aberto pelo canal {@code go.*}, sem chegar perto de pagar.
+     *
+     * Vale o esforço porque hoje o proprietário loga à mão no ASPX a cada menos
+     * de vinte e quatro horas só para saber quanto deve. Se este canal entregar
+     * valor e referência sozinho, o trabalho manual da CONSULTA acaba — e isso é
+     * verdade mesmo sem PIX e sem código de barras, que continuam do outro lado
+     * de um portão que não abrimos.
+     *
+     * A operação é separada da ponte de propósito: são perguntas diferentes, e
+     * juntá-las faria um resultado bom esconder um resultado ruim.
+     */
+    private void readDebtsAgenciaWeb(final String request, final String property) {
+        final Context context = getApplicationContext();
+        final String imovel = property == null || property.trim().isEmpty() ? "casa" : property.trim();
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    BillingConfig config = BillingConfig.load(context);
+                    String document = config.value("equatorial_cpf");
+                    String unit = config.value(imovel + "_energy");
+                    RodLog.step("consulta", "imovel=" + imovel
+                        + " documento=" + RodLog.describe(document)
+                        + " unidade=" + RodLog.describe(unit));
+                    reply(request, true, EquatorialWebEngine.readDebtsAgenciaWeb(
+                        context, unit, document,
+                        System.currentTimeMillis() + BRIDGE_BUDGET_MILLIS), null);
+                } catch (Exception error) {
+                    reply(request, false, null,
+                        error.getClass().getSimpleName() + ": " + error.getMessage());
+                }
+            }
+        }, "rod-consulta").start();
     }
 
     /**

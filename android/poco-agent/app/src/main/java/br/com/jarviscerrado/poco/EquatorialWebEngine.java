@@ -511,6 +511,439 @@ final class EquatorialWebEngine {
         return new JSONObject().put("state", state.name()).put("jwt", jwt);
     }
 
+    // --------------------------------------- leitura de débitos pelo canal go.*
+
+    /**
+     * Tenta usar a Agência Web como PROVEDOR DE CONSULTA, e nada mais que isso.
+     *
+     * A ponte para o autoatendimento não existe (medido nesta mesma rodada), mas
+     * o {@code go.*} tem um funil de cartão que, ANTES de cobrar, lista o que está
+     * em aberto. Listar débito é leitura, e leitura é o que pouparia o
+     * proprietário de logar à mão no ASPX toda vez só para saber o valor.
+     *
+     * O limite é absoluto e está no código, não na boa intenção: o único controle
+     * que este método aciona é o que {@link AgenciaWebLogin#safeToAdvance} aprova,
+     * e essa função recusa qualquer rótulo com palavra de pagamento — inclusive
+     * "continuar para pagamento". Chegando à tela do débito, o motor PARA. Não
+     * existe segundo clique, e a tela seguinte é apenas descrita.
+     *
+     * Consulta não é obtenção de documento: o resultado separa valor e referência
+     * (o produto) da presença de código de barras e PIX (o artefato de pagamento),
+     * porque prometer o segundo tendo só o primeiro seria vender o que não temos.
+     */
+    static JSONObject readDebtsAgenciaWeb(Context context, String unit, String document,
+                                          long deadline) throws Exception {
+        EquatorialWebEngine engine = new EquatorialWebEngine();
+        try {
+            return engine.runDebts(context.getApplicationContext(), unit, document, deadline);
+        } finally {
+            engine.destroy();
+        }
+    }
+
+    private JSONObject runDebts(Context context, String unit, String document, long deadline)
+            throws Exception {
+        create(context);
+        EquatorialSession.State state = ensureAgenciaWebSession(unit, document, deadline);
+        AgenciaWebLogin.GoOutcome outcome = AgenciaWebLogin.outcome(state);
+        RodLog.step("consulta", "sessao go.*=" + outcome);
+        JSONObject result = new JSONObject()
+            .put("go_outcome", outcome.name())
+            .put("read_provider", AgenciaWebLogin.ReadProvider.READ_PROVIDER_UNAVAILABLE.name());
+        if (outcome != AgenciaWebLogin.GoOutcome.GO_LOGIN_OK) return result;
+
+        // Navegação de usuário: a área logada primeiro, e de lá o link visível do
+        // funil. Carregar a rota direto daria o mesmo endereço, mas não provaria
+        // que o portal OFERECE o caminho — e é isso que autoriza o ROD a usá-lo.
+        load(AgenciaWebLogin.ACCOUNT_URL, deadline);
+        JSONObject link = linkWithPath(AgenciaWebLogin.DEBTS_PATH);
+        result.put("official_link", link.optBoolean("found", false));
+        if (!link.optBoolean("found", false)) {
+            RodLog.fail("consulta", "a area logada nao oferece o link do funil");
+            return result;
+        }
+        load(link.optString("href", ""), deadline);
+        JSONObject where = whereAmI();
+        RodLog.step("consulta", "funil em " + where.optString("host", "")
+            + where.optString("path", "") + " caracteres=" + where.optInt("chars", 0));
+        result.put("funnel_host", where.optString("host", ""))
+              .put("funnel_path", where.optString("path", ""));
+
+        // O aviso de cookies cobre o rodapé do funil e intercepta clique. Fechar
+        // é permitido; "aceitar todos" seria consentir em nome do proprietário,
+        // e essa não é uma decisão que o ROD tem autorização para tomar.
+        closeLgpdNotice();
+
+        JSONObject picked = selectDebtUnit(unit);
+        result.put("unit_options", picked.optInt("options", 0))
+              .put("unit_matches", picked.optInt("matches", 0))
+              .put("unit_selected", picked.optBoolean("selected", false));
+        RodLog.step("consulta", "unidades no combo=" + picked.optInt("options", 0)
+            + " casaram=" + picked.optInt("matches", 0)
+            + " selecionada=" + picked.optBoolean("selected", false));
+        if (!picked.optBoolean("selected", false)) return result;
+
+        installNetworkWatch();
+        // Um POST de formulário recarrega o documento e leva a escuta de rede
+        // junto. Contar os fins de carregamento é o que distingue "o botão não
+        // fez nada" de "o portal respondeu com a mesma tela" — duas conclusões
+        // opostas que o DOM sozinho apresenta igual.
+        int loadsBeforeAdvance = loads.get();
+        JSONObject advanced = advanceFromUnitStep();
+        result.put("advance_clicked", advanced.optBoolean("clicked", false))
+              .put("advance_blocked", advanced.optString("blocked", ""));
+        RodLog.step("consulta", "continuar acionado=" + advanced.optBoolean("clicked", false)
+            + " freio segurou=" + RodLog.sanitize(advanced.optString("blocked", "")));
+        if (!advanced.optBoolean("clicked", false)) return result;
+
+        // O passo é AJAX: o portal troca o miolo da página sem navegar. Esperar
+        // por carregamento novo devolveria na hora, com a tela velha, e a
+        // primeira medição concluiu "sem débito" justamente assim. Quem manda
+        // aqui é a MUDANÇA do conteúdo, com prazo.
+        JSONObject changed = awaitDebtContent(
+            Math.min(deadline, System.currentTimeMillis() + LOGIN_WAIT_MILLIS),
+            where.optInt("chars", 0));
+        // Um submit que não vira requisição significa que o próprio script da
+        // página interceptou e desistiu. Duas causas conhecidas neste portal:
+        // validação recusando o formulário, e o token de reCAPTCHA que o login
+        // também espera. Perguntar qual foi é o que separa "a Equatorial recusou"
+        // de "acionamos o botão de um jeito que o script não aceita".
+        JSONObject why = new JSONObject(evalJson(
+            "(function(){"
+            + "var vis=[],all=document.querySelectorAll("
+            + "'[role=alert],[class*=erro],[class*=error],[class*=alert],[class*=invalid]');"
+            + "for(var i=0;i<all.length;i++){var e=all[i];if(!e.offsetParent) continue;"
+            + "var t=(e.innerText||'').trim();if(t) vis.push(t);}"
+            + "var f=document.querySelector('form');"
+            + "return JSON.stringify({alerts:vis.length,"
+            + "alert_text:vis.join(' ').normalize('NFD')"
+            + ".replace(/[\\u0300-\\u036f]/g,'').toLowerCase(),"
+            + "recaptcha:(typeof grecaptcha!=='undefined'&&!!grecaptcha.execute),"
+            + "form_action:(f?(f.getAttribute('action')||''):'')});})()"));
+        String alertWord = AgenciaWebLogin.noticeWord(why.optString("alert_text", ""));
+        if (alertWord.isEmpty())
+            alertWord = AgenciaWebLogin.debtNotice(why.optString("alert_text", ""));
+        result.put("alerts_visible", why.optInt("alerts", 0))
+              .put("alert_word", alertWord)
+              .put("recaptcha_on_page", why.optBoolean("recaptcha", false));
+        RodLog.step("consulta", "alertas visiveis=" + why.optInt("alerts", 0)
+            + " palavra=" + (alertWord.isEmpty() ? "nenhuma" : alertWord)
+            + " recaptcha na pagina=" + why.optBoolean("recaptcha", false)
+            + " acao do formulario=" + RodLog.sanitize(why.optString("form_action", "")));
+
+        String network = networkWatch();
+        int reloads = loads.get() - loadsBeforeAdvance;
+        result.put("network", network).put("reloads_after_advance", reloads)
+              .put("advance_tag", advanced.optString("tag", ""));
+
+        // Âncora que não navegou: o motor não abre janela nova, então o clique
+        // morre em silêncio. Seguir o href que a própria âncora carrega é a mesma
+        // navegação que o dedo do proprietário faria — nada é montado aqui.
+        // "checkout" fica de fora: é a fronteira do pagamento, e a ordem é parar
+        // na tela que LISTA o débito.
+        String href = advanced.optString("href", "");
+        String path = advanced.optString("path", "");
+        if (reloads == 0 && "a".equals(advanced.optString("tag", ""))
+            && !href.isEmpty() && !path.toLowerCase().contains("checkout")) {
+            RodLog.step("consulta", "a ancora nao navegou sozinha; seguindo o href dela");
+            load(href, deadline);
+            result.put("followed_anchor", true);
+            changed = awaitDebtContent(
+                Math.min(deadline, System.currentTimeMillis() + LOGIN_WAIT_MILLIS),
+                changed.optInt("chars", 0));
+            JSONObject landed = whereAmI();
+            result.put("anchor_host", landed.optString("host", ""))
+                  .put("anchor_path", landed.optString("path", ""));
+            RodLog.step("consulta", "a ancora levou a " + landed.optString("host", "")
+                + landed.optString("path", ""));
+        }
+        result.put("chars_before_advance", where.optInt("chars", 0))
+              .put("chars_after_advance", changed.optInt("chars", 0))
+              .put("currency_marks", changed.optInt("currency", 0))
+              .put("table_rows", changed.optInt("rows", 0));
+        RodLog.step("consulta", "recarregamentos apos continuar=" + reloads);
+        RodLog.step("consulta", "conteudo apos continuar: caracteres="
+            + changed.optInt("chars", 0) + " marcas de moeda=" + changed.optInt("currency", 0)
+            + " linhas de tabela=" + changed.optInt("rows", 0));
+        RodLog.step("consulta", "rede da pagina: " + RodLog.sanitize(network));
+        return readDebtScreen(result, unit);
+    }
+
+    /**
+     * Garante sessão no {@code go.*} sem gastar credencial à toa.
+     *
+     * O JWT sobrevive entre execuções, e reenviar documento e unidade com sessão
+     * viva gastaria uma tentativa contra a conta do proprietário para chegar ao
+     * estado em que já estávamos.
+     */
+    private EquatorialSession.State ensureAgenciaWebSession(String unit, String document,
+                                                            long deadline) throws Exception {
+        load(AgenciaWebLogin.LOGIN_URL, deadline);
+        JSONObject seen = observeAgenciaWeb();
+        if (seen.optBoolean("jwt", false)) return EquatorialSession.State.SESSION_VALID;
+
+        String doc = AgenciaWebLogin.document(document);
+        String uc = AgenciaWebLogin.unit(unit);
+        if (!AgenciaWebLogin.ready(doc, uc))
+            throw new IllegalStateException(EquatorialSession.errorFor(
+                EquatorialSession.Decision.FAIL_NO_CREDENTIALS));
+        closeLgpdNotice();
+        fillAgenciaWeb(doc, uc);
+        submitAgenciaWeb();
+        JSONObject login = awaitAgenciaWebOutcome(
+            Math.min(deadline, System.currentTimeMillis() + LOGIN_WAIT_MILLIS));
+        return EquatorialSession.State.valueOf(login.optString("state",
+            EquatorialSession.State.BROWSER_STALE.name()));
+    }
+
+    /**
+     * Instala uma escuta de rede DENTRO do nosso próprio WebView, antes do clique.
+     *
+     * Necessária porque "a tela não mudou" tem duas causas opostas e o DOM não
+     * as separa: ou o clique não disparou requisição nenhuma — defeito nosso, de
+     * como acionamos o controle — ou disparou e o portal recusou — e aí o limite
+     * é da concessionária. Reportar a segunda tendo a primeira seria acusar a
+     * Equatorial de um erro nosso, que é exatamente o que o proprietário proibiu.
+     *
+     * O que ela guarda: CAMINHO e status. Nunca corpo, nunca cabeçalho, nunca
+     * query string — é ali que moram token e identificador. E ela só OBSERVA o
+     * que a página faz por conta própria: nada aqui emite requisição.
+     */
+    private void installNetworkWatch() throws Exception {
+        evalJson(
+            "(function(){if(window.__rodWatch) return 'ja';window.__rodWatch=[];"
+            + "function note(u,s){try{var p=new URL(u,location.href).pathname;"
+            + "window.__rodWatch.push(p+' '+s);}catch(e){}}"
+            + "var of=window.fetch;"
+            + "if(of) window.fetch=function(){var a=arguments;"
+            + "var u=(a[0]&&a[0].url)?a[0].url:String(a[0]);"
+            + "return of.apply(this,a).then(function(r){note(u,r.status);return r;},"
+            + "function(e){note(u,'falhou');throw e;});};"
+            + "var oo=XMLHttpRequest.prototype.open;"
+            + "XMLHttpRequest.prototype.open=function(m,u){this.__rodUrl=u;"
+            + "this.addEventListener('loadend',function(){note(this.__rodUrl,this.status);});"
+            + "return oo.apply(this,arguments);};"
+            + "return 'ok';})()");
+    }
+
+    /** O que a página pediu por conta própria: caminho e status, nada mais. */
+    private String networkWatch() throws Exception {
+        return evalJson(
+            "(function(){var w=window.__rodWatch||[];"
+            + "return w.length?w.slice(-8).join(' ; '):'nenhuma requisicao';})()");
+    }
+
+    /**
+     * Espera o miolo da página mudar depois do "Continuar", ou o prazo acabar.
+     *
+     * Três sinais, porque um só engana: o tamanho do texto, a quantidade de
+     * marcas de moeda e o número de linhas de tabela. Um funil que listou débito
+     * mexe em pelo menos um deles; um funil que não fez nada não mexe em nenhum.
+     */
+    private JSONObject awaitDebtContent(long limit, int charsBefore) throws Exception {
+        String script =
+            "(function(){var t=document.body?document.body.innerText:'';"
+            + "var m=t.match(/R\\$/g);"
+            + "return JSON.stringify({chars:t.trim().length,currency:(m?m.length:0),"
+            + "rows:document.querySelectorAll('table tr').length});})()";
+        JSONObject seen = new JSONObject(evalJson(script));
+        while (System.currentTimeMillis() < limit
+            && seen.optInt("chars", 0) == charsBefore
+            && seen.optInt("currency", 0) == 0
+            && seen.optInt("rows", 0) == 0) {
+            Thread.sleep(POLL_MILLIS * 2);
+            seen = new JSONObject(evalJson(script));
+        }
+        return seen;
+    }
+
+    /** Acha o link VISÍVEL de um caminho conhecido e devolve o href que ele já tem. */
+    private JSONObject linkWithPath(String path) throws Exception {
+        String script =
+            "(function(){var all=document.querySelectorAll('a[href]');"
+            + "for(var i=0;i<all.length;i++){var a=all[i];"
+            + "if(!a.offsetParent) continue;"
+            + "var r=a.getBoundingClientRect(); if(r.width===0||r.height===0) continue;"
+            + "if((a.pathname||'')===" + JSONObject.quote(path) + ")"
+            + "return JSON.stringify({found:true,href:a.href});}"
+            + "return JSON.stringify({found:false});})()";
+        return new JSONObject(evalJson(script));
+    }
+
+    /**
+     * Escolhe a unidade do cofre no combo do funil, casando por DÍGITOS.
+     *
+     * Conta quantas opções casaram, e não só se alguma casou: duas casando
+     * significaria que o rótulo não identifica a unidade sozinho, e escolher a
+     * primeira mostraria ao proprietário a conta de outro imóvel dele como se
+     * fosse a pedida. Nenhum dígito sai daqui — só contagem.
+     */
+    private JSONObject selectDebtUnit(String unit) throws Exception {
+        String script =
+            "(function(){"
+            + "var sels=document.querySelectorAll('select');"
+            + "function norm(v){v=(v||'').replace(/\\D/g,'');return v.replace(/^0+(?!$)/,'');}"
+            + "var want=norm(" + JSONObject.quote(unit == null ? "" : unit) + ");"
+            + "if(!want) return JSON.stringify({options:0,matches:0,selected:false});"
+            + "for(var s=0;s<sels.length;s++){var el=sels[s];"
+            + "if(!el.offsetParent) continue;"
+            + "var hits=[];"
+            + "for(var i=0;i<el.options.length;i++){"
+            + "if(norm(el.options[i].text)===want||norm(el.options[i].value)===want) hits.push(i);}"
+            + "if(hits.length===1){el.selectedIndex=hits[0];"
+            + "el.dispatchEvent(new Event('change',{bubbles:true}));"
+            + "return JSON.stringify({options:el.options.length,matches:1,selected:true});}"
+            + "if(hits.length>1)"
+            + "return JSON.stringify({options:el.options.length,matches:hits.length,selected:false});}"
+            + "var first=sels.length?sels[0].options.length:0;"
+            + "return JSON.stringify({options:first,matches:0,selected:false});})()";
+        return new JSONObject(evalJson(script));
+    }
+
+    /**
+     * Aciona SOMENTE o passo que troca unidade por lista de débito.
+     *
+     * Cada candidato visível é julgado pelo rótulo em {@link AgenciaWebLogin},
+     * fora do JavaScript, para que a regra que protege o dinheiro do
+     * proprietário fique num arquivo puro, coberto por teste, e não numa string
+     * de script. O que o freio segurou é registrado: saber qual botão foi
+     * recusado é o que permite ao dono conferir a decisão em vez de confiar nela.
+     */
+    private JSONObject advanceFromUnitStep() throws Exception {
+        String script =
+            "(function(){"
+            + "var out=[];"
+            + "var all=document.querySelectorAll("
+            + "'button,input[type=submit],input[type=button],a.btn');"
+            + "for(var i=0;i<all.length;i++){var b=all[i];"
+            + "if(!b.offsetParent) continue;"
+            + "var r=b.getBoundingClientRect(); if(r.width===0||r.height===0) continue;"
+            + "var t=(b.innerText||b.value||'').trim();"
+            + "out.push({i:i,label:t.normalize('NFD')"
+            + ".replace(/[\\u0300-\\u036f]/g,'').toLowerCase()});}"
+            + "return JSON.stringify(out.slice(0,30));})()";
+        JSONArray candidates = new JSONArray(evalJson(script));
+        int chosen = -1;
+        String chosenLabel = "";
+        StringBuilder blocked = new StringBuilder();
+        StringBuilder inventory = new StringBuilder();
+        for (int i = 0; i < candidates.length(); i++) {
+            JSONObject candidate = candidates.getJSONObject(i);
+            String label = candidate.optString("label", "");
+            if (inventory.length() > 0) inventory.append(" | ");
+            inventory.append(AgenciaWebLogin.publicLabel(label));
+            if (AgenciaWebLogin.safeToAdvance(label)) {
+                if (chosen < 0) {
+                    chosen = candidate.optInt("i", -1);
+                    chosenLabel = AgenciaWebLogin.publicLabel(label);
+                }
+            } else if (!label.isEmpty()) {
+                if (blocked.length() > 0) blocked.append(" | ");
+                blocked.append(AgenciaWebLogin.publicLabel(label));
+            }
+        }
+        // O inventário é o que permite ao dono conferir a escolha em vez de
+        // confiar nela: mostra tudo que estava clicável e qual foi acionado.
+        RodLog.step("consulta", "controles visiveis: " + inventory);
+        RodLog.step("consulta", "acionado: " + (chosen < 0 ? "nenhum" : chosenLabel));
+        if (chosen < 0)
+            return new JSONObject().put("clicked", false).put("blocked", blocked.toString());
+        // Descrever o controle ANTES de acioná-lo: âncora com target novo não
+        // navega neste motor, que não abre janela, e sem essa informação o
+        // silêncio depois do clique pareceria recusa do portal.
+        String click =
+            "(function(){var all=document.querySelectorAll("
+            + "'button,input[type=submit],input[type=button],a.btn');"
+            + "var b=all[" + chosen + "];if(!b) return JSON.stringify({clicked:false});"
+            + "var tag=(b.tagName||'').toLowerCase();"
+            + "var href=(tag==='a'&&b.href)?b.href:'';"
+            + "var path='';try{path=href?new URL(href).pathname:'';}catch(e){}"
+            + "var form=b.form?((b.form.getAttribute('action')||'')):'';"
+            + "b.click();"
+            + "return JSON.stringify({clicked:true,tag:tag,target:(b.target||''),"
+            + "href:href,path:path,type:(b.type||''),in_form:!!b.form,form_action:form});})()";
+        JSONObject sent = new JSONObject(evalJson(click));
+        RodLog.step("consulta", "controle acionado: tag=" + sent.optString("tag", "")
+            + " type=" + RodLog.sanitize(sent.optString("type", ""))
+            + " target=" + RodLog.sanitize(sent.optString("target", ""))
+            + " em formulario=" + sent.optBoolean("in_form", false)
+            + " destino=" + RodLog.sanitize(sent.optString("path", "")));
+        return new JSONObject().put("clicked", sent.optBoolean("clicked", false))
+            .put("blocked", blocked.toString())
+            .put("tag", sent.optString("tag", ""))
+            .put("target", sent.optString("target", ""))
+            .put("href", sent.optString("href", ""))
+            .put("path", sent.optString("path", ""));
+    }
+
+    /**
+     * Lê a tela do débito e separa CONSULTA de ARTEFATO DE PAGAMENTO.
+     *
+     * Valor e referência atravessam a fronteira porque são o produto pedido. O
+     * código de barras e o PIX saem como BOOLEANO, porque são instrumentos de
+     * pagamento e não têm por que existir em log. A unidade mostrada é conferida
+     * contra a do cofre e descartada: confirmar que a tela é do imóvel certo não
+     * exige transportar o número.
+     *
+     * Quem julga o texto é o {@link EquatorialTextParser}, o mesmo dos outros dois
+     * motores, para que esta rota não ganhe regra própria — e ele está congelado,
+     * então este método o CHAMA e não o corrige.
+     */
+    private JSONObject readDebtScreen(JSONObject result, String vaultUnit) throws Exception {
+        JSONObject markers = new JSONObject(evalJson(
+            "(function(){"
+            + "function has(re){var n=document.querySelectorAll('input,select');"
+            + "for(var i=0;i<n.length;i++){var k=((n[i].name||'')+' '+(n[i].id||'')+' '"
+            + "+(n[i].placeholder||'')+' '+(n[i].autocomplete||'')).toLowerCase();"
+            + "if(re.test(k)) return true;}return false;}"
+            + "var t=document.body?document.body.innerText:'';"
+            + "return JSON.stringify({card:has(/cartao|cart\\u00e3o|cc-|card|cvv|cvc|validade|bandeira/),"
+            + "chars:t.trim().length,host:location.hostname,path:location.pathname});})()"));
+        result.put("card_fields_present", markers.optBoolean("card", false))
+              .put("screen_chars", markers.optInt("chars", 0))
+              .put("screen_host", markers.optString("host", ""))
+              .put("screen_path", markers.optString("path", ""));
+
+        String text = evalJson("document.body?document.body.innerText:''");
+        // "Conta em dia" é resposta certa, não falha. Sem procurar por ela, um
+        // proprietário sem débito receberia "o canal não funciona" — e mandaria
+        // consertar o que já estava certo.
+        String debtNotice = AgenciaWebLogin.debtNotice(EquatorialSession.fold(text));
+        result.put("debt_notice", debtNotice);
+        RodLog.step("consulta", "aviso de debito=" + (debtNotice.isEmpty() ? "nenhum" : debtNotice));
+        EquatorialTextParser.Page page = EquatorialTextParser.parse(text);
+        boolean amount = !page.get("amount").isEmpty();
+        boolean reference = !page.get("reference").isEmpty();
+        AgenciaWebLogin.ReadProvider verdict = AgenciaWebLogin.readProvider(amount, reference);
+
+        String shown = page.get("uc").replaceAll("\\D", "");
+        String expected = vaultUnit == null ? "" : vaultUnit.replaceAll("\\D", "");
+        boolean sameUnit = !shown.isEmpty() && !expected.isEmpty()
+            && EquatorialSession.sameUnit(shown, expected);
+
+        RodLog.step("consulta", "tela em " + markers.optString("path", "")
+            + " caracteres=" + markers.optInt("chars", 0)
+            + " campos de cartao=" + markers.optBoolean("card", false));
+        RodLog.step("consulta", "parser=" + page.state
+            + " unidade confere=" + sameUnit);
+        RodLog.found("consulta", "valor", amount);
+        RodLog.found("consulta", "referencia", reference);
+        RodLog.found("consulta", "vencimento", !page.get("due_date").isEmpty());
+        RodLog.found("consulta", "codigo de barras", !page.get("barcode").isEmpty());
+        RodLog.found("consulta", "pix", !page.get("pix").isEmpty());
+        RodLog.step("consulta", "veredito=" + verdict);
+
+        return result
+            .put("parser_state", page.state.name())
+            .put("amount", page.get("amount"))
+            .put("reference", page.get("reference"))
+            .put("due_date", page.get("due_date"))
+            .put("barcode_present", !page.get("barcode").isEmpty())
+            .put("pix_present", !page.get("pix").isEmpty())
+            .put("shown_unit_matches_vault", sameUnit)
+            .put("read_provider", verdict.name());
+    }
+
     // ------------------------------------------- ponte go.* -> goias.* (medida)
 
     /**

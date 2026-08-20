@@ -184,6 +184,125 @@ final class AgenciaWebLogin {
         return "";
     }
 
+    // --------------------------------------------- leitura de débitos (go.*)
+
+    /** Rota do funil de cartão, que ANTES de cobrar lista o que está em aberto. */
+    static final String DEBTS_PATH = "/pagamento-de-faturas-on-line/";
+
+    /**
+     * Palavras que denunciam um controle capaz de INICIAR cobrança.
+     *
+     * Esta lista é um freio, não um catálogo: qualquer uma delas no rótulo já
+     * proíbe o clique. Ela é generosa de propósito — "confirmar" e "finalizar"
+     * entram mesmo podendo ser inocentes, porque o custo de não clicar num botão
+     * inofensivo é uma medição incompleta, e o custo de clicar num botão de
+     * cobrança é dinheiro do proprietário saindo da conta dele.
+     */
+    static final String[] PAYMENT_WORDS = {
+        "pagar", "pague", "pagamento", "cartao", "credito", "debito", "parcel",
+        "negoci", "pix", "boleto", "checkout", "finalizar", "confirmar",
+        "prosseguir para", "avancar para o pagamento"
+    };
+
+    /** Único rótulo que autoriza avanço: o passo que troca UC por lista de débito. */
+    static final String[] ADVANCE_WORDS = { "continuar" };
+
+    /**
+     * Rótulos de interface que podem ser registrados por extenso.
+     *
+     * Diagnosticar "qual botão o motor viu" exige mostrar o rótulo, e rótulo de
+     * página autenticada não é texto neutro: o cabeçalho desta mesma área começa
+     * com uma saudação que traz o nome do titular. Então o log passa por uma
+     * lista de permissão — palavra conhecida de interface sai inteira, e
+     * qualquer outra coisa sai como tamanho. É o mesmo princípio de
+     * {@link RodLog#describe(String)}, aplicado a rótulo em vez de a valor.
+     */
+    static final String[] PUBLIC_LABEL_WORDS = {
+        "continuar", "menu", "sair", "voltar", "fechar", "enviar", "buscar",
+        "consultar", "emitir", "detalhes", "baixar", "imprimir", "cookies",
+        "aceitar", "rejeitar", "definicoes", "configurar", "pagar", "pagamento",
+        "cartao", "credito", "debito", "pix", "boleto", "parcelar", "negociar",
+        "finalizar", "confirmar", "selecione", "unidade consumidora"
+    };
+
+    /**
+     * O rótulo, se for palavra de interface conhecida; senão, só o tamanho.
+     *
+     * Devolve o rótulo inteiro quando ele CASA a lista, e não a palavra casada,
+     * porque para julgar um botão o dono precisa ler "continuar para pagamento"
+     * por extenso — é a diferença entre um controle que lista e um que cobra.
+     */
+    static String publicLabel(String foldedLabel) {
+        if (foldedLabel == null || foldedLabel.isEmpty()) return "vazio";
+        for (String word : PUBLIC_LABEL_WORDS) {
+            if (foldedLabel.contains(word)) {
+                return foldedLabel.length() > 60 ? foldedLabel.substring(0, 60) : foldedLabel;
+            }
+        }
+        return "outro(" + foldedLabel.length() + " chars)";
+    }
+
+    /**
+     * Este controle pode ser acionado sem risco de iniciar cobrança?
+     *
+     * Exige as duas condições ao mesmo tempo: casar o vocabulário de avanço E
+     * não casar nenhuma palavra de pagamento. Um botão "Continuar para
+     * pagamento" tem as duas coisas, e é exatamente o caso que a regra precisa
+     * recusar — por isso a proibição vence o consentimento, nunca o contrário.
+     */
+    static boolean safeToAdvance(String foldedLabel) {
+        if (foldedLabel == null || foldedLabel.isEmpty()) return false;
+        for (String word : PAYMENT_WORDS) if (foldedLabel.contains(word)) return false;
+        for (String word : ADVANCE_WORDS) if (foldedLabel.contains(word)) return true;
+        return false;
+    }
+
+    /**
+     * Como o portal diz "não há o que pagar".
+     *
+     * Sem isto, um funil que volta vazio é indistinguível de um funil quebrado, e
+     * a diferença decide o veredito: conta em dia é resposta CORRETA do portal e
+     * não defeito do canal. Registrar qual frase apareceu é o que permite dizer
+     * "não havia débito hoje" em vez de "a Equatorial não entrega valor".
+     */
+    static final String[] DEBT_NOTICE_WORDS = {
+        // Só a forma mais curta de cada família: "nao ha debitos" nunca casaria,
+        // porque "nao ha debito" já é prefixo dele e vence primeiro.
+        "nao ha debito", "nenhum debito", "sem debito",
+        "nao possui debito", "nenhuma fatura", "nenhuma conta", "em dia",
+        "nao foram encontrados", "nao encontramos", "nenhum registro",
+        "nada consta", "adimplente", "quitad"
+    };
+
+    /** Qual frase de "sem débito" o texto contém. Devolve a palavra, não o texto. */
+    static String debtNotice(String foldedText) {
+        if (foldedText == null) return "";
+        for (String word : DEBT_NOTICE_WORDS) if (foldedText.contains(word)) return word;
+        return "";
+    }
+
+    /** O que este canal entrega como CONSULTA — que não é a mesma coisa que pagar. */
+    enum ReadProvider {
+        /** Valor e referência legíveis: dá para poupar o login manual do dono. */
+        READ_PROVIDER_OK,
+        /** A área respondeu, mas sem valor e referência confiáveis. */
+        READ_PROVIDER_UNAVAILABLE
+    }
+
+    /**
+     * Consulta só vale como consulta com os DOIS campos.
+     *
+     * Valor sem referência não diz de qual mês é a conta, e referência sem valor
+     * não diz quanto pagar. Metade disso mandaria o proprietário conferir no
+     * portal assim mesmo, que é justamente o trabalho manual que este canal
+     * existe para eliminar.
+     */
+    static ReadProvider readProvider(boolean amountPresent, boolean referencePresent) {
+        return amountPresent && referencePresent
+            ? ReadProvider.READ_PROVIDER_OK
+            : ReadProvider.READ_PROVIDER_UNAVAILABLE;
+    }
+
     // ------------------------------------------------------- ponte entre hosts
 
     /**

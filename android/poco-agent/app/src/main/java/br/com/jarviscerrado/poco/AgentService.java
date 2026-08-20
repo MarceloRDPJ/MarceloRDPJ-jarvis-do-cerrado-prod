@@ -228,7 +228,13 @@ public class AgentService extends Service {
         BillingConfig billing = BillingConfig.load(this);
         return new JSONObject().put("node_id", "poco-x3-nfc").put("battery_level", level)
             .put("battery_temperature_c", temperature / 10.0).put("thermal_status", "android")
-            .put("wifi_connected", wifi).put("agent_version", BuildConfig.VERSION_NAME)
+            .put("wifi_connected", wifi)
+            // O versionName sozinho nao distingue binario: dois builds locais
+            // diferentes carregam o mesmo "1.0.2", e o Pi passa a relatar uma
+            // versao que nao identifica o que esta rodando. O versionCode e o
+            // numero que muda a cada APK, entao e ele que fecha a rastreabilidade.
+            .put("agent_version", BuildConfig.VERSION_NAME)
+            .put("agent_version_code", BuildConfig.VERSION_CODE)
             .put("saneago_configured", billing.saneagoReady())
             .put("equatorial_configured", billing.equatorialReady())
             .put("water_units", billing.waterCount()).put("energy_units", billing.energyCount())

@@ -253,4 +253,110 @@ public class AgenciaWebLoginTest {
             assertEquals(word, EquatorialSession.fold(word));
         }
     }
+
+    // ------------------------------------------------- freio do funil de cartao
+
+    @Test
+    public void onlyTheStepThatListsTheDebtMayBeClicked() {
+        // "Continuar" troca unidade por lista de debito, e listar e leitura.
+        assertTrue(AgenciaWebLogin.safeToAdvance("continuar"));
+        assertTrue(AgenciaWebLogin.safeToAdvance(" continuar "));
+    }
+
+    @Test
+    public void aPaymentWordVetoesTheClickEvenNextToContinuar() {
+        // Esta e a regra que protege o dinheiro do dono: a proibicao vence o
+        // consentimento. Um botao que diz "continuar" E "pagamento" e um botao
+        // de pagamento com rotulo simpatico.
+        assertFalse(AgenciaWebLogin.safeToAdvance("continuar para pagamento"));
+        assertFalse(AgenciaWebLogin.safeToAdvance("continuar com cartao"));
+        assertFalse(AgenciaWebLogin.safeToAdvance("pagar agora"));
+        assertFalse(AgenciaWebLogin.safeToAdvance("pagar com pix"));
+        assertFalse(AgenciaWebLogin.safeToAdvance("finalizar compra"));
+        assertFalse(AgenciaWebLogin.safeToAdvance("confirmar"));
+        assertFalse(AgenciaWebLogin.safeToAdvance("parcelar"));
+    }
+
+    @Test
+    public void anUnknownLabelIsNotClicked() {
+        // O freio e uma lista de permissao, nao de proibicao: botao que ninguem
+        // previu fica parado, porque o custo de nao clicar e uma medicao
+        // incompleta e o custo de clicar pode ser uma cobranca.
+        assertFalse(AgenciaWebLogin.safeToAdvance("avancar"));
+        assertFalse(AgenciaWebLogin.safeToAdvance("ok"));
+        assertFalse(AgenciaWebLogin.safeToAdvance(""));
+        assertFalse(AgenciaWebLogin.safeToAdvance(null));
+    }
+
+    @Test
+    public void thePaymentVocabularyExpectsFoldedText() {
+        for (String word : AgenciaWebLogin.PAYMENT_WORDS) {
+            assertEquals(word, EquatorialSession.fold(word));
+        }
+        for (String word : AgenciaWebLogin.ADVANCE_WORDS) {
+            assertEquals(word, EquatorialSession.fold(word));
+        }
+    }
+
+    // ------------------------------------------------- consulta x pagamento
+
+    @Test
+    public void aQueryNeedsBothAmountAndReference() {
+        // Valor sem referencia nao diz de qual mes e a conta; referencia sem
+        // valor nao diz quanto pagar. Metade disso manda o dono conferir no
+        // portal assim mesmo, que e o trabalho manual que queremos eliminar.
+        assertEquals(AgenciaWebLogin.ReadProvider.READ_PROVIDER_OK,
+            AgenciaWebLogin.readProvider(true, true));
+        assertEquals(AgenciaWebLogin.ReadProvider.READ_PROVIDER_UNAVAILABLE,
+            AgenciaWebLogin.readProvider(true, false));
+        assertEquals(AgenciaWebLogin.ReadProvider.READ_PROVIDER_UNAVAILABLE,
+            AgenciaWebLogin.readProvider(false, true));
+        assertEquals(AgenciaWebLogin.ReadProvider.READ_PROVIDER_UNAVAILABLE,
+            AgenciaWebLogin.readProvider(false, false));
+    }
+
+    @Test
+    public void anAccountWithNothingOwedIsAnAnswerAndNotAFailure() {
+        // Sem esta distincao, dono com a conta paga receberia "o canal nao
+        // funciona" e mandaria consertar o que ja estava certo.
+        // Casa a forma curta mesmo quando a pagina escreve o plural: guardar as
+        // duas deixaria a segunda inalcancavel, porque a primeira e prefixo dela.
+        assertEquals("nao ha debito", AgenciaWebLogin.debtNotice(
+            "no momento nao ha debitos para esta unidade"));
+        assertEquals("em dia", AgenciaWebLogin.debtNotice("sua conta esta em dia"));
+        assertEquals("", AgenciaWebLogin.debtNotice("seu debito vence em 10 dias"));
+        assertEquals("", AgenciaWebLogin.debtNotice(null));
+    }
+
+    @Test
+    public void aLabelOutsideTheVocabularyIsLoggedAsSizeOnly() {
+        // O cabecalho desta area comeca com uma saudacao que traz o nome do
+        // titular. Rotulo desconhecido sai como tamanho, nunca por extenso.
+        assertEquals("continuar", AgenciaWebLogin.publicLabel("continuar"));
+        assertEquals("continuar para pagamento",
+            AgenciaWebLogin.publicLabel("continuar para pagamento"));
+        assertEquals("outro(10 chars)", AgenciaWebLogin.publicLabel("ola, fulano"
+            .substring(0, 10)));
+        assertEquals("vazio", AgenciaWebLogin.publicLabel(""));
+        assertEquals("vazio", AgenciaWebLogin.publicLabel(null));
+    }
+
+    @Test
+    public void theDebtVocabularyExpectsFoldedText() {
+        for (String word : AgenciaWebLogin.DEBT_NOTICE_WORDS) {
+            assertEquals(word, EquatorialSession.fold(word));
+        }
+        for (String word : AgenciaWebLogin.PUBLIC_LABEL_WORDS) {
+            assertEquals(word, EquatorialSession.fold(word));
+        }
+    }
+
+    @Test
+    public void theDebtRouteIsTheFunnelPathAndNotAnAjaxEndpoint() {
+        // O alcance e por navegacao oficial. Guardar o caminho da PAGINA, e nao
+        // o do ajax, e o que impede a proxima pessoa de "otimizar" o motor
+        // chamando o endpoint interno direto.
+        assertEquals("/pagamento-de-faturas-on-line/", AgenciaWebLogin.DEBTS_PATH);
+        assertFalse(AgenciaWebLogin.DEBTS_PATH.contains("ajax"));
+    }
 }

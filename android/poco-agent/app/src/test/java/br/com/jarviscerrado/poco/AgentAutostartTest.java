@@ -138,12 +138,65 @@ public class AgentAutostartTest {
         assertTrue("versionCode deve passar de 32; encontrado " + code, code >= 33);
         assertFalse("versionName 1.0.0 pertence ao APK anterior",
             gradle.contains("versionName '1.0.0'"));
+        // 33 ja foi commitado. Mudanca de comportamento depois dele precisa de
+        // numero proprio, ou dois binarios diferentes respondem "33" ao Pi.
+        assertTrue("mudanca posterior a 33 exige versionCode proprio", code >= 34);
     }
 
     private static int versionCode(String gradle) {
         Matcher matcher = Pattern.compile("(?m)^\\s*versionCode\\s+(\\d+)").matcher(gradle);
         assertTrue("versionCode nao encontrado em build.gradle", matcher.find());
         return Integer.parseInt(matcher.group(1));
+    }
+
+    // -------------------------------------------------- segundo caminho
+
+    @Test
+    public void theAccessibilityRebindAlsoBringsTheAgentBack() throws IOException {
+        // O sistema religa o servico de acessibilidade sozinho apos reinstalacao
+        // e apos boot — foi o que o dumpsys mostrou com o no offline: a
+        // acessibilidade de pe e o agente ausente. Esse bind nao passa pelo
+        // autostart da MIUI, que e toggle por app e nao se concede por codigo.
+        String source = read(new File(moduleRoot(),
+            "src/main/java/br/com/jarviscerrado/poco/JarvisAccessibilityService.java"));
+        int hook = source.indexOf("onServiceConnected()");
+        assertTrue("onServiceConnected nao declarado", hook >= 0);
+        int next = source.indexOf("onAccessibilityEvent", hook);
+        assertTrue("corpo de onServiceConnected nao localizado", next > hook);
+        assertTrue("o rebind precisa religar o agente",
+            source.substring(hook, next).contains("AgentService.start(this)"));
+    }
+
+    @Test
+    public void theSecondPathIsABeltNotAReplacement() throws IOException {
+        // Se alguem trocar um mecanismo pelo outro, sobra um caminho so, e o
+        // caminho que sobrar sera o que a MIUI sabe bloquear.
+        assertTrue(bootReceiverBlock().contains("android.intent.action.MY_PACKAGE_REPLACED"));
+    }
+
+    // -------------------------------------------------- identidade do binario
+
+    @Test
+    public void theHeartbeatCarriesTheVersionCodeAndNotOnlyTheName() throws IOException {
+        // O versionName e o unico identificador que chegava ao Pi, e dois builds
+        // locais diferentes carregam o mesmo nome: o inventario relatava uma
+        // versao que nao dizia qual binario estava no telefone.
+        String source = read(new File(moduleRoot(),
+            "src/main/java/br/com/jarviscerrado/poco/AgentService.java"));
+        assertTrue("agent_version continua sendo enviado",
+            source.contains("\"agent_version\", BuildConfig.VERSION_NAME"));
+        assertTrue("agent_version_code precisa ir no heartbeat",
+            source.contains("\"agent_version_code\", BuildConfig.VERSION_CODE"));
+    }
+
+    @Test
+    public void theNumberTheHeartbeatSendsIsTheNumberTheBuildDeclares() throws IOException {
+        // Trava de deriva: BuildConfig e gerado a partir do build.gradle, e o
+        // heartbeat manda BuildConfig. Se os dois se separarem, o Pi passa a
+        // gravar um numero que nao corresponde ao APK.
+        assertEquals(versionCode(read(new File(moduleRoot(), "build.gradle"))),
+            BuildConfig.VERSION_CODE);
+        assertEquals("1.0.2", BuildConfig.VERSION_NAME);
     }
 
     // -------------------------------------------------- leitura dos arquivos
