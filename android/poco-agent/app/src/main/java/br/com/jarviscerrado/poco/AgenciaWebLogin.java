@@ -363,6 +363,25 @@ final class AgenciaWebLogin {
     }
 
     /**
+     * A rota observada prova que o experimento chegou ao host de faturas?
+     *
+     * Existe porque "ponte fechada" tem duas causas que o veredito sozinho não
+     * separa: a sessão não atravessa, ou a execução nunca bateu na porta. Só a
+     * primeira é resposta da concessionária. Chegar ao host e receber a página
+     * curta de aviso ({@code Suporte.aspx}) não conta como ter chegado À ÁREA:
+     * é o destino que o servidor dá a quem não tem sessão, então aceitá-lo como
+     * prova de alcance apagaria justamente a distinção que interessa.
+     *
+     * Ficou aqui, e não no motor, para que o critério de aceite do experimento
+     * seja verificável por teste em vez de conferido a olho num arquivo.
+     */
+    static boolean reachedBillHost(String destination) {
+        if (destination == null) return false;
+        String folded = destination.toLowerCase();
+        return folded.startsWith(BILL_HOST) && !folded.contains("suporte.aspx");
+    }
+
+    /**
      * O que a área de faturas do {@code goias.*} mostra depois da navegação.
      *
      * Os cinco marcadores são estruturais e do próprio ASPX: o formulário de

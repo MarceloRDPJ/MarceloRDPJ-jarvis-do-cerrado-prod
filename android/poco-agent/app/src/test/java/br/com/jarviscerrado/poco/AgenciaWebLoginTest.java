@@ -361,4 +361,34 @@ public class AgenciaWebLoginTest {
         assertEquals("/pagamento-de-faturas-on-line/", AgenciaWebLogin.DEBTS_PATH);
         assertFalse(AgenciaWebLogin.DEBTS_PATH.contains("ajax"));
     }
+    // ------------------------------------------- criterio de aceite do rerun
+
+    @Test
+    public void reachingTheBillHostMeansAPageThatIsNotTheNoticeStub() {
+        // LoginGO.aspx e o host de faturas respondendo de verdade: prova que a
+        // execucao bateu na porta, mesmo sem sessao.
+        assertTrue(AgenciaWebLogin.reachedBillHost(
+            "goias.equatorialenergia.com.br/LoginGO.aspx"));
+        assertTrue(AgenciaWebLogin.reachedBillHost(
+            "goias.equatorialenergia.com.br/AgenciaGO/Servicos/aberto/SegundaVia.aspx"));
+    }
+
+    @Test
+    public void theNoticeStubDoesNotCountAsHavingArrived() {
+        // Suporte.aspx e para onde o servidor manda quem nao tem sessao. Aceitar
+        // isso como "cheguei" apagaria a diferenca entre "a sessao nao vale aqui"
+        // e "o experimento nunca chegou" — que e a duvida toda.
+        assertFalse(AgenciaWebLogin.reachedBillHost(
+            "goias.equatorialenergia.com.br/Suporte.aspx"));
+    }
+
+    @Test
+    public void anotherHostIsNeverProofOfReachingTheBillHost() {
+        assertFalse(AgenciaWebLogin.reachedBillHost(
+            "go.equatorialenergia.com.br/pagamento-de-faturas-on-line/"));
+        assertFalse(AgenciaWebLogin.reachedBillHost("equatorialservicos.com.br/"));
+        assertFalse(AgenciaWebLogin.reachedBillHost("equatorialgoias.com.br/LoginGO.aspx"));
+        assertFalse(AgenciaWebLogin.reachedBillHost(""));
+        assertFalse(AgenciaWebLogin.reachedBillHost(null));
+    }
 }

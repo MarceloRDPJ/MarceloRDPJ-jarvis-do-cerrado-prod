@@ -10,7 +10,13 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.Locale;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -944,6 +950,129 @@ final class EquatorialWebEngine {
             .put("read_provider", verdict.name());
     }
 
+    // ------------------------------------------ trilha durável do experimento
+
+    /**
+     * Arquivo da rodada. Existe porque o logcat já apagou a prova três vezes.
+     *
+     * A conclusão do experimento decide o rumo do produto, e conclusão sem
+     * observação recuperável é opinião com data. O buffer do logcat é circular e
+     * rotativo; um arquivo não é. Fica no armazenamento privado do app e é
+     * puxado de lá para {@code .tools/} depois da execução.
+     */
+    private File evidence;
+    /**
+     * De instância, e não estático: {@link SimpleDateFormat} não é seguro entre
+     * threads, e dois motores rodando ao mesmo tempo — a ponte e a consulta —
+     * corromperiam o carimbo um do outro em silêncio.
+     */
+    private final SimpleDateFormat stamp =
+        new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US);
+
+    /**
+     * Abre a trilha da rodada, sem derrubar o experimento se não der.
+     *
+     * Falha em abrir arquivo NÃO aborta a medição: perder o registro é ruim,
+     * perder a medição é pior, e a decisão de qual custo aceitar é melhor tomada
+     * aqui do que por uma exceção que sobe no meio da navegação.
+     */
+    private void openEvidence(Context context, String run) {
+        try {
+            File dir = new File(context.getFilesDir(), "rod-evidencia");
+            if (!dir.exists() && !dir.mkdirs()) return;
+            evidence = new File(dir, run + ".jsonl");
+        } catch (Throwable error) {
+            evidence = null;
+            RodLog.fail("prova", "nao consegui abrir o arquivo da trilha");
+        }
+    }
+
+    /**
+     * Grava um passo observado, em uma linha por passo.
+     *
+     * O que entra aqui é o que já passou pelos filtros do motor: host, caminho,
+     * booleanos, contagens e palavra de vocabulário. Nunca query string, nunca
+     * rótulo cru, nunca cookie, JWT, documento ou unidade — a trilha é feita
+     * para ser lida por outra pessoa, e por isso vale a mesma regra do log.
+     */
+    private void record(String step, JSONObject data) {
+        if (evidence == null) return;
+        OutputStreamWriter writer = null;
+        try {
+            JSONObject line = new JSONObject();
+            line.put("t", stamp.format(new Date()));
+            line.put("passo", step);
+            if (data != null) {
+                java.util.Iterator<String> keys = data.keys();
+                while (keys.hasNext()) {
+                    String key = keys.next();
+                    line.put(key, scrubbed(data.get(key)));
+                }
+            }
+            writer = new OutputStreamWriter(new FileOutputStream(evidence, true), "UTF-8");
+            writer.write(line.toString());
+            writer.write("\n");
+        } catch (Throwable error) {
+            RodLog.fail("prova", "nao consegui gravar o passo " + step);
+        } finally {
+            if (writer != null) try { writer.close(); } catch (Throwable ignored) { }
+        }
+    }
+
+    /**
+     * Segunda linha de defesa da trilha: mascara texto, preserva número.
+     *
+     * A primeira linha é não escrever valor sensível, e o motor já a respeita —
+     * o que chega aqui é host, caminho, booleano, contagem e palavra de
+     * vocabulário. Mas este arquivo vai para caminho RASTREADO, e dado
+     * publicado não volta atrás: se algum dia um campo novo trouxer documento
+     * ou unidade por engano, o padrão do {@link RodLog} pega antes do disco.
+     *
+     * Só texto passa pelo filtro. Número e booleano seguem intactos de
+     * propósito: {@code caracteres=12345} é contagem, não identificador, e
+     * mascarar contagem destruiria a própria medição que a trilha existe para
+     * guardar.
+     */
+    private Object scrubbed(Object value) throws Exception {
+        if (value instanceof String) return RodLog.sanitize((String) value);
+        if (value instanceof JSONObject) {
+            JSONObject source = (JSONObject) value;
+            JSONObject clean = new JSONObject();
+            java.util.Iterator<String> keys = source.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                clean.put(key, scrubbed(source.get(key)));
+            }
+            return clean;
+        }
+        if (value instanceof JSONArray) {
+            JSONArray source = (JSONArray) value;
+            JSONArray clean = new JSONArray();
+            for (int i = 0; i < source.length(); i++) clean.put(scrubbed(source.get(i)));
+            return clean;
+        }
+        return value;
+    }
+
+    /**
+     * O host das faturas responde a este motor? Medido, e não assumido.
+     *
+     * O {@code SegundaVia.aspx} redireciona para uma página curta de aviso, então
+     * ele sozinho não distingue "a sessão não vale aqui" de "o motor nem chegou
+     * ao host". O {@code LoginGO.aspx} distingue: é uma página do MESMO host que
+     * renderiza conteúdo de verdade, e o formulário de login dela é justamente o
+     * marcador que uma sessão válida faria desaparecer.
+     *
+     * É o controle positivo do experimento: enquanto as duas rotas do mesmo host
+     * derem respostas DIFERENTES, está provado que a sonda alcança o host e
+     * enxerga o que há nele — e aí "antes igual a depois" passa a significar "a
+     * sessão não atravessou", que é a conclusão, em vez de "a medição falhou".
+     */
+    private JSONObject probeBillHostLogin(long deadline) throws Exception {
+        load(LOGIN_URL, deadline);
+        return probeStructure();
+    }
+
     // ------------------------------------------- ponte go.* -> goias.* (medida)
 
     /**
@@ -979,9 +1108,21 @@ final class EquatorialWebEngine {
     private JSONObject runBridge(Context context, String unit, String document, long deadline)
             throws Exception {
         create(context);
+        openEvidence(context, "ponte-" + System.currentTimeMillis());
 
         JSONObject before = probeBillArea(deadline);
         RodLog.step("ponte", "antes do login: " + describeBillArea(before));
+        record("antes/segunda-via", before);
+
+        // Controle positivo, na mesma execução e no MESMO host: uma rota que
+        // renderiza de verdade. Enquanto ela responder diferente da rota de
+        // fatura, está provado que a sonda bate na porta e enxerga o que abre —
+        // e só então "antes igual a depois" pode significar "a sessão não
+        // atravessou" em vez de "o experimento não chegou lá".
+        JSONObject beforeHost = probeBillHostLogin(deadline);
+        RodLog.step("ponte", "antes, controle no host de faturas: "
+            + describeBillArea(beforeHost));
+        record("antes/logingo", beforeHost);
 
         load(AgenciaWebLogin.LOGIN_URL, deadline);
         JSONObject seen = observeAgenciaWeb();
@@ -1012,6 +1153,10 @@ final class EquatorialWebEngine {
         AgenciaWebLogin.GoOutcome outcome = AgenciaWebLogin.outcome(state);
         boolean authenticated = outcome == AgenciaWebLogin.GoOutcome.GO_LOGIN_OK;
         RodLog.step("ponte", "desfecho do login go.*=" + outcome);
+        record("login", new JSONObject()
+            .put("desfecho", outcome.name())
+            .put("estado", state.name())
+            .put("sessao_ja_estava_aberta", already));
 
         // O JWT aparece ANTES de a navegação do script terminar: o auth-go.js grava
         // o token e só então manda o navegador para /sua-conta/{service}. Enumerar
@@ -1037,6 +1182,13 @@ final class EquatorialWebEngine {
             destinations = visibleDestinations();
             RodLog.step("ponte", "area autenticada em " + landing.optString("host", "")
                 + landing.optString("path", "") + " caracteres=" + landing.optInt("chars", 0));
+            record("area-autenticada", landing);
+            // A enumeração inteira vai para o arquivo, e não só os links
+            // seguidos: é ela que sustenta "o portal não oferece entrada
+            // autenticada no host de faturas". Sem ela, a afirmação depende de
+            // eu ter olhado, e ninguém pode conferir depois.
+            record("destinos-visiveis", new JSONObject()
+                .put("total", destinations.length()).put("lista", destinations));
 
             JSONArray links = officialServiceLinks();
             RodLog.step("ponte", "links oficiais de servico=" + links.length());
@@ -1056,10 +1208,26 @@ final class EquatorialWebEngine {
                     + " pediu_login=" + landed.optBoolean("landing_login_form", false)
                     + " comboUC=" + landed.optBoolean("landing_comboUC", false)
                     + " caracteres=" + landed.optInt("landing_chars", 0));
+                // Uma linha por rota, com rótulo, destino e o que o destino
+                // pediu — juntos. Separar isso em linhas diferentes obrigaria
+                // quem audita a correlacionar por horário, e horário é
+                // exatamente o que se perde quando o buffer rotaciona.
+                record("rota", new JSONObject()
+                    .put("rotulo", landed.optString("word", ""))
+                    .put("destino", landed.optString("host", "") + landed.optString("path", ""))
+                    .put("pediu_login", landed.optBoolean("landing_login_form", false))
+                    .put("comboUC", landed.optBoolean("landing_comboUC", false))
+                    .put("caracteres", landed.optInt("landing_chars", 0))
+                    .put("aviso", landed.optString("landing_notice", ""))
+                    .put("origem", landed.optString("from_host", "")
+                        + landed.optString("from_path", "")));
                 after = probeBillArea(deadline);
                 bridge = classifyBillArea(true, after);
                 RodLog.step("ponte", "depois de " + landed.optString("word", "")
                     + ": " + describeBillArea(after) + " ponte=" + bridge);
+                record("depois/segunda-via", new JSONObject(after.toString())
+                    .put("depois_de", landed.optString("word", ""))
+                    .put("ponte", bridge.name()));
                 if (bridge == AgenciaWebLogin.BridgeState.OPEN) break;
             }
             if (routes.length() == 0) {
@@ -1067,10 +1235,36 @@ final class EquatorialWebEngine {
                 bridge = classifyBillArea(true, after);
                 RodLog.step("ponte", "nenhum link oficial de servico: " + describeBillArea(after)
                     + " ponte=" + bridge);
+                record("depois/segunda-via", new JSONObject(after.toString())
+                    .put("depois_de", "nenhum link oficial").put("ponte", bridge.name()));
             }
+
+            // O controle positivo repetido DEPOIS do login. É o par que responde
+            // a pergunta da rodada: se a sessão do go.* valesse no host de
+            // faturas, o formulário de login desta página teria sumido. Se ele
+            // continua lá, a resposta é da concessionária e não do experimento.
+            JSONObject afterHost = probeBillHostLogin(deadline);
+            RodLog.step("ponte", "depois, controle no host de faturas: "
+                + describeBillArea(afterHost));
+            record("depois/logingo", afterHost);
+            record("controle", new JSONObject()
+                .put("host_de_faturas_respondeu", !afterHost.optBoolean("erro_de_rede", false)
+                    && afterHost.optInt("chars", 0) > 0)
+                .put("rotas_do_mesmo_host_diferem",
+                    afterHost.optInt("chars", 0) != after.optInt("chars", 0)
+                        || afterHost.optBoolean("login_form", false)
+                            != after.optBoolean("login_form", false))
+                .put("login_ainda_exigido_apos_sessao_go",
+                    afterHost.optBoolean("login_form", false)));
         }
 
+        record("veredito", new JSONObject()
+            .put("ponte", bridge.name()).put("login_go", outcome.name()));
+        if (evidence != null)
+            RodLog.step("prova", "trilha gravada em " + evidence.getAbsolutePath());
+
         return new JSONObject()
+            .put("evidence_file", evidence == null ? "" : evidence.getAbsolutePath())
             .put("go_outcome", outcome.name())
             .put("go_state", state.name())
             .put("go_session_was_already_open", already)
@@ -1123,7 +1317,10 @@ final class EquatorialWebEngine {
         // conteúdo de página sobrevive à fronteira deste método.
         String notice = AgenciaWebLogin.noticeWord(area.optString("text", ""));
         area.remove("text");
-        return area.put("notice", notice);
+        // Erro de rede no documento principal e resposta curta do servidor são
+        // coisas diferentes, e sem esta marca as duas viram "a pagina veio
+        // vazia" — que foi exatamente a leitura que confundiu a rodada passada.
+        return area.put("notice", notice).put("erro_de_rede", failed.get());
     }
 
     /** Onde a navegação está agora: host, caminho e tamanho. Nunca query string. */
