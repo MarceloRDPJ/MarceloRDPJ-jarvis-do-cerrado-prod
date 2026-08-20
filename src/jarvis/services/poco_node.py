@@ -261,6 +261,14 @@ class PocoNodeService:
             "thermal_status": str(payload.get("thermal_status", "unknown"))[:32],
             "wifi_connected": bool(payload.get("wifi_connected", False)),
             "agent_version": str(payload.get("agent_version", ""))[:32],
+            # O nome da versão não distingue dois builds locais: os dois dizem
+            # "1.0.2". O código da versão distingue, e é o único identificador do
+            # binário que chega até aqui — sem ele o inventário do Pi não sabe
+            # qual APK está no telefone. O agente já o enviava; esta lista é de
+            # permissão explícita, então o campo vinha e era descartado em
+            # silêncio, que é o pior dos dois mundos: custo no telefone, nenhum
+            # ganho aqui.
+            "agent_version_code": int(self._number(payload.get("agent_version_code"), 0, 10_000_000) or 0),
             "saneago_configured": bool(payload.get("saneago_configured", False)),
             "equatorial_configured": bool(payload.get("equatorial_configured", False)),
             "water_units": int(self._number(payload.get("water_units"), 0, 8) or 0),

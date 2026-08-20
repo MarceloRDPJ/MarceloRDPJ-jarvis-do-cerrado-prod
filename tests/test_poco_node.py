@@ -242,3 +242,30 @@ def test_a_result_arriving_after_the_ttl_is_not_thrown_away(tmp_path):
 
     assert recovered.status == "completed"
     assert recovered.result == {"amount": "10,00"}
+
+
+def test_the_heartbeat_keeps_the_version_code_that_identifies_the_binary(tmp_path):
+    """Nome da versao nao distingue dois builds locais; o codigo distingue.
+
+    A lista de campos aceitos e de permissao explicita, entao um campo novo que
+    o agente passe a enviar e descartado em silencio — custo no telefone e
+    nenhum ganho aqui. Aconteceu exatamente isso: o agente ja mandava o codigo
+    da versao e o Pi respondia nulo, deixando o inventario sem saber qual APK
+    estava no telefone.
+    """
+    service = PocoNodeService(tmp_path / "poco.json", "secret")
+
+    saved = service.record_heartbeat({"node_id": "poco", "agent_version": "1.0.2",
+                                      "agent_version_code": 34})
+
+    assert saved["agent_version_code"] == 34
+    assert saved["agent_version"] == "1.0.2"
+
+
+def test_a_nonsense_version_code_becomes_zero_instead_of_reaching_disk(tmp_path):
+    """O campo vem do telefone: e entrada, nao verdade."""
+    service = PocoNodeService(tmp_path / "poco.json", "secret")
+
+    saved = service.record_heartbeat({"node_id": "poco", "agent_version_code": "trinta e quatro"})
+
+    assert saved["agent_version_code"] == 0
