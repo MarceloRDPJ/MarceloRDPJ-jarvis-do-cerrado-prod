@@ -284,6 +284,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await HydrationModule.snooze_hydration(chat_id, query, minutes=15)
         return
 
+    # Botões de fatura (PIX / BOLETO / ATUALIZAR / menu do imóvel).
+    # Precisam de handler próprio: eles editam a mensagem da consulta e enviam
+    # documento, coisas que o caminho genérico de texto não sabe fazer.
+    if text.startswith("bill_"):
+        executor: Executor = context.application.bot_data["executor"]
+        await executor.handle_bill_callback(chat_id, text, query)
+        return
+
     # Detecta callbacks de rede
     if text.startswith("net_"):
         executor: Executor = context.application.bot_data["executor"]

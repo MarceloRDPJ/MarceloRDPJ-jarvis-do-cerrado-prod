@@ -1,3 +1,5 @@
+import html
+import inspect
 import logging
 import re
 from typing import Dict, Any, List
@@ -21,6 +23,45 @@ import time
 
 logger = logging.getLogger("core.executor")
 
+# =====================================================
+# CONTAS & FATURAS — CONTRATO COM O NÓ POCO
+# =====================================================
+# As ações de artefato pertencem à fila do nó Android. Ficam nomeadas aqui, num
+# lugar só, para que ligar/desligar o contrato seja uma linha e não uma caçada
+# pelo arquivo. Nenhuma delas paga, confirma ou movimenta qualquer valor.
+POCO_PIX_ACTION = "get_equatorial_pix"
+POCO_BOLETO_ACTION = "get_equatorial_boleto"
+
+# Um artefato de pagamento só é reaproveitado dentro da MESMA fatura e por pouco
+# tempo. Sem o limite, um toque em PIX no mês seguinte devolveria o código do mês
+# anterior — erro caro e silencioso.
+BILL_ARTIFACT_TTL_SECONDS = 900
+
+# Imóveis que já tiveram uma leitura concluída. É a única prova local de que a
+# unidade existe no cofre do Poco; o heartbeat expõe contagem, não nomes.
+BILL_STATE_KEY = "bill_properties_confirmed"
+
+# Mensagens de falha que o dono lê. Código tipado, nome de exceção e traceback
+# ficam no log; na tela fica o que dá para fazer a respeito.
+POCO_UNAVAILABLE_MESSAGE = "📱 O Poco está temporariamente indisponível. Tente novamente."
+PORTAL_UNAVAILABLE_MESSAGE = "⚡ A Equatorial não respondeu agora. Tente novamente em alguns minutos."
+HUMAN_CHECK_ALL_CHANNELS_MESSAGE = (
+    "⚠️ A Equatorial exigiu verificação humana em todos os canais automáticos "
+    "disponíveis. Nenhum pagamento foi realizado."
+)
+BILL_GENERIC_FAILURE_MESSAGE = (
+    "Não consegui consultar a Equatorial agora. Tente novamente em alguns minutos."
+)
+BILL_ACTION_UNAVAILABLE_MESSAGE = (
+    "Essa opção ainda não está habilitada no Poco. A consulta continua funcionando e "
+    "nenhum pagamento foi realizado."
+)
+BILL_ARTIFACT_UNAVAILABLE_MESSAGE = (
+    "Não recebi o arquivo do Poco. Nenhum pagamento foi realizado; tente novamente em "
+    "alguns minutos."
+)
+PROVIDER_LABELS = {"equatorial": "Equatorial", "saneago": "Saneago"}
+
 
 class Executor:
     """
@@ -41,6 +82,15 @@ class Executor:
         self.app = application
         Persistence.init_db()
         self.pending_actions: Dict[int, Dict[str, Any]] = {}
+        # Single-flight de contas: uma automação por (concessionária, imóvel, ação).
+        # O Poco executa um job por vez, então dois toques rápidos no mesmo botão
+        # não criavam duas leituras — criavam uma fila que dobrava a espera.
+        self._bill_flights: Dict[tuple, Any] = {}
+        # Artefato de pagamento em memória, nunca em disco e nunca em log.
+        self._bill_artifacts: Dict[tuple, Dict[str, Any]] = {}
+        # Referência da última leitura confirmada, para provar que o artefato
+        # entregue é da mesma fatura que está na tela.
+        self._bill_reference: Dict[tuple, str] = {}
         logger.info("Executor inicializado com sucesso.")
 
     async def execute(self, intent_data: Dict[str, Any], chat_id: int) -> str:
@@ -121,6 +171,12 @@ class Executor:
                 "• `logs do sistema` → Últimos eventos registrados.\n"
                 "• `reiniciar sistema` → Reboot do Raspberry Pi.\n"
                 "• `reiniciar adguard` → Restart do container DNS.\n\n"
+
+                "🧾 **CONTAS & FATURAS**\n"
+                "• `conta de luz casa` → Consulta a Equatorial no portal oficial pelo Poco.\n"
+                "• `conta de agua kitnet 01` → Consulta a Saneago pelo app oficial.\n"
+                "• No resultado: botões de Pix copia e cola, boleto em PDF e atualizar.\n"
+                "• Nenhum pagamento é iniciado; o ROD só entrega o código e o arquivo.\n\n"
 
                 "🤖 **AUTOMAÇÕES & OUTROS**\n"
                 "• `listar automacoes` → Ver regras ativas.\n"
@@ -290,7 +346,8 @@ class Executor:
                     "🌐 **Rede & Segurança** → Scan, bloqueio, stats\n"
                     "⏰ **Agenda & Vida** → Lembretes, hidratação\n"
                     "⚙️ **Automações** → Regras locais e alertas\n"
-                    "🖥️ **Sistema** → Monitoramento, controle\n\n"
+                    "🖥️ **Sistema** → Monitoramento, controle\n"
+                    "🧾 **Contas & Faturas** → Energia e água pelo Poco\n\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                     "_Dica: Você pode falar comigo naturalmente._\n"
                     "_Ex: 'me lembra de ligar pro dentista amanhã'_"
@@ -464,26 +521,7 @@ class Executor:
             }
 
         if intent == "menu_contas":
-            try:
-                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-                keyboard = [
-                    [InlineKeyboardButton("💧 Saneago — Casa", callback_data="conta de agua casa")],
-                    [InlineKeyboardButton("⚡ Equatorial — Casa", callback_data="conta de luz casa")],
-                    [InlineKeyboardButton("🔙 Menu Principal", callback_data="help")],
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-            except ImportError:
-                reply_markup = None
-            return {
-                "text": (
-                    "🧾 CONTAS & FATURAS\n\n"
-                    "As consultas são executadas no Poco e os acessos ficam criptografados "
-                    "no Android Keystore. Diga a concessionária e o imóvel, por exemplo:\n"
-                    "conta de água kitnet 01 ou conta de luz restaurante.\n\n"
-                    "Se o portal exigir CAPTCHA ou confirmação humana, eu aviso claramente."
-                ),
-                "reply_markup": reply_markup,
-            }
+            return self._bills_menu()
 
         # --- END SUBMENUS ---
 
@@ -495,7 +533,7 @@ class Executor:
         if intent == "saneago_bills":
             return await self._poco_saneago_bills(params)
         if intent == "equatorial_bills":
-            return await self._poco_equatorial_bills(params)
+            return await self._equatorial_bill_flow(chat_id, (params or {}).get("property", "casa"))
         if intent == "fan_control":
             return await self._handle_fan_control(params.get("text", ""), self.app)
         if intent == "system_reboot": return SystemModule.reboot_device()
@@ -954,14 +992,19 @@ class Executor:
         )
 
     async def _poco_equatorial_bills(self, params: dict | None = None) -> str:
+        """Texto da consulta, sem tocar no Telegram.
+
+        Quem manda mensagem é o fluxo (``_equatorial_bill_flow``): a UX pede UMA
+        mensagem editada no fim, e um aviso intermediário aqui deixava duas.
+        """
         property_key = (params or {}).get("property", "casa")
-        try:
-            await self.app.bot.send_message(
-                chat_id=Config.ALLOWED_USER_ID,
-                text="Consultando a Equatorial no Poco pelo portal oficial. Pode levar alguns minutos; aviso assim que terminar.",
-            )
-        except Exception:
-            logger.debug("Não foi possível enviar o aviso intermediário da Equatorial", exc_info=True)
+        result, failure = await self._equatorial_bill_read(property_key)
+        if failure:
+            return failure
+        return self._format_equatorial_bill(property_key, result)
+
+    async def _equatorial_bill_read(self, property_key: str):
+        """(resultado, mensagem de falha já humanizada)."""
         result, error = await self._run_poco_job(
             "refresh_equatorial_bills",
             Config.POCO_BILL_JOB_TIMEOUT_SECONDS,
@@ -969,57 +1012,146 @@ class Executor:
         )
         if error:
             fallback = await self._poco_bill_cache_note("equatorial", property_key)
-            error_text = str(error).strip()
-            # Erros tipados do agente Android vêm antes da heurística por palavra-chave.
-            # Sessão expirada não é falha de infraestrutura: pedir login humano uma vez
-            # é mais honesto (e mais barato) do que repetir tentativas cegas no Poco.
-            code = self._equatorial_code(error_text)
-            if code == "EQUATORIAL_AUTH_REQUIRED":
-                return (
-                    "A sessão da Equatorial expirou no Poco. Abra o Chrome do Poco e faça "
-                    "login novamente na Equatorial; depois repita a consulta." + fallback
-                )
-            if code == "EQUATORIAL_HUMAN_CHECK" or any(
-                marker in error_text.lower() for marker in ("captcha", "imperva", "verificacao humana")
-            ):
-                return "A Equatorial pediu verificação humana no Poco. Resolva a tela uma vez e repita a consulta; o ROD não tenta contornar o bloqueio." + fallback
-            # Cada código diz o que fazer. Devolver só "falhou" obrigaria abrir o
-            # logcat do Poco para descobrir se o problema é do portal, do cadastro
-            # ou da leitura.
-            typed = {
-                "EQUATORIAL_PROPERTY_NOT_MAPPED": (
-                    f"Ainda não sei qual conta contrato do portal corresponde a "
-                    f"{property_key.replace('_', ' ').title()}. O ROD aprende isso sozinho na "
-                    "primeira consulta bem-sucedida; se persistir, confira a unidade consumidora "
-                    "cadastrada no cofre do Poco."
-                ),
-                # Sinônimo emitido hoje pelo agente Android.
-                "EQUATORIAL_UC_NAO_ENCONTRADA": (
-                    "O imóvel pedido não apareceu na lista de contratos desse login da Equatorial. "
-                    "Não usei dados de outro imóvel."
-                ),
-                "EQUATORIAL_CONTRACT_NOT_FOUND": (
-                    "O imóvel pedido não apareceu na lista de contratos desse login da Equatorial. "
-                    "Não usei dados de outro imóvel."
-                ),
-                "EQUATORIAL_BILL_NOT_FOUND": (
-                    "Cheguei ao imóvel certo no portal, mas nenhuma fatura estava visível na tela. "
-                    "Pode não haver fatura em aberto agora."
-                ),
-                "EQUATORIAL_PAYMENT_DATA_NOT_FOUND": (
-                    "Li a fatura, mas o portal não expôs código de barras nem PIX nesta tela. "
-                    "Não vou inventar um código de pagamento."
-                ),
-                "EQUATORIAL_PORTAL_TIMEOUT": (
-                    "O portal da Equatorial não respondeu a tempo no Poco. Vale repetir a consulta."
-                ),
-            }
-            if code in typed:
-                return typed[code] + fallback
-            return f"Não consegui consultar a Equatorial agora: {error}" + fallback
+            return None, self._equatorial_failure_message(str(error).strip(), property_key) + fallback
+        return result or {}, None
+
+    def _equatorial_failure_message(self, error_text: str, property_key: str) -> str:
+        """Traduz a falha para uma frase que o dono pode agir a respeito.
+
+        Nada de ``IllegalStateException``, traceback ou código ``EQUATORIAL_*`` na
+        tela: eles não dizem ao dono o que fazer e vazam detalhe de automação. O
+        código continua no log, que é onde ele serve para algo.
+        """
+        text = str(error_text or "")
+        lowered = text.lower()
+        # Erros tipados do agente Android vêm antes da heurística por palavra-chave.
+        # Sessão expirada não é falha de infraestrutura: pedir login humano uma vez
+        # é mais honesto (e mais barato) do que repetir tentativas cegas no Poco.
+        code = self._equatorial_code(text)
+        logger.info("Falha na Equatorial classificada como %s", code or "sem código tipado")
+
+        # Verificação humana em TODOS os canais é diferente de um desafio numa tela:
+        # não existe próximo passo automático, e o dono precisa ouvir que nada foi pago.
+        if code == "EQUATORIAL_HUMAN_CHECK_ALL_CHANNELS" or "todos os canais" in lowered:
+            return HUMAN_CHECK_ALL_CHANNELS_MESSAGE
+
+        if code == "EQUATORIAL_AUTH_REQUIRED":
+            return (
+                "A sessão da Equatorial expirou no Poco. Abra o Chrome do Poco e faça "
+                "login novamente na Equatorial; depois repita a consulta."
+            )
+        if code == "EQUATORIAL_HUMAN_CHECK" or any(
+            marker in lowered for marker in ("captcha", "imperva", "verificacao humana")
+        ):
+            return (
+                "A Equatorial pediu verificação humana no Poco. Resolva a tela uma vez e "
+                "repita a consulta; o ROD não tenta contornar o bloqueio."
+            )
+        # Cada código diz o que fazer. Devolver só "falhou" obrigaria abrir o
+        # logcat do Poco para descobrir se o problema é do portal, do cadastro
+        # ou da leitura.
+        typed = {
+            # O portal recusa login automático em silêncio: recarrega a tela de
+            # acesso sem dizer nada. O motivo é o motor antifraude dele, que
+            # pontua a sessão em vez de apresentar desafio. Não há o que o dono
+            # conserte no cadastro, então a mensagem não manda procurar defeito.
+            "EQUATORIAL_LOGIN_FAILED": (
+                "A Equatorial não aceitou a entrada automática — o portal dela avalia o acesso "
+                "por um sistema antifraude e recusou sem informar motivo. Abrir o Chrome do Poco "
+                "e entrar uma vez restabelece a consulta. Nenhum pagamento foi feito."
+            ),
+            "EQUATORIAL_LOGIN_REJECTED": (
+                "A Equatorial recusou os dados de acesso guardados no cofre do Poco. "
+                "Vale conferir a unidade consumidora e o documento cadastrados."
+            ),
+            "EQUATORIAL_CREDENTIALS_MISSING": (
+                "Faltam dados de acesso da Equatorial no cofre do Poco. "
+                "Cadastre unidade consumidora e documento no aplicativo ROD."
+            ),
+            "EQUATORIAL_WEBVIEW_UNAVAILABLE": (
+                "O navegador interno do ROD não subiu no Poco desta vez. Vale repetir a consulta."
+            ),
+            "EQUATORIAL_PIX_NOT_FOUND": (
+                "Não encontrei o Pix desta fatura na tela do portal. Nenhum pagamento foi feito."
+            ),
+            "EQUATORIAL_PIX_AMBIGUOUS": (
+                "O portal mostrou mais de um código Pix e não consigo saber qual é desta fatura. "
+                "Prefiro não enviar nada a enviar o Pix de outra conta."
+            ),
+            "EQUATORIAL_PIX_INVALID": (
+                "O código Pix que li não passou na validação oficial do BR Code. "
+                "Não vou entregar um código de pagamento que pode estar corrompido."
+            ),
+            "EQUATORIAL_BOLETO_NOT_FOUND": (
+                "O portal não ofereceu o boleto desta fatura agora. Tente novamente em alguns minutos."
+            ),
+            "EQUATORIAL_BOLETO_TOO_LARGE": (
+                "O arquivo do boleto veio maior do que o limite seguro e foi descartado."
+            ),
+            "EQUATORIAL_BOLETO_NOT_SENT": (
+                "Consegui o boleto mas falhei ao entregá-lo. Tente novamente."
+            ),
+            "EQUATORIAL_PROPERTY_NOT_MAPPED": (
+                f"Ainda não sei qual conta contrato do portal corresponde a "
+                f"{self._property_label(property_key)}. O ROD aprende isso sozinho na "
+                "primeira consulta bem-sucedida; se persistir, confira a unidade consumidora "
+                "cadastrada no cofre do Poco."
+            ),
+            # Sinônimo emitido hoje pelo agente Android.
+            "EQUATORIAL_UC_NAO_ENCONTRADA": (
+                "O imóvel pedido não apareceu na lista de contratos desse login da Equatorial. "
+                "Não usei dados de outro imóvel."
+            ),
+            "EQUATORIAL_CONTRACT_NOT_FOUND": (
+                "O imóvel pedido não apareceu na lista de contratos desse login da Equatorial. "
+                "Não usei dados de outro imóvel."
+            ),
+            "EQUATORIAL_BILL_NOT_FOUND": (
+                "Cheguei ao imóvel certo no portal, mas nenhuma fatura estava visível na tela. "
+                "Pode não haver fatura em aberto agora."
+            ),
+            "EQUATORIAL_PAYMENT_DATA_NOT_FOUND": (
+                "Li a fatura, mas o portal não expôs código de barras nem PIX nesta tela. "
+                "Não vou inventar um código de pagamento."
+            ),
+            "EQUATORIAL_PORTAL_TIMEOUT": (
+                "O portal da Equatorial não respondeu a tempo no Poco. "
+                "Vale repetir a consulta em alguns minutos."
+            ),
+        }
+        if code in typed:
+            return typed[code]
+
+        # Falha de infraestrutura do nó: não é problema da concessionária e não há
+        # o que o dono resolva no portal.
+        if any(
+            marker in lowered
+            for marker in (
+                "poco está offline",
+                "poco esta offline",
+                "sem heartbeat",
+                "nó poco está desativado",
+                "no poco esta desativado",
+                "não confirmou o início",
+                "nao confirmou o inicio",
+            )
+        ):
+            return POCO_UNAVAILABLE_MESSAGE
+
+        # Portal fora do ar sem código tipado (5xx, DNS, conexão recusada).
+        if any(
+            marker in lowered
+            for marker in ("502", "503", "504", "err_", "net::", "unreachable", "connection")
+        ):
+            return PORTAL_UNAVAILABLE_MESSAGE
+
+        return BILL_GENERIC_FAILURE_MESSAGE
+
+    def _format_equatorial_bill(self, property_key: str, result: dict | None) -> str:
+        result = result or {}
         lines = [
             "Equatorial — consulta real pelo portal oficial",
-            f"Imóvel: {property_key.replace('_', ' ').title()}",
+            f"Imóvel: {self._property_label(property_key)}",
             f"Fatura: {result.get('amount', 'indisponível')}",
             f"Referência: {result.get('reference', 'indisponível')}",
             f"Vencimento: {result.get('due_date', 'indisponível')}",
@@ -1033,6 +1165,601 @@ class Executor:
         if pix:
             lines.append(f"PIX: {pix}")
         return "\n".join(lines)
+
+    # =====================================================
+    # CONTAS & FATURAS — UX NO TELEGRAM
+    # =====================================================
+    @staticmethod
+    def _property_label(property_key: str) -> str:
+        return str(property_key or "casa").replace("_", " ").strip().title()
+
+    @staticmethod
+    def _property_phrase(property_key: str) -> str:
+        """Frase que o roteador reconhece de volta (`kitnet_01` → `kitnet 01`)."""
+        return str(property_key or "casa").replace("_", " ").strip()
+
+    def _flight_in_progress(self, provider: str, property_key: str, action: str) -> bool:
+        task = self._bill_flights.get((provider, property_key, action))
+        return task is not None and not task.done()
+
+    async def _single_flight(self, provider: str, property_key: str, action: str, factory):
+        """Uma automação por (concessionária, imóvel, ação).
+
+        O Poco executa um job por vez. Dois toques rápidos no mesmo botão criavam
+        dois jobs iguais: o segundo esperava o primeiro terminar e devolvia o mesmo
+        dado depois do dobro do tempo. Aqui o segundo interessado espera a operação
+        que já existe. O ``shield`` evita que um chamador que desistiu (timeout do
+        Telegram, mensagem apagada) cancele o job de quem ainda espera.
+
+        Devolve ``(resultado, reaproveitado)``.
+        """
+        key = (provider, property_key, action)
+        existing = self._bill_flights.get(key)
+        if existing is not None and not existing.done():
+            return await asyncio.shield(existing), True
+        task = asyncio.ensure_future(factory())
+        self._bill_flights[key] = task
+        try:
+            return await asyncio.shield(task), False
+        finally:
+            if self._bill_flights.get(key) is task and task.done():
+                self._bill_flights.pop(key, None)
+
+    def _bill_keyboard(self, provider: str, property_key: str, *, payment: bool = True):
+        try:
+            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+        except ImportError:
+            return None
+        rows = []
+        if payment:
+            rows.append(
+                [
+                    InlineKeyboardButton("💠 PIX", callback_data=f"bill_pix:{provider}:{property_key}"),
+                    InlineKeyboardButton("📄 BOLETO", callback_data=f"bill_boleto:{provider}:{property_key}"),
+                ]
+            )
+        rows.append(
+            [
+                InlineKeyboardButton("🔄 ATUALIZAR", callback_data=f"bill_refresh:{provider}:{property_key}"),
+                InlineKeyboardButton("🔙 VOLTAR", callback_data="menu_contas"),
+            ]
+        )
+        return InlineKeyboardMarkup(rows)
+
+    async def _send_bill_text(self, chat_id: int, text: str, reply_markup=None, parse_mode=None):
+        kwargs = {"chat_id": chat_id, "text": text}
+        if reply_markup is not None:
+            kwargs["reply_markup"] = reply_markup
+        if parse_mode:
+            kwargs["parse_mode"] = parse_mode
+        try:
+            message = await self.app.bot.send_message(**kwargs)
+            return getattr(message, "message_id", None)
+        except Exception:
+            logger.warning("Não consegui enviar a mensagem de fatura no Telegram", exc_info=True)
+            return None
+
+    async def _replace_bill_message(self, chat_id: int, message_id, text: str, reply_markup=None):
+        """Edita a mensagem da consulta em vez de empilhar avisos no chat.
+
+        Duas mensagens ("estou consultando" e "resultado") viraram poluição real:
+        uma consulta leva minutos e o dono ficava com o histórico cheio de avisos
+        obsoletos. Falha de edição (mensagem apagada, texto idêntico) não pode
+        derrubar o fluxo — cai para uma mensagem nova.
+        """
+        if message_id is not None:
+            try:
+                await self.app.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=text,
+                    reply_markup=reply_markup,
+                )
+                return message_id
+            except Exception:
+                logger.debug("Edição da mensagem de fatura falhou", exc_info=True)
+                return message_id
+        return await self._send_bill_text(chat_id, text, reply_markup)
+
+    async def _equatorial_bill_flow(self, chat_id: int, property_key: str, query=None):
+        """Consulta com UMA mensagem: abre com o aviso e termina editando-a."""
+        provider = "equatorial"
+        label = self._property_label(property_key)
+        header = f"⚡ Consultando Equatorial — {label}..."
+        if query is not None:
+            message_id = getattr(getattr(query, "message", None), "message_id", None)
+            await self._replace_bill_message(chat_id, message_id, header)
+        else:
+            message_id = await self._send_bill_text(chat_id, header)
+
+        (text, ok), _reused = await self._single_flight(
+            provider, property_key, "bills", lambda: self._equatorial_bill_card(property_key)
+        )
+        keyboard = self._bill_keyboard(provider, property_key, payment=ok)
+        await self._replace_bill_message(chat_id, message_id, text, keyboard)
+        return None
+
+    async def _equatorial_bill_card(self, property_key: str):
+        """(texto, deu_certo). Nunca levanta: o single-flight é compartilhado."""
+        try:
+            result, failure = await self._equatorial_bill_read(property_key)
+        except Exception:
+            logger.exception("Falha inesperada na consulta da Equatorial")
+            return BILL_GENERIC_FAILURE_MESSAGE, False
+        if failure:
+            return failure, False
+        self._remember_bill_property("equatorial", property_key)
+        reference = str((result or {}).get("reference") or "").strip()
+        self._bill_reference[("equatorial", property_key)] = reference
+        return self._format_equatorial_bill(property_key, result), True
+
+    # ---------- ARTEFATOS DE PAGAMENTO (PIX / BOLETO) ----------
+    async def _run_poco_bill_action(self, action: str, property_key: str):
+        """Único ponto de contato com as ações de artefato do nó Android.
+
+        Enquanto a fila do Poco não aceitar a ação, ``enqueue`` levanta
+        ``ValueError``; o dono precisa de uma frase honesta, não de um traceback.
+        """
+        try:
+            result, error = await self._run_poco_job(
+                action,
+                Config.POCO_BILL_JOB_TIMEOUT_SECONDS,
+                {"provider": "equatorial", "property": property_key},
+            )
+        except ValueError:
+            logger.info("Ação de artefato ainda não habilitada na fila do Poco: %s", action)
+            return None, BILL_ACTION_UNAVAILABLE_MESSAGE
+        except Exception:
+            logger.exception("Falha ao enfileirar ação de artefato no Poco")
+            return None, POCO_UNAVAILABLE_MESSAGE
+        if error:
+            return None, self._equatorial_failure_message(str(error).strip(), property_key)
+        return result or {}, None
+
+    @staticmethod
+    def _artifact_store():
+        """Canal de artefato do Pi, se já existir nesta versão.
+
+        Concentrar a dependência num método só significa que trocar o contrato
+        (hoje ``get_artifact_store().resolve``/``consume``) é uma edição local, e
+        que a ausência do canal vira frase honesta em vez de traceback.
+        """
+        try:
+            from jarvis.api import app as api_app
+
+            factory = getattr(api_app, "get_artifact_store", None)
+            return factory() if callable(factory) else None
+        except Exception:
+            logger.warning("Canal de artefato indisponível", exc_info=True)
+            return None
+
+    async def _resolve_poco_artifact(self, artifact_id):
+        """Traduz o id opaco em caminho de arquivo temporário local."""
+        if not artifact_id:
+            return None, BILL_ARTIFACT_UNAVAILABLE_MESSAGE
+        resolvers = []
+        store = self._artifact_store()
+        if store is not None:
+            resolvers.append(getattr(store, "resolve", None))
+        try:
+            from jarvis.api import app as api_app
+
+            resolvers.append(getattr(api_app, "resolve_poco_artifact", None))
+        except Exception:
+            logger.debug("API local indisponível para resolver artefato", exc_info=True)
+        for resolver in resolvers:
+            if not callable(resolver):
+                continue
+            try:
+                path = resolver(artifact_id)
+                if inspect.isawaitable(path):
+                    path = await path
+            except Exception:
+                logger.warning("Resolução do artefato falhou", exc_info=True)
+                return None, BILL_ARTIFACT_UNAVAILABLE_MESSAGE
+            if path and os.path.exists(str(path)):
+                return str(path), None
+            return None, BILL_ARTIFACT_UNAVAILABLE_MESSAGE
+        logger.info("Nenhum resolvedor de artefato disponível no Pi ainda")
+        return None, BILL_ACTION_UNAVAILABLE_MESSAGE
+
+    def _release_artifact(self, artifact_id, path):
+        """Entrega feita: o artefato deixa de existir no Pi.
+
+        Preferir ``consume`` do canal a apagar o arquivo na mão mantém metadados e
+        arquivo consistentes; o unlink direto é só a rede de segurança.
+        """
+        store = self._artifact_store()
+        consumer = getattr(store, "consume", None) if store is not None else None
+        if artifact_id and callable(consumer):
+            try:
+                consumer(artifact_id)
+                return
+            except Exception:
+                logger.debug("Não consegui consumir o artefato pelo canal", exc_info=True)
+        self._discard_temp_artifact(path)
+
+    @staticmethod
+    def _discard_temp_artifact(path):
+        """Arquivo de pagamento não fica no disco depois de entregue."""
+        if not path:
+            return
+        try:
+            os.unlink(str(path))
+        except OSError:
+            logger.debug("Não consegui apagar o artefato temporário", exc_info=True)
+
+    @staticmethod
+    def _artifact_id(result: dict) -> str:
+        for field in ("artifact_id", "artifact", "boleto_artifact_id", "pix_artifact_id"):
+            value = str((result or {}).get(field) or "").strip()
+            if value:
+                return value
+        return ""
+
+    def _fresh_artifact(self, provider: str, property_key: str, kind: str):
+        """Artefato em memória só serve se for da MESMA fatura e ainda recente."""
+        cached = self._bill_artifacts.get((provider, property_key, kind))
+        if not cached:
+            return None
+        if time.time() - cached.get("captured_at", 0) > BILL_ARTIFACT_TTL_SECONDS:
+            self._bill_artifacts.pop((provider, property_key, kind), None)
+            return None
+        current = self._bill_reference.get((provider, property_key), "")
+        if current and cached.get("reference") and cached["reference"] != current:
+            self._bill_artifacts.pop((provider, property_key, kind), None)
+            return None
+        return cached
+
+    async def _fetch_pix_payload(self, property_key: str):
+        """(payload, referência, falha). Nunca registra o payload em log."""
+        result, failure = await self._run_poco_bill_action(POCO_PIX_ACTION, property_key)
+        if failure:
+            return "", "", failure
+        reference = str(result.get("reference") or "").strip() or self._bill_reference.get(
+            ("equatorial", property_key), ""
+        )
+        payload = ""
+        for field in ("pix_payload", "payload", "pix", "copia_e_cola"):
+            candidate = str(result.get(field) or "").strip()
+            if candidate:
+                payload = candidate
+                break
+        if not payload:
+            artifact_id = self._artifact_id(result)
+            if artifact_id:
+                path, artifact_failure = await self._resolve_poco_artifact(artifact_id)
+                if artifact_failure:
+                    return "", reference, artifact_failure
+                try:
+                    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+                        payload = handle.read().strip()
+                except OSError:
+                    logger.warning("Não consegui ler o artefato do Pix", exc_info=True)
+                finally:
+                    self._release_artifact(artifact_id, path)
+        if not payload:
+            return "", reference, (
+                "O Poco não devolveu o Pix desta fatura. Não vou inventar um código de pagamento."
+            )
+        # Pix copia e cola é texto. Link é caminho para iniciar pagamento, e o ROD
+        # não inicia pagamento nenhum.
+        if "http://" in payload.lower() or "https://" in payload.lower():
+            return "", reference, (
+                "O que voltou do portal não é um Pix copia e cola. Não vou enviar link de pagamento."
+            )
+        return payload, reference, None
+
+    async def _send_bill_pix(self, chat_id: int, property_key: str, query=None):
+        provider = "equatorial"
+        label = self._property_label(property_key)
+        if self._flight_in_progress(provider, property_key, "pix"):
+            await self._send_bill_text(
+                chat_id, f"⏳ Já estou buscando o Pix da Equatorial — {label}. Aguarde."
+            )
+            return None
+        cached = self._fresh_artifact(provider, property_key, "pix")
+        if cached:
+            await self._deliver_pix(chat_id, property_key, cached["payload"], cached.get("reference", ""))
+            return None
+        (payload, reference, failure), _reused = await self._single_flight(
+            provider, property_key, "pix", lambda: self._fetch_pix_payload(property_key)
+        )
+        if failure:
+            await self._send_bill_text(chat_id, failure)
+            return None
+        self._bill_artifacts[(provider, property_key, "pix")] = {
+            "payload": payload,
+            "reference": reference,
+            "captured_at": time.time(),
+        }
+        await self._deliver_pix(chat_id, property_key, payload, reference)
+        return None
+
+    async def _deliver_pix(self, chat_id: int, property_key: str, payload: str, reference: str):
+        """Só o código, em bloco, para copiar com um toque. Nenhum link."""
+        label = self._property_label(property_key)
+        title = f"Pix copia e cola — Equatorial {label} — ref. {reference or 'indisponível'}"
+        sent = await self._send_bill_text(
+            chat_id,
+            f"{title}\n<pre>{html.escape(payload)}</pre>",
+            parse_mode="HTML",
+        )
+        if sent is None:
+            # Sem HTML o payload ainda precisa chegar legível e copiável.
+            await self._send_bill_text(chat_id, f"{title}\n\n{payload}")
+        return None
+
+    async def _fetch_boleto_file(self, property_key: str):
+        """({caminho, referência, artifact_id}, falha)."""
+        result, failure = await self._run_poco_bill_action(POCO_BOLETO_ACTION, property_key)
+        if failure:
+            return {}, failure
+        reference = str(result.get("reference") or "").strip() or self._bill_reference.get(
+            ("equatorial", property_key), ""
+        )
+        artifact_id = self._artifact_id(result)
+        path, artifact_failure = await self._resolve_poco_artifact(artifact_id)
+        if artifact_failure:
+            return {"reference": reference}, artifact_failure
+        return {"path": path, "reference": reference, "artifact_id": artifact_id}, None
+
+    @staticmethod
+    def _safe_bill_filename(provider: str, property_key: str, reference: str, extension: str = "pdf") -> str:
+        """Nome construído pelo Pi, nunca o nome que veio do portal.
+
+        Nome de arquivo remoto é entrada não confiável: serve para travessia de
+        diretório e para vazar dado do cadastro no chat. O dono continua vendo um
+        nome amigável porque ele é montado aqui, com dados que já estão na tela.
+        """
+        parts = [
+            PROVIDER_LABELS.get(provider, str(provider or "").title()),
+            Executor._property_label(property_key).replace(" ", "-"),
+            str(reference or ""),
+        ]
+        cleaned = []
+        for part in parts:
+            safe = re.sub(r"[^0-9A-Za-z]+", "-", str(part)).strip("-")
+            if safe:
+                cleaned.append(safe)
+        name = "_".join(cleaned) or "Boleto"
+        safe_extension = re.sub(r"[^0-9A-Za-z]+", "", str(extension or "pdf")) or "pdf"
+        return f"{name[:60]}.{safe_extension}"
+
+    async def _send_bill_boleto(self, chat_id: int, property_key: str, query=None):
+        provider = "equatorial"
+        label = self._property_label(property_key)
+        if self._flight_in_progress(provider, property_key, "boleto"):
+            await self._send_bill_text(
+                chat_id, f"⏳ Já estou buscando o boleto da Equatorial — {label}. Aguarde."
+            )
+            return None
+        (info, failure), _reused = await self._single_flight(
+            provider, property_key, "boleto", lambda: self._fetch_boleto_file(property_key)
+        )
+        path = (info or {}).get("path")
+        reference = (info or {}).get("reference", "")
+        if failure or not path:
+            await self._send_bill_text(chat_id, failure or BILL_ARTIFACT_UNAVAILABLE_MESSAGE)
+            return None
+        filename = self._safe_bill_filename(provider, property_key, reference)
+        caption = f"📄 Boleto Equatorial — {label} — referência {reference or 'indisponível'}"
+        try:
+            with open(path, "rb") as handle:
+                await self.app.bot.send_document(
+                    chat_id=chat_id,
+                    document=handle,
+                    filename=filename,
+                    caption=caption,
+                )
+        except Exception:
+            logger.warning("Falha ao enviar o boleto pelo Telegram", exc_info=True)
+            await self._send_bill_text(
+                chat_id,
+                "Não consegui entregar o boleto agora. Nenhum pagamento foi realizado; "
+                "tente novamente em alguns minutos.",
+            )
+        finally:
+            # O Telegram já respondeu (sucesso ou erro): o PDF de pagamento não fica
+            # no disco do Pi em nenhum dos dois casos.
+            self._release_artifact((info or {}).get("artifact_id"), path)
+        return None
+
+    async def handle_bill_callback(self, chat_id: int, data: str, query):
+        """Callbacks ``bill_*``: menu do imóvel, PIX, boleto e atualizar."""
+        if chat_id != Config.ALLOWED_USER_ID:
+            logger.warning("Callback de fatura bloqueado (chat não autorizado)")
+            return None
+        raw = str(data or "")
+        parts = raw.split(":")
+        action = parts[0][len("bill_"):] if parts[0].startswith("bill_") else ""
+        if len(parts) >= 3:
+            provider, property_key = parts[1], parts[2]
+        elif len(parts) == 2:
+            provider, property_key = "equatorial", parts[1]
+        else:
+            provider, property_key = "equatorial", "casa"
+
+        if action == "menu":
+            payload = self._bill_property_menu(property_key)
+            await self._replace_bill_message(
+                chat_id,
+                getattr(getattr(query, "message", None), "message_id", None),
+                payload["text"],
+                payload.get("reply_markup"),
+            )
+            return None
+
+        if provider != "equatorial":
+            await self._send_bill_text(chat_id, BILL_ACTION_UNAVAILABLE_MESSAGE)
+            return None
+
+        # Sem esta rede, uma exceção inesperada subiria até o handler genérico do
+        # main, que responde "Deu ruim aqui" com o texto do erro — exatamente o
+        # detalhe técnico que esta tela não pode mostrar.
+        try:
+            if action == "refresh":
+                return await self._equatorial_bill_flow(chat_id, property_key, query=query)
+            if action == "pix":
+                return await self._send_bill_pix(chat_id, property_key, query=query)
+            if action == "boleto":
+                return await self._send_bill_boleto(chat_id, property_key, query=query)
+        except Exception:
+            logger.exception("Falha inesperada no botão de fatura")
+            await self._send_bill_text(chat_id, BILL_GENERIC_FAILURE_MESSAGE)
+            return None
+
+        logger.warning("Callback de fatura desconhecido")
+        await self._send_bill_text(chat_id, "Não reconheci esse botão de fatura.")
+        return None
+
+    # ---------- MENU DE CONTAS ----------
+    def _poco_heartbeat(self):
+        if not Config.POCO_NODE_ENABLED:
+            return None
+        try:
+            from jarvis.api.app import get_poco_service
+
+            status = get_poco_service().status() or {}
+        except Exception:
+            logger.debug("Não consegui ler o heartbeat do Poco", exc_info=True)
+            return None
+        if not status.get("online"):
+            return None
+        heartbeat = status.get("heartbeat")
+        return heartbeat if isinstance(heartbeat, dict) else None
+
+    @staticmethod
+    def _confirmed_bill_properties() -> Dict[str, List[str]]:
+        try:
+            stored = Persistence.get_state(BILL_STATE_KEY, {}) or {}
+        except Exception:
+            logger.debug("Não consegui ler os imóveis confirmados", exc_info=True)
+            return {}
+        if not isinstance(stored, dict):
+            return {}
+        clean: Dict[str, List[str]] = {}
+        for provider, keys in stored.items():
+            if isinstance(keys, list):
+                clean[str(provider)] = [str(key) for key in keys if isinstance(key, str)]
+        return clean
+
+    def _remember_bill_property(self, provider: str, property_key: str) -> None:
+        """Só uma leitura concluída prova que o imóvel existe no cofre do Poco."""
+        current = self._confirmed_bill_properties()
+        keys = current.setdefault(provider, [])
+        if property_key in keys:
+            return
+        keys.append(property_key)
+        try:
+            Persistence.set_state(BILL_STATE_KEY, current)
+        except Exception:
+            logger.debug("Não consegui registrar o imóvel confirmado", exc_info=True)
+
+    def _bills_menu(self) -> Dict[str, Any]:
+        """Botões só para imóveis realmente confirmados.
+
+        LIMITAÇÃO CONHECIDA: o heartbeat do Poco expõe apenas ``water_units`` e
+        ``energy_units`` — contagens, sem os nomes das unidades. Não existe, hoje,
+        como derivar a lista de imóveis do cofre, então o menu mostra o que uma
+        consulta bem-sucedida já provou e diz em voz alta o que ainda não sabe, em
+        vez de inventar cinco botões plausíveis.
+        """
+        heartbeat = self._poco_heartbeat()
+        confirmed = self._confirmed_bill_properties()
+        properties = sorted({key for keys in confirmed.values() for key in keys})
+
+        rows = []
+        try:
+            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+        except ImportError:
+            InlineKeyboardMarkup = InlineKeyboardButton = None  # type: ignore
+
+        if InlineKeyboardButton is not None:
+            for key in properties:
+                rows.append(
+                    [
+                        InlineKeyboardButton(
+                            f"🏠 {self._property_label(key)}", callback_data=f"bill_menu:{key}"
+                        )
+                    ]
+                )
+            rows.append([InlineKeyboardButton("🔙 Menu Principal", callback_data="help")])
+            reply_markup = InlineKeyboardMarkup(rows)
+        else:
+            reply_markup = None
+
+        lines = ["🧾 CONTAS & FATURAS", ""]
+        if properties:
+            lines.append("Imóveis com consulta já concluída (é a lista que eu posso provar):")
+        else:
+            lines.append("Ainda não concluí nenhuma consulta, então não tenho imóvel confirmado.")
+        if heartbeat:
+            lines.append(
+                f"O Poco reporta {int(heartbeat.get('energy_units') or 0)} unidade(s) de energia e "
+                f"{int(heartbeat.get('water_units') or 0)} de água no cofre — só a contagem, "
+                "sem os nomes."
+            )
+        else:
+            lines.append("O Poco não está reportando agora, então não sei o que está no cofre.")
+        lines.append("")
+        lines.append(
+            "Para um imóvel que não aparece aqui, peça uma vez pelo nome — por exemplo "
+            "conta de luz kitnet 01. Depois de concluir, ele entra neste menu."
+        )
+        return {"text": "\n".join(lines), "reply_markup": reply_markup}
+
+    def _bill_property_menu(self, property_key: str) -> Dict[str, Any]:
+        """Dentro do imóvel: só a concessionária que está configurada."""
+        heartbeat = self._poco_heartbeat()
+        confirmed = self._confirmed_bill_properties()
+        label = self._property_label(property_key)
+
+        water = property_key in confirmed.get("saneago", [])
+        energy = property_key in confirmed.get("equatorial", [])
+        if heartbeat:
+            if not heartbeat.get("saneago_configured", True):
+                water = False
+            if not heartbeat.get("equatorial_configured", True):
+                energy = False
+
+        rows = []
+        try:
+            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+        except ImportError:
+            InlineKeyboardMarkup = InlineKeyboardButton = None  # type: ignore
+
+        if InlineKeyboardButton is not None:
+            provider_row = []
+            if water:
+                provider_row.append(
+                    InlineKeyboardButton(
+                        "💧 Água",
+                        callback_data=f"conta de agua {self._property_phrase(property_key)}",
+                    )
+                )
+            if energy:
+                provider_row.append(
+                    InlineKeyboardButton(
+                        "⚡ Energia", callback_data=f"bill_refresh:equatorial:{property_key}"
+                    )
+                )
+            if provider_row:
+                rows.append(provider_row)
+            rows.append([InlineKeyboardButton("🔙 VOLTAR", callback_data="menu_contas")])
+            reply_markup = InlineKeyboardMarkup(rows)
+        else:
+            reply_markup = None
+
+        lines = [f"🧾 {label}", ""]
+        if water or energy:
+            lines.append("Mostro apenas o que está confirmado para este imóvel.")
+        else:
+            lines.append(
+                "Nenhuma concessionária confirmada para este imóvel agora. "
+                "Peça pelo nome uma vez (conta de luz ou conta de água) para eu confirmar."
+            )
+        return {"text": "\n".join(lines), "reply_markup": reply_markup}
 
     def _cancel_action(self, chat_id: int) -> str:
         if chat_id in self.pending_actions:

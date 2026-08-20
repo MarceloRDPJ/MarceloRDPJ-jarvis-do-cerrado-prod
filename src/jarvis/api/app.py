@@ -12,7 +12,7 @@ import time
 from typing import Dict, Any, List, Optional
 from dataclasses import asdict
 from fastapi import FastAPI, HTTPException, Query, Body, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -119,6 +119,30 @@ def get_poco_service():
         lease_seconds=Config.POCO_JOB_LEASE_SECONDS,
     )
     app.state.poco_service = service
+    return service
+
+
+def get_artifact_store():
+    """Guarda temporária dos artefatos binários vindos do nó Android.
+
+    Fica fora de ``poco_node.json`` de propósito: aquele arquivo é JSON, é lido
+    por outros caminhos do sistema e não tem prazo por campo. Boleto é conteúdo
+    binário do proprietário e merece canal próprio, com TTL curto e sem
+    listagem.
+    """
+    service = get_service("artifact_store")
+    if service:
+        return service
+    from jarvis.config import Config
+    from jarvis.services.artifact_store import ArtifactStore
+
+    directory = os.path.join(os.path.dirname(__file__), "..", "storage", "artifacts")
+    service = ArtifactStore(
+        directory,
+        max_bytes=int(getattr(Config, "POCO_ARTIFACT_MAX_BYTES", 3 * 1024 * 1024)),
+        ttl_seconds=int(getattr(Config, "POCO_ARTIFACT_TTL_SECONDS", 300)),
+    )
+    app.state.artifact_store = service
     return service
 
 
@@ -239,6 +263,138 @@ async def poco_update_job(job_id: str, request: Request):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return asdict(job)
+
+
+# ------------------------------------------------------------------
+# Canal de artefato (boleto PDF) — LAN, assinado, sem listagem
+# ------------------------------------------------------------------
+
+def _client_host(request: Request) -> str:
+    return request.client.host if request.client else ""
+
+
+def _is_lan(host: str) -> bool:
+    """Mesmo perímetro da arquitetura atual: nó e Pi na rede doméstica.
+
+    A lista é explícita de propósito. ``ip_address.is_private`` também aceita as
+    faixas de documentação da IANA, que não são rede local nenhuma.
+    """
+    import ipaddress
+
+    if host in {"127.0.0.1", "::1"}:
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    lan = (
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "169.254.0.0/16",
+        "127.0.0.0/8",
+        "fc00::/7",
+        "fe80::/10",
+        "::1/128",
+    )
+    for cidr in lan:
+        network = ipaddress.ip_network(cidr)
+        if address.version == network.version and address in network:
+            return True
+    return False
+
+
+def _require_lan(request: Request, loopback_only: bool = False) -> None:
+    host = _client_host(request)
+    if loopback_only:
+        if host not in {"127.0.0.1", "::1"}:
+            raise HTTPException(status_code=403, detail="Artefato só é entregue no próprio Pi")
+        return
+    if not _is_lan(host):
+        raise HTTPException(status_code=403, detail="Canal de artefato restrito à LAN")
+
+
+def _artifact_boot_cleanup(previous):
+    """Limpa artefatos no boot, preservando o ciclo de vida que já existia.
+
+    O índice dos artefatos vive em memória, então um arquivo deixado por uma
+    execução anterior já é inalcançável; deixá-lo no disco só aumentaria a janela
+    de exposição de uma fatura do proprietário. A construção da guarda faz a
+    limpeza; isto garante que ela aconteça no boot, e não só no primeiro uso.
+    """
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def lifespan(scope):
+        try:
+            get_artifact_store()
+        except Exception as exc:  # a limpeza não pode impedir a API de subir
+            logger.warning(f"Limpeza de artefatos no boot falhou: {exc}")
+        async with previous(scope):
+            yield
+
+    return lifespan
+
+
+app.router.lifespan_context = _artifact_boot_cleanup(app.router.lifespan_context)
+
+
+@app.post("/api/poco/artifacts")
+async def poco_upload_artifact(request: Request):
+    """Recebe o boleto PDF do nó, já autenticado no portal.
+
+    O corpo é o binário cru: enfiar PDF em base64 dentro do resultado do job
+    gravaria a fatura do proprietário em ``poco_node.json``. A assinatura HMAC é
+    a mesma dos outros endpoints do nó, calculada sobre os bytes exatos.
+    """
+    from jarvis.services.artifact_store import ArtifactError
+
+    _require_lan(request)
+    store = get_artifact_store()
+
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > store.max_bytes:
+        # Recusa antes de ler: o limite não pode depender de já ter o corpo.
+        raise HTTPException(status_code=413, detail="Artefato acima do limite deste canal")
+
+    body = await request.body()
+    await _authenticate_poco(request, body)
+    try:
+        meta = store.store(
+            body,
+            request.headers.get("X-Poco-Artifact-Mime", ""),
+            request.headers.get("X-Poco-Artifact-Kind", "boleto"),
+        )
+    except ArtifactError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return {"artifact_id": meta.artifact_id, "size_bytes": meta.size_bytes, "ttl_seconds": store.ttl_seconds}
+
+
+@app.get("/api/poco/artifacts/{artifact_id}")
+async def poco_download_artifact(artifact_id: str, request: Request):
+    """Resolve um id opaco. Não existe listagem, nem acesso por caminho.
+
+    A entrega consome o artefato: o consumidor legítimo é o próprio bot, no Pi,
+    e ele envia o PDF uma única vez. O que sobrar morre no TTL.
+    """
+    from starlette.background import BackgroundTask
+
+    from jarvis.services.artifact_store import ArtifactError
+
+    _require_lan(request, loopback_only=True)
+    store = get_artifact_store()
+    try:
+        path = store.resolve(artifact_id)
+        meta = store.describe(artifact_id)
+    except (ArtifactError, KeyError) as exc:
+        raise HTTPException(status_code=404, detail="Artefato inexistente ou expirado") from exc
+    return FileResponse(
+        path,
+        media_type=meta["mime"],
+        # Nome gerado aqui: o portal nunca decide como o arquivo se chama.
+        filename=f"{meta['kind']}-{meta['artifact_id'][:8]}.pdf",
+        background=BackgroundTask(store.consume, meta["artifact_id"]),
+    )
 
 
 @app.post("/api/system/reboot")

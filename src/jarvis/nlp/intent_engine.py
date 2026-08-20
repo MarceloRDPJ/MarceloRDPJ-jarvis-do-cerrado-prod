@@ -138,6 +138,11 @@ class HybridIntentEngine:
                 "conta de agua", "conta saneago", "fatura saneago", "consultar saneago",
                 "ver conta de agua", "conta dagua", "fatura de agua", "conta saneag"
             ],
+            "equatorial_bills": [
+                "conta de luz", "conta de energia", "fatura equatorial", "consultar equatorial",
+                "conta equatorial", "fatura de luz", "fatura de energia", "boleto da equatorial",
+                "ver conta de luz", "conta de lus", "conta equatoral", "segunda via da luz"
+            ],
             "fan_control": [
                 "ligar fan", "desligar fan", "status do fan", "ventoinha",
                 "ligar ventoinha", "desligar ventoinha", "controlar fan",
@@ -150,10 +155,12 @@ class HybridIntentEngine:
                 "ultimos logs", "eventos do sistema", "registros",
                 "historico de eventos", "log de atividades"
             ],
+            # "conta de luz" saiu daqui: é fatura, não monitoramento de consumo, e
+            # empatava com equatorial_bills mandando a consulta real para a skill errada.
             "energy_status": [
                 "consumo de energia", "energia hoje",
                 "energia mensal", "quanto gasta energia",
-                "conta de luz", "gasto de energia", "consumo eletrico",
+                "gasto de energia", "consumo eletrico",
                 "kwh hoje", "quanto gastei de energia"
             ],
             "greet": [
@@ -378,6 +385,19 @@ def detect_intent(text: str) -> Dict:
         return recognized({
             "intent": "energy_status",
             "period": _extract_period(text.lower())
+        })
+
+    if intent in ("equatorial_bills", "saneago_bills"):
+        # O imóvel decide qual unidade será lida no cofre do Poco. Perder essa
+        # extração no caminho fuzzy fazia toda variação cair em "casa" e consultar
+        # o imóvel errado sem avisar ninguém.
+        from jarvis.core.rules import _bill_property
+
+        return recognized({
+            "intent": intent,
+            "action": "read",
+            "entity": "bill",
+            "params": {"property": _bill_property(normalized)},
         })
 
     if intent == "network_rename":

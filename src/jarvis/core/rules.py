@@ -16,6 +16,15 @@ from typing import Dict, Optional
 import re
 
 
+# Cobrança + energia na mesma frase, com folga para erro de digitação nas duas
+# metades. Sem a primeira metade, "consumo de energia" (outra skill) seria roubado.
+_ENERGY_QUERY_RE = re.compile(
+    r"\b(?:cont[ao]s?|fatur[ao]s?|bolet[oa]s?|consult\w*|segunda\s+via)\b"
+    r"[\s\w]{0,14}?"
+    r"\b(?:lu[sz]|luiz|energia|enegia|energa|eletric\w*|eletrecidade|equator\w*)\b"
+)
+
+
 def _bill_property(text: str) -> str:
     """Return the stable property key used by the Poco encrypted vault."""
     if re.search(r"\bkitnet\s*0?1\b", text):
@@ -143,7 +152,13 @@ def apply_rules(text: str) -> Optional[Dict]:
             "intent": "chat",
             "action": "reply",
             "entity": "bill",
-            "params": {"response": "A consulta automÃ¡tica da Equatorial ainda nÃ£o estÃ¡ confiÃ¡vel: o app detecta depuraÃ§Ã£o e o portal bloqueia automaÃ§Ã£o. Vou manter essa funÃ§Ã£o desativada atÃ© existir um caminho oficial validado."},
+            "params": {"response": (
+                "⚡ Equatorial: peça pelo nome do imóvel, por exemplo conta de luz casa. "
+                "A leitura roda no Poco pelo portal oficial e devolve valor, referência e "
+                "vencimento, com botões de Pix copia e cola, boleto em PDF e atualizar. "
+                "Nenhum pagamento é iniciado por mim. Se o portal exigir verificação humana, "
+                "eu aviso — e nada é pago."
+            )},
             "confidence": 1.0,
         }
 
@@ -235,6 +250,12 @@ def apply_rules(text: str) -> Optional[Dict]:
         }
 
     energy_query = any(term in t for term in ("conta de luz", "conta de energia", "fatura equatorial", "consultar equatorial", "conta equatorial"))
+    # Consulta não tem efeito colateral: vale tolerar a digitação real do dono
+    # ("conta de lus", "fatura da equatorail") sem afrouxar nada perigoso. A regra
+    # exige as duas peças — um substantivo de cobrança E a palavra de energia —
+    # justamente para "a conta da padaria ficou cara" continuar não casando.
+    if not energy_query:
+        energy_query = bool(_ENERGY_QUERY_RE.search(t))
     if energy_query:
         return {
             "intent": "equatorial_bills", "action": "read", "entity": "bill",

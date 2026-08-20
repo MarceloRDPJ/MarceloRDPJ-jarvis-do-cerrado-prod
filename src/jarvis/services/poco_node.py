@@ -23,10 +23,24 @@ ALLOWED_ACTIONS = frozenset(
         "read_bill_cache",
         "refresh_equatorial_bills",
         "refresh_saneago_bills",
+        # Artefatos sob demanda de uma fatura já consultada. Nenhuma das duas
+        # paga, confirma ou movimenta nada: uma devolve o Pix copia e cola, a
+        # outra devolve o identificador opaco do PDF oficial já baixado.
+        "get_equatorial_pix",
+        "get_equatorial_boleto",
     }
 )
 
 TERMINAL_STATES = frozenset({"completed", "failed", "expired"})
+
+# Campos que não podem existir no disco em nenhum momento. O resultado do job é
+# gravado no mesmo instante em que chega, então filtrar só na poda seria tarde:
+# o valor já teria tocado o arquivo.
+SENSITIVE_RESULT_KEYS = frozenset({"pix", "barcode", "payload", "qr", "pdf", "pdf_base64"})
+
+# Ações cujo resultado inteiro é sensível. Para elas o disco guarda o registro do
+# job — status, ação, horário — e nada do conteúdo.
+MEMORY_ONLY_RESULT_ACTIONS = frozenset({"get_equatorial_pix"})
 
 
 @dataclass
@@ -59,6 +73,7 @@ class PocoNodeService:
         lease_seconds: int = 60,
         max_attempts: int = 3,
         result_grace_seconds: int = 600,
+        sensitive_result_grace_seconds: int = 120,
         retention_seconds: int = 3600,
         clock=time.time,
     ):
@@ -69,6 +84,9 @@ class PocoNodeService:
         self.lease_seconds = lease_seconds
         self.max_attempts = max_attempts
         self.result_grace_seconds = result_grace_seconds
+        self.sensitive_result_grace_seconds = min(
+            sensitive_result_grace_seconds, result_grace_seconds
+        )
         self.retention_seconds = retention_seconds
         self.clock = clock
         self._lock = threading.RLock()
@@ -145,6 +163,10 @@ class PocoNodeService:
         segundos, dentro do timeout do job; guardá-lo por mais tempo não serve a
         ninguém e a fila crescia sem limite — dezenas de faturas acumuladas.
         O registro do job continua, para auditoria; só o conteúdo sai.
+
+        O Pix copia e cola é o caso mais sensível de todos e por isso tem prazo
+        próprio, mais curto: quem pediu o artefato está com o Telegram aberto
+        naquele minuto. Isto estende o mecanismo existente, não o substitui.
         """
         changed = False
         for job in list(self._jobs.values()):
@@ -154,10 +176,15 @@ class PocoNodeService:
             if age > self.retention_seconds:
                 del self._jobs[job.job_id]
                 changed = True
-            elif job.result and age > self.result_grace_seconds:
+            elif job.result and age > self._grace_for(job):
                 job.result = None
                 changed = True
         return changed
+
+    def _grace_for(self, job: PocoJob) -> int:
+        if job.action in MEMORY_ONLY_RESULT_ACTIONS:
+            return self.sensitive_result_grace_seconds
+        return self.result_grace_seconds
 
     def _sweep(self, now: float) -> bool:
         """Expire dead jobs and return abandoned leases to the queue.
@@ -276,9 +303,30 @@ class PocoNodeService:
             self._jobs = {}
             self._heartbeat = None
 
+    def _serialize(self, job: PocoJob) -> dict[str, Any]:
+        """Versão do job que pode existir no disco.
+
+        A poda por prazo continua valendo, mas ela age depois. Pix, linha
+        digitável e PDF não podem esperar prazo nenhum: a fila é gravada no
+        mesmo instante em que o resultado chega, e ali é o único momento em que
+        dá para impedir que o valor toque o arquivo. O consumidor legítimo lê o
+        resultado da memória, dentro do timeout do job.
+        """
+        data = asdict(job)
+        result = data.get("result")
+        if not isinstance(result, dict):
+            return data
+        if job.action in MEMORY_ONLY_RESULT_ACTIONS:
+            data["result"] = None
+            return data
+        data["result"] = {
+            key: value for key, value in result.items() if key not in SENSITIVE_RESULT_KEYS
+        }
+        return data
+
     def _save(self) -> None:
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
-        data = {"jobs": [asdict(job) for job in self._jobs.values()], "heartbeat": self._heartbeat}
+        data = {"jobs": [self._serialize(job) for job in self._jobs.values()], "heartbeat": self._heartbeat}
         temporary = self.storage_path.with_suffix(self.storage_path.suffix + ".tmp")
         temporary.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
         os.replace(temporary, self.storage_path)

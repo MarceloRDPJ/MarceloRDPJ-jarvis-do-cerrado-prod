@@ -217,3 +217,98 @@ Uma consulta só é considerada validada quando a concessionária devolve conte�
 acessível no aparelho real. Mudanças de tela, CAPTCHA ou conta selecionada errada
 geram falha honesta. Voz, alarmes e interface neural animada permanecem evolução
 posterior, separada do núcleo confiável.
+
+## Artefatos de pagamento: Pix e boleto
+
+Consultar a fatura e obter o artefato para pagar são coisas diferentes, e por
+isso são jobs diferentes: `get_equatorial_pix` devolve o Pix copia e cola, e
+`get_equatorial_boleto` devolve o PDF oficial. Nenhum dos dois paga, confirma
+Pix, abre banco ou gera transação — isso está fora da lista de ações e continua
+fora. O ROD entrega ao proprietário exatamente o que ele mesmo usaria para pagar,
+e para aí.
+
+Os dois fluxos começam refazendo a consulta pelo motor principal. Parece
+desperdício e não é: o pedido do artefato chega minutos depois da consulta,
+quando a aba pode ter mudado, a sessão pode ter caído e a fatura pode já ter
+sido paga. Refazer é o que garante que o artefato pertence à fatura em aberto
+agora, e reusa inteira a máquina de sessão em vez de manter uma cópia dela.
+
+### Pix
+
+A página de resultado lista uma linha por fatura em aberto, com colunas de
+referência, valor, download e pagamento via PIX. A célula de PIX chama uma função
+JavaScript que exibe um QR em PNG; não há texto de payload na árvore. O agente
+aciona o controle **da linha cuja referência casa com a pedida**, captura a tela
+por `takeScreenshot`, decodifica com ML Kit restrito a `FORMAT_QR_CODE` (variante
+bundled, modelo dentro do APK) e valida o resultado.
+
+Acionar "o primeiro QR da página" funcionaria enquanto houvesse uma fatura em
+aberto e entregaria o Pix do mês errado no primeiro mês com duas — exatamente
+quando errar custa mais.
+
+A validação é conservadora e recusar é o caminho normal:
+
+- payload não vazio, e um único QR: dois conteúdos diferentes na tela são recusa,
+  não escolha;
+- prefixo `000201` e presença de `0014BR.GOV.BCB.PIX`;
+- estrutura TLV do EMV QR cobrindo o payload inteiro, sem sobra;
+- CRC16-CCITT-FALSE (polinômio `0x1021`, inicial `0xFFFF`, sem reflexão) sobre
+  todo o payload incluindo `6304` e excluindo os quatro dígitos do checksum.
+
+Nada é corrigido. Um payload "quase válido" seria uma ordem de pagamento
+adulterada com aparência de oficial.
+
+### Boleto
+
+O objetivo é obter o PDF oficial, não interpretá-lo: download não é leitura. O
+link da página aponta `mostrarFaturaCodigoBarras.aspx?invoice=N`, onde `N` é a
+posição da linha. Da página aproveita-se apenas esse número; esquema, host e
+caminho são montados no agente, porque aceitar caminho vindo do portal seria
+deixá-lo escolher para onde o agente autenticado envia os cookies de sessão.
+
+O download usa a sessão legítima do WebView do próprio ROD:
+`CookieManager.getCookie(URL_COMPLETA)` — a URL completa, e não a base, porque
+cookie de sessão ASP.NET vem com escopo de path (`/AgenciaGO`) e o
+`DownloadListener` do WebView consulta só a base, o que baixaria sem sessão.
+Não se tenta ler cookie do Chrome: não existe API para isso, e alcançar arquivo
+privado de outro app ou pedir permissão ampla de armazenamento seria trocar um
+problema técnico por um problema de privacidade.
+
+Uma sessão caída não responde 401: o portal responde 200 com a tela de login em
+HTML. Por isso a resposta é julgada antes de virar boleto — redirecionamento não
+é seguido, o corpo é lido com contador e limite rígido, e valem os quatro
+primeiros bytes (`%PDF`) mais o `Content-Type`. HTML no lugar do PDF é traduzido
+para "refaça o login", que é acionável, e não para "arquivo corrompido", que
+mandaria o proprietário tentar de novo para sempre.
+
+### Canal de artefato
+
+PDF em base64 dentro do resultado do job significaria a fatura do proprietário
+gravada em texto claro em `poco_node.json`, sem prazo, ao lado de um dashboard
+sem autenticação documentada. O canal é outro:
+
+- `POST /api/poco/artifacts` com o binário cru, assinado pelo mesmo HMAC dos
+  demais endpoints do nó (timestamp, método, caminho e SHA-256 do corpo);
+- restrito à LAN, como o resto da arquitetura, e a entrega só no próprio Pi;
+- allowlist de MIME com um único item, `application/pdf`, confirmado pelos bytes;
+- limite rígido de tamanho, recusado antes de ler o corpo;
+- nome de arquivo gerado internamente, nunca vindo do portal;
+- arquivo `600` em diretório `700`, TTL curto, entrega consome o artefato e o
+  boot apaga o que sobrou;
+- nenhuma listagem: o `artifact_id` opaco é a única forma de alcançar o arquivo, e
+  identificador fora do formato é recusado antes de qualquer contato com o disco.
+
+O job devolve `artifact_id`; o Pi resolve `artifact_id` para arquivo temporário.
+Caminho arbitrário não é aceito em nenhum ponto.
+
+### Retenção
+
+Pix, código de barras e PDF não podem existir em `poco_node.json`, `homebot.db`
+ou log. A fila é gravada no mesmo instante em que o resultado chega, então
+filtrar apenas na poda seria tarde: a serialização remove os campos sensíveis, e
+o resultado inteiro de `get_equatorial_pix` fica só em memória, com prazo próprio
+mais curto que o dos demais. O mecanismo de poda existente (`result_grace_seconds`
+e `retention_seconds`) continua valendo e foi estendido, não substituído.
+
+Metadado não sensível pode persistir: provedor, imóvel, referência, valor,
+`retrieved_at`, `pix_available` e `boleto_available`.

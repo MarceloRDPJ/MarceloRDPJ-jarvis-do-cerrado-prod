@@ -246,13 +246,22 @@ async def test_portal_timeout_suggests_retrying(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_unknown_error_still_falls_back_to_the_generic_message(monkeypatch):
-    """Negativo: um erro que não é tipado não pode ser confundido com um que é."""
+async def test_node_failure_is_not_reported_as_a_concessionaire_failure(monkeypatch):
+    """Poco fora do ar não é problema da Equatorial, e o dono não pode ler o oposto.
+
+    Este teste asseverava a mensagem genérica de consulta ("não consegui consultar
+    a Equatorial agora") para uma falha que é do aparelho. Estava culpando a
+    concessionária por uma queda do nó e, pior, sugeria que o problema estava no
+    portal. O caminho genérico continua coberto por
+    ``test_unknown_error_keeps_the_generic_failure_message``.
+    """
     executor = build_executor(monkeypatch, error="O Poco está offline ou sem heartbeat recente.")
 
     response = await executor._poco_equatorial_bills({"property": "casa"})
 
-    assert "Não consegui consultar a Equatorial agora" in response
+    assert "Poco está temporariamente indisponível" in response
+    assert "heartbeat" not in response.lower()
+    assert "Não consegui consultar a Equatorial agora" not in response
 
 
 @pytest.mark.asyncio
@@ -292,3 +301,54 @@ async def test_raw_code_without_wrapper_is_still_understood(monkeypatch):
     response = await executor._poco_equatorial_bills({"property": "casa"})
 
     assert "nenhuma fatura" in response.lower()
+
+
+@pytest.mark.asyncio
+async def test_silent_login_refusal_does_not_blame_the_owner_registration(monkeypatch):
+    """O portal recusa a entrada automática sem dizer nada, por decisão antifraude.
+
+    Mandar o dono "conferir o cadastro" aqui o faria caçar um defeito que talvez
+    não exista. A mensagem nomeia a causa real e a saída prática.
+    """
+    executor = build_executor(monkeypatch, error=wire("EQUATORIAL_LOGIN_FAILED"))
+
+    response = await executor._poco_equatorial_bills({"property": "casa"})
+
+    assert "antifraude" in response.lower()
+    assert "nenhum pagamento" in response.lower()
+    assert "EQUATORIAL_LOGIN_FAILED" not in response
+
+
+@pytest.mark.asyncio
+async def test_rejected_credentials_are_distinguished_from_a_silent_refusal(monkeypatch):
+    """Recusa explícita é a única em que faz sentido apontar o cadastro."""
+    executor = build_executor(monkeypatch, error=wire("EQUATORIAL_LOGIN_REJECTED"))
+
+    response = await executor._poco_equatorial_bills({"property": "casa"})
+
+    assert "unidade consumidora" in response.lower()
+    assert "antifraude" not in response.lower()
+
+
+@pytest.mark.asyncio
+async def test_invalid_pix_is_refused_rather_than_delivered(monkeypatch):
+    """Entregar um Pix que não valida é pior que não entregar nada.
+
+    O payload pode estar corrompido, e quem paga não tem como saber. A recusa
+    precisa ser explícita.
+    """
+    executor = build_executor(monkeypatch, error=wire("EQUATORIAL_PIX_INVALID"))
+
+    response = await executor._poco_equatorial_bills({"property": "casa"})
+
+    assert "não vou entregar" in response.lower()
+    assert "BR Code" in response
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_pix_never_guesses_which_bill(monkeypatch):
+    executor = build_executor(monkeypatch, error=wire("EQUATORIAL_PIX_AMBIGUOUS"))
+
+    response = await executor._poco_equatorial_bills({"property": "casa"})
+
+    assert "outra conta" in response.lower()

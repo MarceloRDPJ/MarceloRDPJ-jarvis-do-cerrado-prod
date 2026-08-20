@@ -137,10 +137,27 @@ CAPTCHA, Imperva ou confirmação humana, resolva a tela no Poco e repita o coma
 O ROD não contorna a proteção e não inventa valor de fatura.
 
 A consulta dirige o aplicativo de ponta a ponta e pode levar alguns minutos,
-principalmente quando a sessão precisa ser refeita. O ROD avisa quando começa e
-responde quando termina; não é preciso repetir o comando enquanto isso. Se o
-Wi-Fi cair no meio, o Poco continua a tarefa e guarda o resultado até conseguir
-entregá-lo.
+principalmente quando a sessão precisa ser refeita. O ROD abre **uma** mensagem
+("Consultando Equatorial — Casa...") e edita essa mesma mensagem com o resultado;
+não é preciso repetir o comando enquanto isso. Se o Wi-Fi cair no meio, o Poco
+continua a tarefa e guarda o resultado até conseguir entregá-lo.
+
+O resultado da Equatorial traz quatro botões: **PIX**, **BOLETO**, **ATUALIZAR** e
+**VOLTAR**. Pix e boleto não são carregados junto com a consulta — só quando o
+botão é tocado. PIX responde com o código copia e cola em bloco, para copiar com
+um toque; BOLETO responde com o PDF oficial, com nome amigável, e o arquivo
+temporário é apagado do Pi depois do envio. **Nenhum dos dois inicia pagamento**, e
+o ROD nunca envia link de pagamento.
+
+Tocar duas vezes no mesmo botão não dispara duas automações: o segundo toque
+espera (ou reaproveita) a operação que já está em andamento. Nunca há duas
+automações simultâneas no Poco para a mesma conta.
+
+No menu **Contas & Faturas** aparecem apenas os imóveis que já tiveram uma
+consulta concluída — é o que o Pi pode provar. Limitação conhecida: o heartbeat do
+Poco expõe apenas a *contagem* de unidades de água e energia do cofre, nunca os
+nomes; por isso o menu não lista o que ainda não foi consultado. Peça pelo nome
+uma vez (`conta de luz kitnet 01`) e o imóvel passa a aparecer no menu.
 
 Quando a consulta ao vivo falha, o ROD acrescenta a última leitura confirmada
 guardada no Poco, sempre dizendo há quanto tempo ela foi feita e que se trata de

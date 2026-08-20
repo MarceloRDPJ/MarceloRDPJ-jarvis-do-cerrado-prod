@@ -15,6 +15,7 @@ import android.hardware.HardwareBuffer;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Browser;
 import android.view.Display;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -54,12 +55,6 @@ public class JarvisAccessibilityService extends AccessibilityService {
     private static final String SEGUNDA_VIA_URL =
         "https://goias.equatorialenergia.com.br/AgenciaGO/Servi%C3%A7os/aberto/SegundaVia.aspx";
 
-    /**
-     * Abre a segunda via e confirma que o Chrome ficou visivel.
-     */
-    private static Uri segundaViaUri() {
-        return Uri.parse(SEGUNDA_VIA_URL);
-    }
     /** Prazo total para a pagina da Equatorial assentar num estado legivel. */
     private static final long PAGE_SETTLE_MILLIS = 25_000L;
     /** Intervalo entre releituras da arvore enquanto a pagina carrega. */
@@ -106,12 +101,26 @@ public class JarvisAccessibilityService extends AccessibilityService {
                     openEquatorial(request, 0);
                 } else if (operation.equals("dismiss_equatorial")) {
                     dismissEquatorialOverlay(request);
+                } else if (operation.equals("session_equatorial")) {
+                    probeEquatorialSession(request, false,
+                        System.currentTimeMillis() + CHOOSER_RENDER_MILLIS);
+                } else if (operation.equals("login_equatorial")) {
+                    loginEquatorial(request, intent.getStringExtra("unit"),
+                        intent.getStringExtra("document"), 0);
+                } else if (operation.equals("recover_equatorial")) {
+                    recoverChrome(request, intent.getStringExtra("mode"), 0);
                 } else if (operation.equals("select_equatorial")) {
                     selectEquatorialContract(request, intent.getStringExtra("unit"), 0);
                 } else if (operation.equals("emit_equatorial")) {
                     emitEquatorial(request);
                 } else if (operation.equals("read_equatorial")) {
                     readEquatorial(request, intent.getStringExtra("unit"));
+                } else if (operation.equals("pix_equatorial")) {
+                    PixBridge.pixPayload(JarvisAccessibilityService.this,
+                        intent.getStringExtra("reference"), bridgeReply(request));
+                } else if (operation.equals("boleto_equatorial")) {
+                    BoletoBridge.invoiceIndex(JarvisAccessibilityService.this,
+                        intent.getStringExtra("reference"), bridgeReply(request));
                 } else reply(request, false, null, "Operacao nao permitida");
             } catch (Exception error) {
                 reply(request, false, null, error.getClass().getSimpleName() + ": " + error.getMessage());
@@ -298,6 +307,314 @@ public class JarvisAccessibilityService extends AccessibilityService {
         return containsLabel(root, "aviso de privacidade") || containsLabel(root, "seus direitos garantidos");
     }
 
+    // ------------------------------------------------------ sessao do portal
+
+    /** Campos de autenticacao do portal. Ids estaveis, conferidos no aparelho. */
+    private static final String LOGIN_UNIT_FIELD = "WEBDOOR_headercorporativogo_txtUC";
+    private static final String LOGIN_DOCUMENT_FIELD = "WEBDOOR_headercorporativogo_txtDocumento";
+    /** Marcador estrutural da segunda via autenticada. */
+    private static final String BILL_SELECTOR_FIELD = "CONTENT_comboBoxUC";
+    /** Prazo para o portal responder ao envio de credenciais. */
+    private static final long LOGIN_SETTLE_MILLIS = 25_000L;
+    /** Conferencias do formulario antes de desistir de preenche-lo. */
+    private static final int LOGIN_FILL_ATTEMPTS = 4;
+    /** Sair da Agencia Virtual. Encerra a sessao do portal, e nada mais que isso. */
+    private static final String LOGOUT_URL =
+        "https://goias.equatorialenergia.com.br/AgenciaGO/Servi%C3%A7os/comum/Sair.aspx";
+    /**
+     * Tela de autenticacao do portal.
+     *
+     * Sem sessao valida a rota da segunda via nao mostra o login: ela estoura no
+     * servidor e cai na pagina de suporte. Entao o passo de login navega ele mesmo
+     * ate aqui em vez de esperar que o formulario apareca sozinho.
+     */
+    private static final String LOGIN_URL = "https://goias.equatorialenergia.com.br/LoginGO.aspx";
+
+    /**
+     * Diz em que estado a sessao esta, sem tratar expiracao como falha.
+     *
+     * Este passo nunca responde erro por sessao caida: sessao caida e um estado do
+     * caminho, e quem decide o que fazer com ele e a maquina de estados no leitor.
+     * O passo so espera por um marcador ESTRUTURAL — o seletor de unidade ou os
+     * dois campos de login — porque texto de rodape fala de login em toda pagina
+     * do portal, e decidir por texto ja reportou sessao expirada com sessao viva.
+     */
+    private void probeEquatorialSession(String request, boolean afterSubmit, long deadline) {
+        AccessibilityNodeInfo root = packageRoot(CHROME);
+        if (root == null) {
+            if (System.currentTimeMillis() < deadline) {
+                new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> probeEquatorialSession(request, afterSubmit, deadline), UI_POLL_MILLIS);
+                return;
+            }
+            RodLog.fail("sessao", "Chrome nao entregou pagina nenhuma");
+            replyState(request, EquatorialSession.State.BROWSER_STALE, false);
+            return;
+        }
+        AccessibilityNodeInfo bill = findByViewId(root, BILL_SELECTOR_FIELD);
+        boolean billSelector = bill != null;
+        if (bill != null) bill.recycle();
+        boolean loginFields = hasLoginFields(root);
+        boolean reRendered = afterSubmit && loginFields && loginFormReRendered(root);
+
+        List<String> textos = new ArrayList<>();
+        collect(root, textos);
+        root.recycle();
+        // O texto nao entra na trilha: ele carrega valor, vencimento e linha digitavel.
+        EquatorialSession.State state = EquatorialSession.classify(
+            String.join("\n", textos), true, billSelector, loginFields, afterSubmit);
+
+        // Depois de enviar credenciais, o formulario continuar na tela nao decide
+        // nada: o portal gera um token de risco e so entao faz o postback, o que
+        // leva alguns segundos. Aceitar isso como veredito reportava login falho
+        // um instante antes de ele dar certo.
+        boolean decidido = billSelector
+            || (loginFields && !afterSubmit)
+            || state == EquatorialSession.State.HUMAN_CHECK
+            || state == EquatorialSession.State.LOGIN_REJECTED
+            || (afterSubmit && state == EquatorialSession.State.LOGIN_OK);
+        if (!decidido && System.currentTimeMillis() < deadline) {
+            new Handler(Looper.getMainLooper()).postDelayed(
+                () -> probeEquatorialSession(request, afterSubmit, deadline), UI_POLL_MILLIS);
+            return;
+        }
+        RodLog.step("sessao", "estado=" + state + " apos_envio=" + afterSubmit
+            + " seletor=" + billSelector + " campos_login=" + loginFields
+            + (afterSubmit && loginFields ? " formulario_recarregado=" + reRendered : ""));
+        replyState(request, state, billSelector);
+    }
+
+    /**
+     * O portal recarregou o formulario de acesso depois do envio?
+     *
+     * Assinatura observada no aparelho: a unidade volta preenchida pelo ViewState e
+     * o documento volta em branco. Isso vai para a trilha como sinal e nada mais —
+     * nao e declarado credencial recusada, porque o portal nao diz nada e a mesma
+     * tela aparece quando a area autenticada esta fora do ar. Acusar o cadastro do
+     * proprietario por um problema do portal custaria a ele tempo à procura de um
+     * defeito que nao existe; quem encerra o job e o teto de tentativas.
+     */
+    private boolean loginFormReRendered(AccessibilityNodeInfo root) {
+        AccessibilityNodeInfo unit = findByViewId(root, LOGIN_UNIT_FIELD);
+        AccessibilityNodeInfo document = findByViewId(root, LOGIN_DOCUMENT_FIELD);
+        boolean signature = unit != null && document != null
+            && hasText(unit) && !hasText(document);
+        if (unit != null) unit.recycle();
+        if (document != null) document.recycle();
+        return signature;
+    }
+
+    private static boolean hasText(AccessibilityNodeInfo node) {
+        CharSequence text = node.getText();
+        return text != null && text.toString().replaceAll("\\D", "").length() > 0;
+    }
+
+    private boolean hasLoginFields(AccessibilityNodeInfo root) {
+        AccessibilityNodeInfo unit = findByViewId(root, LOGIN_UNIT_FIELD);
+        AccessibilityNodeInfo document = findByViewId(root, LOGIN_DOCUMENT_FIELD);
+        boolean both = unit != null && document != null;
+        if (unit != null) unit.recycle();
+        if (document != null) document.recycle();
+        return both;
+    }
+
+    /**
+     * Devolve o estado e se a segunda via ja esta na frente.
+     *
+     * O seletor viaja junto porque autenticar nao termina na segunda via: o portal
+     * leva para a home da area logada. Sem esse dado o leitor tentaria escolher o
+     * imovel numa pagina que nao tem o combo.
+     */
+    private void replyState(String request, EquatorialSession.State state, boolean billSelector) {
+        try {
+            reply(request, true, new JSONObject()
+                .put("state", state.name())
+                .put("selector", billSelector), null);
+        } catch (Exception error) {
+            reply(request, false, null, "EQUATORIAL_PORTAL_TIMEOUT: estado da sessao ilegivel");
+        }
+    }
+
+    /**
+     * Autentica na Agencia Virtual com as credenciais do cofre.
+     *
+     * Escrever num campo dispara JS que limpa o outro, entao preencher e enviar no
+     * mesmo passo enviava formulario incompleto. Aqui preenche-se, reobserva-se a
+     * arvore, confere-se, reaplica-se o que faltou, e so entao ENTRAR e acionado.
+     * Nada do que e digitado aparece na trilha: so se o campo ficou preenchido.
+     */
+    private void loginEquatorial(String request, String unit, String document, int attempt) {
+        AccessibilityNodeInfo root = packageRoot(CHROME);
+        if (root == null) {
+            replyState(request, EquatorialSession.State.BROWSER_STALE, false);
+            return;
+        }
+        AccessibilityNodeInfo unitField = findByViewId(root, LOGIN_UNIT_FIELD);
+        AccessibilityNodeInfo documentField = findByViewId(root, LOGIN_DOCUMENT_FIELD);
+        RodLog.found("login", "formulario de acesso na tela", unitField != null && documentField != null);
+        if (unitField == null || documentField == null) {
+            if (unitField != null) unitField.recycle();
+            if (documentField != null) documentField.recycle();
+            root.recycle();
+            if (attempt == 0) {
+                // A rota da segunda via sem sessao cai na pagina de suporte, nao no
+                // login. Navegar explicitamente e o que traz o formulario.
+                RodLog.step("login", "abrindo a tela de acesso do portal");
+                openRoute(LOGIN_URL);
+                new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> loginEquatorial(request, unit, document, 1), 3000);
+                return;
+            }
+            if (attempt < 6) {
+                new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> loginEquatorial(request, unit, document, attempt + 1), UI_POLL_MILLIS * 3);
+                return;
+            }
+            // Sem formulario mesmo depois de navegar: quem responde e a observacao,
+            // nao um palpite.
+            probeEquatorialSession(request, true, System.currentTimeMillis() + CHOOSER_RENDER_MILLIS);
+            return;
+        }
+        setNodeText(unitField, unit == null ? "" : unit);
+        setNodeText(documentField, document == null ? "" : document);
+        unitField.recycle();
+        documentField.recycle();
+        root.recycle();
+        new Handler(Looper.getMainLooper()).postDelayed(
+            () -> submitEquatorialLogin(request, unit, document, 0), 900);
+    }
+
+    private void submitEquatorialLogin(String request, String unit, String document, int attempt) {
+        AccessibilityNodeInfo root = packageRoot(CHROME);
+        if (root == null) {
+            replyState(request, EquatorialSession.State.BROWSER_STALE, false);
+            return;
+        }
+        AccessibilityNodeInfo unitField = findByViewId(root, LOGIN_UNIT_FIELD);
+        AccessibilityNodeInfo documentField = findByViewId(root, LOGIN_DOCUMENT_FIELD);
+        if (unitField == null || documentField == null) {
+            if (unitField != null) unitField.recycle();
+            if (documentField != null) documentField.recycle();
+            root.recycle();
+            probeEquatorialSession(request, true, System.currentTimeMillis() + LOGIN_SETTLE_MILLIS);
+            return;
+        }
+        boolean unitOk = filled(unitField, unit);
+        boolean documentOk = filled(documentField, document);
+        RodLog.step("login", "tentativa " + attempt + " unidade_ok=" + unitOk
+            + " documento_ok=" + documentOk);
+        if (!unitOk) setNodeText(unitField, unit == null ? "" : unit);
+        if (!documentOk) setNodeText(documentField, document == null ? "" : document);
+        unitField.recycle();
+        documentField.recycle();
+        if (!unitOk || !documentOk) {
+            root.recycle();
+            if (attempt >= LOGIN_FILL_ATTEMPTS) {
+                RodLog.fail("login", "formulario nao ficou completo; nao vou enviar pela metade");
+                replyState(request, EquatorialSession.State.LOGIN_IN_PROGRESS, false);
+                return;
+            }
+            new Handler(Looper.getMainLooper()).postDelayed(
+                () -> submitEquatorialLogin(request, unit, document, attempt + 1), 900);
+            return;
+        }
+        boolean clicked = gestureClickExact(root, "entrar");
+        if (!clicked) clicked = gestureClickLabel(root, "entrar");
+        if (!clicked) clicked = clickFirst(root, "entrar");
+        root.recycle();
+        RodLog.step("login", "ENTRAR acionado=" + clicked);
+        if (!clicked) {
+            replyState(request, EquatorialSession.State.LOGIN_IN_PROGRESS, false);
+            return;
+        }
+        // dispatchGesture devolve true sem a pagina reagir; o veredito e a proxima
+        // observacao da arvore, com prazo proprio.
+        probeEquatorialSession(request, true, System.currentTimeMillis() + LOGIN_SETTLE_MILLIS);
+    }
+
+    /** O campo contem exatamente os digitos esperados? Mascara do portal nao conta. */
+    private static boolean filled(AccessibilityNodeInfo field, String expected) {
+        if (expected == null || expected.isEmpty()) return true;
+        CharSequence text = field.getText();
+        if (text == null) return false;
+        return text.toString().replaceAll("\\D", "").equals(expected.replaceAll("\\D", ""));
+    }
+
+    /**
+     * Toque num no cujo rotulo e exatamente o esperado.
+     *
+     * Casar por substring achava "Entrar em contato" antes do botao ENTRAR e o
+     * login nunca era enviado. Igualdade, sem acento e sem caixa, resolve; a busca
+     * por substring continua como segunda tentativa.
+     */
+    private boolean gestureClickExact(AccessibilityNodeInfo node, String label) {
+        String value = EquatorialSession.fold(
+            (node.getText() == null ? "" : node.getText().toString()) + " "
+                + (node.getContentDescription() == null ? "" : node.getContentDescription().toString()))
+            .trim();
+        if (value.equals(label) || value.equals(label + " ") || value.replace(" ", "").equals(label)) {
+            Rect bounds = new Rect();
+            node.getBoundsInScreen(bounds);
+            if (!bounds.isEmpty()) {
+                Path path = new Path();
+                path.moveTo(bounds.exactCenterX(), bounds.exactCenterY());
+                return dispatchGesture(new GestureDescription.Builder()
+                    .addStroke(new GestureDescription.StrokeDescription(path, 0, 120)).build(), null, null);
+            }
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                boolean clicked = gestureClickExact(child, label);
+                child.recycle();
+                if (clicked) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Recuperacao do navegador, em degraus, sem nunca tocar em dados de terceiros.
+     *
+     * Degrau 1 recarrega a rota autenticada. Degrau 2 encerra a sessao do portal
+     * pelo proprio "Sair" e reabre a rota, o que descarta a pagina presa sem
+     * apagar cookie, cache ou aba de nenhum outro site. `pm clear` do Chrome e
+     * limpeza de dados de navegacao estao fora de questao: derrubariam a sessao de
+     * tudo que o proprietario usa no aparelho para consertar uma pagina nossa.
+     */
+    private void recoverChrome(String request, String mode, int attempt) {
+        boolean reopen = "reopen".equals(mode);
+        if (attempt == 0) {
+            RodLog.step("recuperacao", "degrau=" + (reopen ? "reabrir" : "recarregar"));
+            openRoute(reopen ? LOGOUT_URL : SEGUNDA_VIA_URL);
+            new Handler(Looper.getMainLooper()).postDelayed(
+                () -> recoverChrome(request, mode, 1), 2500);
+            return;
+        }
+        if (reopen && attempt == 1) {
+            openRoute(SEGUNDA_VIA_URL);
+            new Handler(Looper.getMainLooper()).postDelayed(
+                () -> recoverChrome(request, mode, 2), 3000);
+            return;
+        }
+        probeEquatorialSession(request, false, System.currentTimeMillis() + CHOOSER_RENDER_MILLIS);
+    }
+
+    /**
+     * Abre uma rota do portal na aba do ROD.
+     *
+     * EXTRA_APPLICATION_ID faz o Chrome REUSAR a aba que este app abriu em vez de
+     * criar outra. Sem ele o aparelho acumulou 72 abas do portal, e cada abertura
+     * deixava o navegador mais pesado e mais propenso a nao renderizar a pagina.
+     */
+    private void openRoute(String url) {
+        Intent browser = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+        browser.setPackage(CHROME)
+            .putExtra(Browser.EXTRA_APPLICATION_ID, getPackageName())
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+        startActivity(browser);
+    }
+
 
     /**
      * Agencia Virtual da Equatorial: unidade consumidora e CPF.
@@ -326,10 +643,7 @@ public class JarvisAccessibilityService extends AccessibilityService {
         }
         if (attempt == 1) {
             RodLog.step("abertura", "abrindo o portal no Chrome");
-            Intent browser = new Intent(Intent.ACTION_VIEW, segundaViaUri());
-            browser.setPackage(CHROME)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-            startActivity(browser);
+            openRoute(SEGUNDA_VIA_URL);
             new Handler(Looper.getMainLooper()).postDelayed(() -> openEquatorial(request, 2), 3000);
             return;
         }
@@ -1209,6 +1523,20 @@ public class JarvisAccessibilityService extends AccessibilityService {
 
     private static boolean belongsTo(AccessibilityNodeInfo root, String packageName) {
         return root != null && root.getPackageName() != null && packageName.contentEquals(root.getPackageName());
+    }
+
+    /**
+     * Adapta os passos de artefato a ponte.
+     *
+     * O fluxo de Pix e boleto vive fora deste arquivo de proposito: usa somente
+     * API publica do servico e devolve por callback, entao a integracao e este
+     * adaptador e nada mais. Assim o dono do fluxo pode evoluir sem tocar aqui.
+     */
+    private PixBridge.Reply bridgeReply(final String request) {
+        return new PixBridge.Reply() {
+            @Override public void ok(JSONObject payload) { reply(request, true, payload, null); }
+            @Override public void fail(String error) { reply(request, false, null, error); }
+        };
     }
 
     private void reply(String request, boolean ok, JSONObject payload, String error) {

@@ -144,6 +144,14 @@ public class AgentService extends Service {
         if (action.equals("network_check")) return networkCheck();
         if (action.equals("refresh_saneago_bills")) return cached("saneago", property, SaneagoReader.readCurrent(this, property));
         if (action.equals("refresh_equatorial_bills")) return cached("equatorial", property, EquatorialReader.read(this, property));
+        // Artefatos sob demanda de uma fatura em aberto. Nenhum dos dois paga,
+        // confirma ou movimenta nada; e o proprietario quem decide o que fazer com
+        // o Pix e com o PDF. Nada disso entra no BillCache: cache guarda leitura,
+        // e ordem de pagamento nao pode ficar guardada no telefone.
+        if (action.equals("get_equatorial_pix"))
+            return ArtifactFlow.pix(this, property, params == null ? "" : params.optString("reference", ""));
+        if (action.equals("get_equatorial_boleto"))
+            return ArtifactFlow.boleto(this, property, params == null ? "" : params.optString("reference", ""));
         if (action.equals("read_bill_cache")) {
             String provider = params == null ? "" : params.optString("provider", "");
             if (!provider.equals("saneago") && !provider.equals("equatorial"))
