@@ -36,8 +36,23 @@ public class AgentService extends Service {
     private volatile int failureStreak;
     private volatile boolean busy;
 
-    public static void start(Context context) {
-        context.startForegroundService(new Intent(context, AgentService.class));
+    /**
+     * Ponto único de religamento do agente.
+     *
+     * Devolve {@code false} em vez de estourar. Quem chama daqui em diante é um
+     * BroadcastReceiver, e exceção dentro de receiver morre sem deixar rastro
+     * legível: se a política de segundo plano do Android 12 recusar o início do
+     * serviço em primeiro plano, o que fecha o diagnóstico é o motivo exato na
+     * trilha `adb logcat -s ROD`, não um processo derrubado em silêncio.
+     */
+    public static boolean start(Context context) {
+        try {
+            context.startForegroundService(new Intent(context, AgentService.class));
+            return true;
+        } catch (Throwable error) {
+            RodLog.fail("autostart", "startForegroundService recusado: " + describe(error));
+            return false;
+        }
     }
 
     @Override public void onCreate() {

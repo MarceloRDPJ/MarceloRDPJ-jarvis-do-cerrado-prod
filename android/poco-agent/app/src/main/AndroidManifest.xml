@@ -63,9 +63,18 @@
                 android:resource="@xml/accessibility_service" />
         </service>
 
+        <!--
+            Religamento do agente sem toque na tela. BOOT_COMPLETED cobre o
+            `adb reboot`. MY_PACKAGE_REPLACED cobre o `adb install -r`, que mata
+            o processo do app: sem esta acao o no ficava offline no Pi ate alguem
+            abrir o aplicativo com a mao. Nao exportado de proposito — as duas
+            acoes vem do sistema para o proprio pacote. MY_PACKAGE_REPLACED nao
+            leva <data>: e entregue direto ao pacote substituido.
+        -->
         <receiver android:name=".BootReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
     </application>

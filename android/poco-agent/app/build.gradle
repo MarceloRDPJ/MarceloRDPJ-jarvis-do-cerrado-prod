@@ -12,8 +12,12 @@ android {
         applicationId 'br.com.jarviscerrado.poco'
         minSdk 31
         targetSdk 35
-        versionCode 32
-        versionName '1.0.0'
+        // 33 / 1.0.1: religamento automatico do AgentService apos `adb install -r`
+        // (MY_PACKAGE_REPLACED). Cada APK diferente recebe versionCode proprio —
+        // reutilizar 32 para binario distinto apagava a rastreabilidade do que
+        // esta de fato instalado no aparelho.
+        versionCode 33
+        versionName '1.0.1'
     }
 
     buildTypes {
