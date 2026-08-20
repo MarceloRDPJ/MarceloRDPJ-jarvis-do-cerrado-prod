@@ -492,14 +492,26 @@ public class JarvisAccessibilityService extends AccessibilityService {
         }
         Rect window = new Rect();
         dialog.getBoundsInScreen(window);
+        int options = countContractOptions(dialog);
+        RodLog.step("contrato", "contratos na lista=" + options);
         boolean picked = gestureClickContractDigits(dialog, expected, window);
-        dialog.recycle();
         RodLog.step("contrato", "toque no imovel despachado=" + picked);
+        if (!picked && options == 1) {
+            // Login com um unico contrato nao tem ambiguidade: o que esta na lista
+            // e o imovel deste acesso. O identificador guardado no cofre nao e o
+            // mesmo que o portal usa, e exigir igualdade impediria toda leitura.
+            // Com dois ou mais, escolher seria adivinhar de quem e a fatura.
+            picked = gestureClickOnlyContract(dialog, window);
+            RodLog.step("contrato", "unico contrato adotado=" + picked);
+        }
+        dialog.recycle();
         if (!picked) {
             // Sem correspondencia nao da para adivinhar qual contrato e o imovel
             // pedido; fechar e falhar e melhor do que ler a fatura de outro.
-            closeContractDialog(request, 0,
-                "EQUATORIAL_CONTRACT_NOT_FOUND: o imovel configurado nao aparece na lista de contratos");
+            closeContractDialog(request, 0, options > 1
+                ? "EQUATORIAL_PROPERTY_NOT_MAPPED: a lista tem " + options
+                    + " contratos e nenhum corresponde ao imovel configurado"
+                : "EQUATORIAL_CONTRACT_NOT_FOUND: o imovel configurado nao aparece na lista de contratos");
             return;
         }
         awaitContractDialogClosed(request, System.currentTimeMillis() + DIALOG_CLOSE_MILLIS);
@@ -532,6 +544,45 @@ public class JarvisAccessibilityService extends AccessibilityService {
      * Encerra o passo com a lista fora da frente. So termina em falha: fechar com
      * BACK cancela a escolha, entao nao ha sucesso possivel por este caminho.
      */
+    /** Quantas opcoes a lista oferece. So a contagem; nunca os valores. */
+    private static int countContractOptions(AccessibilityNodeInfo node) {
+        int total = 0;
+        String viewId = node.getViewIdResourceName();
+        CharSequence text = node.getText();
+        if (viewId != null && viewId.endsWith("id/text1") && text != null && text.length() > 0) total++;
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) { total += countContractOptions(child); child.recycle(); }
+        }
+        return total;
+    }
+
+    /** Toca na unica opcao da lista, quando ela e a unica que existe. */
+    private boolean gestureClickOnlyContract(AccessibilityNodeInfo node, Rect window) {
+        String viewId = node.getViewIdResourceName();
+        CharSequence text = node.getText();
+        if (viewId != null && viewId.endsWith("id/text1") && text != null && text.length() > 0
+                && node.isVisibleToUser()) {
+            Rect bounds = new Rect();
+            node.getBoundsInScreen(bounds);
+            if (!bounds.isEmpty() && window.contains(bounds.centerX(), bounds.centerY())) {
+                Path path = new Path();
+                path.moveTo(bounds.exactCenterX(), bounds.exactCenterY());
+                return dispatchGesture(new GestureDescription.Builder()
+                    .addStroke(new GestureDescription.StrokeDescription(path, 0, 120)).build(), null, null);
+            }
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                boolean clicked = gestureClickOnlyContract(child, window);
+                child.recycle();
+                if (clicked) return true;
+            }
+        }
+        return false;
+    }
+
     private void closeContractDialog(String request, int attempt, String error) {
         AccessibilityNodeInfo dialog = contractDialogRoot();
         if (dialog == null) {
@@ -558,12 +609,27 @@ public class JarvisAccessibilityService extends AccessibilityService {
      */
     private AccessibilityNodeInfo contractDialogRoot() {
         AccessibilityNodeInfo active = getRootInActiveWindow();
-        if (active == null) return null;
-        if (belongsTo(active, CHROME)) { active.recycle(); return null; }
-        for (String id : DIALOG_VIEW_IDS) {
-            AccessibilityNodeInfo marker = findByViewId(active, id);
-            if (marker != null) { marker.recycle(); return active; }
+        if (active == null) {
+            RodLog.step("diag", "janela ativa: nenhuma");
+            return null;
         }
+        // Diagnóstico de forma, nunca de conteúdo: só o nome do pacote dono da
+        // janela e quais marcadores de diálogo existem. Descobrir isso por
+        // uiautomator não é possível: ele disputa o mesmo canal de
+        // acessibilidade e derruba este serviço no meio do fluxo.
+        CharSequence owner = active.getPackageName();
+        StringBuilder markers = new StringBuilder();
+        for (String id : DIALOG_VIEW_IDS) {
+            AccessibilityNodeInfo probe = findByViewId(active, id);
+            if (probe != null) { probe.recycle(); markers.append(id).append(' '); }
+        }
+        RodLog.step("diag", "janela ativa pertence a " + (owner == null ? "?" : owner)
+            + " | marcadores: " + (markers.length() == 0 ? "nenhum" : markers.toString().trim()));
+
+        // O Chrome desenha o <select> como diálogo do próprio processo, então a
+        // janela ainda pertence a ele. Descartar por pacote perdia a lista; o que
+        // distingue de fato é a presença dos marcadores do AlertDialog.
+        if (markers.length() > 0) return active;
         active.recycle();
         return null;
     }
