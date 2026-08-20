@@ -34,6 +34,16 @@ public class JarvisAccessibilityService extends AccessibilityService {
     static final String PREFS_BRIDGE = "accessibility_bridge";
     private static final String SANEAGO = "br.com.saneago";
     private static final String CHROME = "com.android.chrome";
+
+    /**
+     * Aplicativo oficial da concessionária — o quinto canal da cadeia.
+     *
+     * Está aqui só para ser SONDADO: a pergunta é se ele guarda uma sessão viva,
+     * porque sessão viva dispensa login e login é justamente o que os outros
+     * canais tiveram recusado. A sondagem lê marcador estrutural e não toca em
+     * nada — nenhum campo preenchido, nenhum botão acionado.
+     */
+    private static final String EQUATORIAL_APP = "com.equatorialenergia";
     /**
      * Segunda via na Agencia Virtual, alcancada direto pela sessao existente.
      *
@@ -62,6 +72,13 @@ public class JarvisAccessibilityService extends AccessibilityService {
     /** Prazo para a home autenticada renderizar o seletor de imovel. */
     private static final long CHOOSER_RENDER_MILLIS = 12_000L;
     /** Prazo para a lista nativa de contratos aparecer depois do toque. */
+    /**
+     * Prazo do login na Agência Web. Cabe dentro dos 240 s que o Pi espera, com
+     * folga para o motor subir, o reCAPTCHA resolver a promessa e o portal
+     * responder — e curto o bastante para sobrar tempo de reportar a recusa.
+     */
+    private static final long AGENCIAWEB_BUDGET_MILLIS = 120_000L;
+
     private static final long DIALOG_OPEN_MILLIS = 5_000L;
     /** Prazo para a lista nativa sair da frente depois da escolha. */
     private static final long DIALOG_CLOSE_MILLIS = 6_000L;
@@ -107,6 +124,10 @@ public class JarvisAccessibilityService extends AccessibilityService {
                 } else if (operation.equals("login_equatorial")) {
                     loginEquatorial(request, intent.getStringExtra("unit"),
                         intent.getStringExtra("document"), 0);
+                } else if (operation.equals("agenciaweb_equatorial")) {
+                    loginAgenciaWeb(request, intent.getStringExtra("property"));
+                } else if (operation.equals("probe_app_equatorial")) {
+                    probeEquatorialApp(request);
                 } else if (operation.equals("recover_equatorial")) {
                     recoverChrome(request, intent.getStringExtra("mode"), 0);
                 } else if (operation.equals("select_equatorial")) {
@@ -339,6 +360,135 @@ public class JarvisAccessibilityService extends AccessibilityService {
      * dois campos de login — porque texto de rodape fala de login em toda pagina
      * do portal, e decidir por texto ja reportou sessao expirada com sessao viva.
      */
+    /**
+     * Sonda o aplicativo oficial: ele já tem sessão viva?
+     *
+     * Essa é a única pergunta, e ela vale muito: os dois portais web recusaram o
+     * login automatizado por antifraude, e sessão viva no aplicativo dispensaria
+     * login inteiramente. Então aqui se ABRE e se OLHA — nada é preenchido, nada
+     * é acionado, nenhuma credencial atravessa esta função.
+     *
+     * O que sai daqui é contagem e presença de marcador, nunca conteúdo: o nome
+     * do titular e a unidade consumidora aparecem na tela logada, e não é papel
+     * de uma sondagem carregá-los para fora do aparelho. Por isso a resposta é um
+     * punhado de booleanos, e a trilha registra a mesma coisa.
+     */
+    private void probeEquatorialApp(final String request) {
+        performGlobalAction(GLOBAL_ACTION_HOME);
+        startActivity(new Intent(this, WakeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            try {
+                Intent launch = getPackageManager().getLaunchIntentForPackage(EQUATORIAL_APP);
+                if (launch == null) throw new IllegalStateException(
+                    "EQUATORIAL_CHANNEL_NOT_INSTALLED: aplicativo oficial ausente");
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                startActivity(launch);
+            } catch (Exception error) {
+                reply(request, false, null, error.getClass().getSimpleName() + ": " + error.getMessage());
+                return;
+            }
+            // O aplicativo pinta a primeira tela depois de resolver sessão com o
+            // servidor; olhar cedo confundiria "carregando" com "sem sessão".
+            new Handler(Looper.getMainLooper()).postDelayed(
+                () -> readEquatorialAppMarkers(request, 0), 9000);
+        }, 1500);
+    }
+
+    /**
+     * Lê marcador estrutural da tela do aplicativo oficial, com nova tentativa.
+     *
+     * A árvore pode vir vazia enquanto a primeira tela ainda monta, e uma leitura
+     * única transformaria demora em veredito. Tenta de novo algumas vezes antes de
+     * concluir que o aplicativo não entregou tela nenhuma.
+     */
+    private void readEquatorialAppMarkers(final String request, final int attempt) {
+        AccessibilityNodeInfo root = packageRoot(EQUATORIAL_APP);
+        if (root == null) {
+            if (attempt < 4) {
+                new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> readEquatorialAppMarkers(request, attempt + 1), 4000);
+                return;
+            }
+            RodLog.fail("appoficial", "o aplicativo nao entregou tela nenhuma");
+            reply(request, false, null,
+                "EQUATORIAL_PORTAL_TIMEOUT: o aplicativo oficial nao pintou tela legivel");
+            return;
+        }
+        List<String> values = new ArrayList<>();
+        try {
+            collect(root, values);
+        } finally {
+            root.recycle();
+        }
+        StringBuilder joined = new StringBuilder();
+        for (String value : values) joined.append(value).append('\n');
+        String lower = joined.toString().toLowerCase();
+
+        boolean login = lower.contains("entrar") || lower.contains("acessar")
+            || lower.contains("senha") || lower.contains("cadastr");
+        boolean segundaVia = lower.contains("segunda via") || lower.contains("2ª via")
+            || lower.contains("2a via");
+        boolean faturas = lower.contains("fatura") || lower.contains("debito")
+            || lower.contains("débito");
+        boolean pix = lower.contains("pix");
+        boolean barcode = lower.contains("codigo de barras") || lower.contains("código de barras");
+        try {
+            RodLog.step("appoficial", "nos=" + values.size() + " login=" + login
+                + " segundavia=" + segundaVia + " faturas=" + faturas
+                + " pix=" + pix + " barras=" + barcode);
+            reply(request, true, new JSONObject()
+                .put("nodes", values.size()).put("login", login)
+                .put("segunda_via", segundaVia).put("faturas", faturas)
+                .put("pix", pix).put("barcode", barcode), null);
+        } catch (Exception error) {
+            reply(request, false, null, "JSONException: " + error.getMessage());
+        }
+    }
+
+    /**
+     * Autentica na Agência Web (host {@code go.*}) pelo motor WebView próprio.
+     *
+     * É o SEGUNDO portal da concessionária, e o único cuja porta o ROD ainda não
+     * sabe se atravessa: o ASPX do host {@code goias.*} é guardado pelo Transmit
+     * Security DRS, que recusou a automação em silêncio, e aqui o portão é
+     * reCAPTCHA v3, por pontuação. Um resultado não prediz o outro, então este
+     * caminho existe para ser MEDIDO, não presumido.
+     *
+     * Duas decisões que não são estilo:
+     *
+     * <ul>
+     *   <li>roda numa thread própria por obrigação. O motor posta o script na
+     *       thread principal e bloqueia quem chamou até a resposta chegar; como
+     *       {@code onReceive} já está na principal, chamar direto travaria as
+     *       duas pontas e o job morreria de prazo sem nenhuma linha de trilha;</li>
+     *   <li>a credencial sai do cofre, nunca de um extra do Intent. Extra de
+     *       broadcast é texto legível por qualquer coisa que observe o despacho, e
+     *       CPF não se transporta assim para economizar três linhas.</li>
+     * </ul>
+     */
+    private void loginAgenciaWeb(final String request, final String property) {
+        final Context context = getApplicationContext();
+        final String imovel = property == null || property.trim().isEmpty() ? "casa" : property.trim();
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    BillingConfig config = BillingConfig.load(context);
+                    String document = config.value("equatorial_cpf");
+                    String unit = config.value(imovel + "_energy");
+                    RodLog.step("agenciaweb", "imovel=" + imovel
+                        + " documento=" + RodLog.describe(document)
+                        + " unidade=" + RodLog.describe(unit));
+                    reply(request, true, EquatorialWebEngine.loginAgenciaWeb(
+                        context, unit, document,
+                        System.currentTimeMillis() + AGENCIAWEB_BUDGET_MILLIS), null);
+                } catch (Exception error) {
+                    reply(request, false, null,
+                        error.getClass().getSimpleName() + ": " + error.getMessage());
+                }
+            }
+        }, "rod-agenciaweb").start();
+    }
+
     private void probeEquatorialSession(String request, boolean afterSubmit, long deadline) {
         AccessibilityNodeInfo root = packageRoot(CHROME);
         if (root == null) {

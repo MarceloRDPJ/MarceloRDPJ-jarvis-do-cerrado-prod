@@ -7,4 +7,4 @@
     android:canTakeScreenshot="true"
     android:description="@string/accessibility_description"
     android:notificationTimeout="150"
-    android:packageNames="br.com.saneago,com.android.chrome" />
+    android:packageNames="br.com.saneago,com.android.chrome,com.equatorialenergia" />
