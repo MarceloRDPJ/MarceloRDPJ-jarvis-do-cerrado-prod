@@ -60,6 +60,7 @@ final class EquatorialReader {
             call(context, "open_equatorial", null);
             call(context, "dismiss_equatorial", null);
             call(context, "select_equatorial", unit);
+            call(context, "emit_equatorial", null);
             JSONObject result = call(context, "read_equatorial", unit);
             result.put("property", normalized).put("read_only", true);
             return result;

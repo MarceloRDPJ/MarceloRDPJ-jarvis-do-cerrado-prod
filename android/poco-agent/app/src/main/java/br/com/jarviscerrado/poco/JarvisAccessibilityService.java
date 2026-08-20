@@ -33,6 +33,31 @@ public class JarvisAccessibilityService extends AccessibilityService {
     static final String PREFS_BRIDGE = "accessibility_bridge";
     private static final String SANEAGO = "br.com.saneago";
     private static final String CHROME = "com.android.chrome";
+    /**
+     * Segunda via na Agencia Virtual, alcancada direto pela sessao existente.
+     *
+     * A home institucional nao tem fatura nenhuma: so define contexto. Esta e a
+     * pagina que realmente emite, e abri-la por Intent preserva os cookies, o que
+     * elimina todos os cliques intermediarios.
+     */
+    private static final String SEGUNDA_VIA_HOST = "goias.equatorialenergia.com.br";
+
+    /**
+     * Entrada da Agencia Virtual, onde a fatura de fato existe.
+     *
+     * A rota profunda da segunda via nao e alcancavel por URL: tres formas dela
+     * foram testadas e todas caem na pagina de sistema indisponivel, porque o
+     * portal so roteia esse caminho a partir da navegacao interna. Entrando pela
+     * porta, uma sessao viva leva a area autenticada e uma sessao morta mostra o
+     * formulario de login, que a leitura reconhece e reporta como tal.
+     *
+     * Vale notar que este host tem sessao propria, separada do portal
+     * institucional: estar logado la nao significa estar logado aqui.
+     */
+    private static Uri segundaViaUri() {
+        return new Uri.Builder().scheme("https").authority(SEGUNDA_VIA_HOST)
+            .appendPath("LoginGO.aspx").build();
+    }
     /** Prazo total para a pagina da Equatorial assentar num estado legivel. */
     private static final long PAGE_SETTLE_MILLIS = 25_000L;
     /** Intervalo entre releituras da arvore enquanto a pagina carrega. */
@@ -81,6 +106,8 @@ public class JarvisAccessibilityService extends AccessibilityService {
                     dismissEquatorialOverlay(request);
                 } else if (operation.equals("select_equatorial")) {
                     selectEquatorialContract(request, intent.getStringExtra("unit"), 0);
+                } else if (operation.equals("emit_equatorial")) {
+                    emitEquatorial(request);
                 } else if (operation.equals("read_equatorial")) {
                     readEquatorial(request, intent.getStringExtra("unit"));
                 } else reply(request, false, null, "Operacao nao permitida");
@@ -297,7 +324,7 @@ public class JarvisAccessibilityService extends AccessibilityService {
         }
         if (attempt == 1) {
             RodLog.step("abertura", "abrindo o portal no Chrome");
-            Intent browser = new Intent(Intent.ACTION_VIEW, Uri.parse("https://go.equatorialenergia.com.br/"));
+            Intent browser = new Intent(Intent.ACTION_VIEW, segundaViaUri());
             browser.setPackage(CHROME)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
             startActivity(browser);
@@ -343,201 +370,105 @@ public class JarvisAccessibilityService extends AccessibilityService {
      * correspondencia e tentada pelos dois: primeiro pelos digitos configurados,
      * e so entao abrindo a lista para inspecao.
      */
+    /**
+     * Escolhe a unidade consumidora no combo da propria pagina de segunda via.
+     *
+     * O portal grava a UC com zeros a esquerda ate quinze digitos, enquanto o
+     * cofre guarda o numero como o proprietario o conhece. Normalizar os dois
+     * lados resolve a correspondencia sem cadastro extra: nao ha dois numeros,
+     * ha o mesmo numero escrito de dois jeitos.
+     */
     private void selectEquatorialContract(String request, String expectedUnit, int attempt) {
-        awaitContractChooser(request, ContractMatch.normalize(expectedUnit),
-            System.currentTimeMillis() + CHOOSER_RENDER_MILLIS);
+        // Conferir a sessao antes de procurar o combo. Sem isso a tela de login
+        // era reportada como "pagina nao carregou o seletor", escondendo do dono
+        // a unica acao que resolve: entrar de novo na Agencia Virtual.
+        AccessibilityNodeInfo pagina = packageRoot(CHROME);
+        if (pagina != null) {
+            List<String> textos = new ArrayList<>();
+            collect(pagina, textos);
+            pagina.recycle();
+            EquatorialTextParser.Page estado = EquatorialTextParser.parse(String.join(System.lineSeparator(), textos));
+            if (estado.state == EquatorialTextParser.State.AUTH_REQUIRED) {
+                RodLog.step("contrato", "Agencia Virtual pediu autenticacao");
+                reply(request, false, null,
+                    "EQUATORIAL_AUTH_REQUIRED: a sessao da Agencia Virtual expirou no Poco");
+                return;
+            }
+            if (estado.state == EquatorialTextParser.State.HUMAN_CHECK) {
+                reply(request, false, null,
+                    "EQUATORIAL_HUMAN_CHECK: a Equatorial pediu verificacao humana");
+                return;
+            }
+        }
+        String expected = expectedUnit == null ? "" : digits(expectedUnit);
+        if (expected.isEmpty()) {
+            reply(request, false, null,
+                "EQUATORIAL_PROPERTY_NOT_MAPPED: nenhuma unidade consumidora configurada para este imovel");
+            return;
+        }
+        pickSelectDigits(request, "CONTENT_comboBoxUC", expected, 0,
+            () -> reply(request, true, new JSONObject(), null));
     }
 
-    /**
-     * Espera a home autenticada renderizar antes de decidir qualquer coisa.
-     *
-     * A ausencia do rotulo do seletor valia como "ja estamos fora da home" e o
-     * passo respondia sucesso. Pagina lenta virava selecao pulada em silencio, e
-     * a consulta seguinte lia a fatura do imovel da consulta anterior. Agora a
-     * ausencia so vale quando a propria pagina confirma a unidade pedida; fora
-     * isso, espera-se ate o prazo e falha-se com codigo.
-     */
-    private void awaitContractChooser(String request, String expected, long deadline) {
-        AccessibilityNodeInfo leftover = contractDialogRoot();
-        if (leftover != null) {
-            // Lista nativa que sobrou de uma consulta anterior: enquanto ela estiver
-            // na frente a raiz do Chrome nem existe.
-            leftover.recycle();
-            RodLog.step("contrato", "lista nativa residual na frente, fechando");
-            performGlobalAction(GLOBAL_ACTION_BACK);
-            if (System.currentTimeMillis() < deadline) { pollContractChooser(request, expected, deadline); return; }
-            reply(request, false, null,
-                "EQUATORIAL_PORTAL_TIMEOUT: a lista de contratos ficou aberta de uma consulta anterior");
-            return;
-        }
+    /** Escolhe num <select> a opcao cujos digitos, normalizados, casam com o esperado. */
+    private void pickSelectDigits(String request, String viewId, String expected, int attempt, Runnable next) {
         AccessibilityNodeInfo root = packageRoot(CHROME);
         if (root == null) {
-            if (System.currentTimeMillis() < deadline) { pollContractChooser(request, expected, deadline); return; }
-            reply(request, false, null,
-                "EQUATORIAL_PORTAL_TIMEOUT: o portal nao ficou visivel no Chrome");
+            reply(request, false, null, "EQUATORIAL_PORTAL_TIMEOUT: portal saiu da frente ao escolher o imovel");
             return;
         }
-        if (containsLabel(root, "selecione unidade consumidora")) {
+        AccessibilityNodeInfo field = findByViewId(root, viewId);
+        if (field == null) {
             root.recycle();
-            RodLog.step("contrato", "seletor de imovel presente");
-            openContractSelector(request, expected, 0);
+            if (attempt < 4) {
+                new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> pickSelectDigits(request, viewId, expected, attempt + 1, next), UI_POLL_MILLIS * 3);
+                return;
+            }
+            RodLog.fail("contrato", "combo de unidade ausente na pagina");
+            reply(request, false, null, "EQUATORIAL_BILL_NOT_FOUND: pagina de segunda via nao carregou o seletor de unidade");
             return;
         }
-        List<String> values = new ArrayList<>();
-        collect(root, values);
+        boolean tapped = gestureClickNodeCenter(field);
+        field.recycle();
         root.recycle();
-        EquatorialTextParser.Page page = EquatorialTextParser.parse(String.join("\n", values));
-        if (page.state == EquatorialTextParser.State.AUTH_REQUIRED) {
-            RodLog.fail("contrato", "portal devolveu a tela de autenticacao");
-            reply(request, false, null, "EQUATORIAL_AUTH_REQUIRED: a sessao da Equatorial expirou no Poco");
-            return;
-        }
-        if (page.state == EquatorialTextParser.State.HUMAN_CHECK) {
-            RodLog.fail("contrato", "portal exibiu desafio de verificacao humana");
-            reply(request, false, null, "EQUATORIAL_HUMAN_CHECK: a Equatorial pediu verificacao humana");
-            return;
-        }
-        String shown = ContractMatch.normalize(page.get("uc"));
-        if (!expected.isEmpty() && shown.equals(expected)) {
-            RodLog.step("contrato", "a tela ja confirma o imovel pedido");
-            reply(request, true, new JSONObject(), null);
-            return;
-        }
-        if (System.currentTimeMillis() < deadline) { pollContractChooser(request, expected, deadline); return; }
-        RodLog.fail("contrato", "seletor de imovel nao apareceu na home");
-        reply(request, false, null,
-            "EQUATORIAL_PORTAL_TIMEOUT: o seletor de imovel nao apareceu na home do portal");
+        RodLog.step("contrato", "combo de unidade toque=" + tapped + " tentativa=" + attempt);
+        awaitDigitsDialog(request, viewId, expected, attempt, next,
+            System.currentTimeMillis() + DIALOG_OPEN_MILLIS);
     }
 
-    private void pollContractChooser(String request, String expected, long deadline) {
-        new Handler(Looper.getMainLooper()).postDelayed(
-            () -> awaitContractChooser(request, expected, deadline), UI_POLL_MILLIS);
-    }
-
-    /**
-     * Toca no seletor de imovel; quem confirma a abertura e a arvore, nao o gesto.
-     *
-     * dispatchGesture devolve true por ter despachado o toque, e nao por a tela ter
-     * reagido. O ramo de nova tentativa era inalcancavel — o metodo nunca recursava
-     * — entao "nao abriu" seguia adiante e virava sucesso.
-     */
-    private void openContractSelector(String request, String expected, int attempt) {
-        AccessibilityNodeInfo root = packageRoot(CHROME);
-        if (root == null) {
-            reply(request, false, null,
-                "EQUATORIAL_PORTAL_TIMEOUT: o portal saiu da frente ao abrir o seletor de imovel");
-            return;
-        }
-        Rect window = new Rect();
-        root.getBoundsInScreen(window);
-        boolean touched = !expected.isEmpty() && gestureClickContractDigits(root, expected, window);
-        if (!touched) {
-            AccessibilityNodeInfo selector = findByViewId(root, "conta_contrato");
-            if (selector == null) selector = findByViewId(root, "select-contract");
-            touched = selector != null && gestureClickNode(selector);
-            if (selector != null) selector.recycle();
-        }
-        if (!touched) touched = gestureClickLabel(root, "selecione unidade consumidora");
-        root.recycle();
-        RodLog.step("contrato", "toque no seletor despachado=" + touched + " tentativa=" + attempt);
-        awaitContractDialog(request, expected, attempt, System.currentTimeMillis() + DIALOG_OPEN_MILLIS);
-    }
-
-    /** A lista abriu de fato? Se nao, o toque se repete de verdade ate o limite. */
-    private void awaitContractDialog(String request, String expected, int attempt, long deadline) {
-        AccessibilityNodeInfo dialog = contractDialogRoot();
-        if (dialog != null) {
-            dialog.recycle();
-            RodLog.step("contrato", "lista de contratos aberta");
-            resolveContractDialog(request, expected);
-            return;
-        }
-        if (System.currentTimeMillis() < deadline) {
-            new Handler(Looper.getMainLooper()).postDelayed(
-                () -> awaitContractDialog(request, expected, attempt, deadline), UI_POLL_MILLIS);
-            return;
-        }
-        if (attempt + 1 < CONTRACT_OPEN_ATTEMPTS) {
-            RodLog.step("contrato", "lista nao abriu, repetindo o toque na tentativa " + (attempt + 1));
-            openContractSelector(request, expected, attempt + 1);
-            return;
-        }
-        RodLog.fail("contrato", "lista de contratos nao abriu");
-        reply(request, false, null,
-            "EQUATORIAL_PORTAL_TIMEOUT: o seletor de imovel nao abriu a lista de contratos");
-    }
-
-    /**
-     * Resolve a lista de contratos, que o Chrome desenha como dialogo do sistema.
-     *
-     * O <select> do portal nao vira conteudo web: vira um dialogo nativo, fora da
-     * janela do Chrome, e enquanto ele estiver na frente a raiz do Chrome some.
-     * Deixa-lo aberto derrubava tambem a consulta seguinte. Por isso todo caminho
-     * daqui, inclusive os de erro, termina com a lista comprovadamente fora da
-     * frente — e o sucesso so e reportado depois de reobservar esse fechamento.
-     */
-    private void resolveContractDialog(String request, String expected) {
+    private void awaitDigitsDialog(String request, String viewId, String expected, int attempt,
+                                   Runnable next, long deadline) {
         AccessibilityNodeInfo dialog = contractDialogRoot();
         if (dialog == null) {
-            RodLog.fail("contrato", "lista sumiu antes da escolha");
-            reply(request, false, null,
-                "EQUATORIAL_PORTAL_TIMEOUT: a lista de contratos sumiu antes da escolha do imovel");
-            return;
-        }
-        if (expected.isEmpty()) {
-            dialog.recycle();
-            closeContractDialog(request, 0,
-                "EQUATORIAL_CONTRACT_NOT_FOUND: nenhum imovel configurado para comparar com a lista");
+            if (System.currentTimeMillis() < deadline) {
+                new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> awaitDigitsDialog(request, viewId, expected, attempt, next, deadline), UI_POLL_MILLIS);
+                return;
+            }
+            if (attempt < 2) {
+                new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> pickSelectDigits(request, viewId, expected, attempt + 1, next), UI_POLL_MILLIS);
+                return;
+            }
+            reply(request, false, null, "EQUATORIAL_PORTAL_TIMEOUT: a lista de unidades nao abriu");
             return;
         }
         Rect window = new Rect();
         dialog.getBoundsInScreen(window);
-        int options = countContractOptions(dialog);
-        RodLog.step("contrato", "contratos na lista=" + options);
+        int opcoes = countContractOptions(dialog);
         boolean picked = gestureClickContractDigits(dialog, expected, window);
-        RodLog.step("contrato", "toque no imovel despachado=" + picked);
-        if (!picked && options == 1) {
-            // Login com um unico contrato nao tem ambiguidade: o que esta na lista
-            // e o imovel deste acesso. O identificador guardado no cofre nao e o
-            // mesmo que o portal usa, e exigir igualdade impediria toda leitura.
-            // Com dois ou mais, escolher seria adivinhar de quem e a fatura.
-            picked = gestureClickOnlyContract(dialog, window);
-            RodLog.step("contrato", "unico contrato adotado=" + picked);
-        }
         dialog.recycle();
+        RodLog.step("contrato", "unidades na lista=" + opcoes + " imovel escolhido=" + picked);
         if (!picked) {
-            // Sem correspondencia nao da para adivinhar qual contrato e o imovel
-            // pedido; fechar e falhar e melhor do que ler a fatura de outro.
-            closeContractDialog(request, 0, options > 1
-                ? "EQUATORIAL_PROPERTY_NOT_MAPPED: a lista tem " + options
-                    + " contratos e nenhum corresponde ao imovel configurado"
-                : "EQUATORIAL_CONTRACT_NOT_FOUND: o imovel configurado nao aparece na lista de contratos");
+            // Sem correspondencia, ler seria adivinhar de quem e a fatura.
+            closeContractDialog(request, 0, opcoes > 0
+                ? "EQUATORIAL_PROPERTY_NOT_MAPPED: a unidade configurada nao esta entre as " + opcoes
+                    + " deste login"
+                : "EQUATORIAL_CONTRACT_NOT_FOUND: a lista de unidades veio vazia");
             return;
         }
-        awaitContractDialogClosed(request, System.currentTimeMillis() + DIALOG_CLOSE_MILLIS);
-    }
-
-    /** Gesto despachado nao e item escolhido: quem prova isso e a lista sair da frente. */
-    private void awaitContractDialogClosed(String request, long deadline) {
-        AccessibilityNodeInfo dialog = contractDialogRoot();
-        if (dialog == null) {
-            AccessibilityNodeInfo root = packageRoot(CHROME);
-            if (root != null) {
-                root.recycle();
-                RodLog.step("contrato", "lista fechada e portal de volta na frente");
-                reply(request, true, new JSONObject(), null);
-                return;
-            }
-        } else {
-            dialog.recycle();
-        }
-        if (System.currentTimeMillis() < deadline) {
-            new Handler(Looper.getMainLooper()).postDelayed(
-                () -> awaitContractDialogClosed(request, deadline), UI_POLL_MILLIS);
-            return;
-        }
-        closeContractDialog(request, 0,
-            "EQUATORIAL_PORTAL_TIMEOUT: a lista de contratos nao fechou depois da escolha");
+        awaitSelectDialogClosed(request, next, System.currentTimeMillis() + DIALOG_CLOSE_MILLIS);
     }
 
     /**
@@ -555,32 +486,6 @@ public class JarvisAccessibilityService extends AccessibilityService {
             if (child != null) { total += countContractOptions(child); child.recycle(); }
         }
         return total;
-    }
-
-    /** Toca na unica opcao da lista, quando ela e a unica que existe. */
-    private boolean gestureClickOnlyContract(AccessibilityNodeInfo node, Rect window) {
-        String viewId = node.getViewIdResourceName();
-        CharSequence text = node.getText();
-        if (viewId != null && viewId.endsWith("id/text1") && text != null && text.length() > 0
-                && node.isVisibleToUser()) {
-            Rect bounds = new Rect();
-            node.getBoundsInScreen(bounds);
-            if (!bounds.isEmpty() && window.contains(bounds.centerX(), bounds.centerY())) {
-                Path path = new Path();
-                path.moveTo(bounds.exactCenterX(), bounds.exactCenterY());
-                return dispatchGesture(new GestureDescription.Builder()
-                    .addStroke(new GestureDescription.StrokeDescription(path, 0, 120)).build(), null, null);
-            }
-        }
-        for (int i = 0; i < node.getChildCount(); i++) {
-            AccessibilityNodeInfo child = node.getChild(i);
-            if (child != null) {
-                boolean clicked = gestureClickOnlyContract(child, window);
-                child.recycle();
-                if (clicked) return true;
-            }
-        }
-        return false;
     }
 
     private void closeContractDialog(String request, int attempt, String error) {
@@ -652,6 +557,169 @@ public class JarvisAccessibilityService extends AccessibilityService {
         path.moveTo(bounds.exactCenterX(), bounds.exactCenterY());
         return dispatchGesture(new GestureDescription.Builder()
             .addStroke(new GestureDescription.StrokeDescription(path, 0, 120)).build(), null, null);
+    }
+
+    /**
+     * Preenche o formulario oficial de segunda via e emite.
+     *
+     * O portal exige tipo de emissao e motivo antes de mostrar a fatura. Sao
+     * campos de consulta, nao ordem de servico: nada e pago, negociado ou
+     * alterado. O motivo escolhido e "Outros", a unica opcao que nao afirma algo
+     * falso em nome do proprietario.
+     *
+     * Cada <select> vira dialogo nativo do Chrome, entao a escolha reusa a mesma
+     * maquina de estados do seletor de imovel: abre, confirma aberto, escolhe,
+     * confirma fechado.
+     */
+    private void emitEquatorial(String request) {
+        pickSelect(request, "CONTENT_cbTipoEmissao", new String[]{"fatura completa"}, 0,
+            () -> pickSelect(request, "CONTENT_cbMotivo", new String[]{"outros"}, 0,
+                () -> pressEmitir(request, 0)));
+    }
+
+    /** Escolhe uma opcao de um <select> da pagina pelo rotulo, via dialogo nativo. */
+    private void pickSelect(String request, String viewId, String[] labels, int attempt, Runnable next) {
+        AccessibilityNodeInfo root = packageRoot(CHROME);
+        if (root == null) {
+            reply(request, false, null, "EQUATORIAL_PORTAL_TIMEOUT: portal saiu da frente ao preencher o formulario");
+            return;
+        }
+        AccessibilityNodeInfo field = findByViewId(root, viewId);
+        if (field == null) {
+            root.recycle();
+            if (attempt < 3) {
+                new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> pickSelect(request, viewId, labels, attempt + 1, next), UI_POLL_MILLIS * 3);
+                return;
+            }
+            RodLog.fail("emissao", "campo ausente: " + viewId);
+            reply(request, false, null, "EQUATORIAL_BILL_NOT_FOUND: formulario de segunda via nao apareceu");
+            return;
+        }
+        boolean tapped = gestureClickNodeCenter(field);
+        field.recycle();
+        root.recycle();
+        RodLog.step("emissao", viewId + " toque=" + tapped + " tentativa=" + attempt);
+        awaitSelectDialog(request, viewId, labels, attempt, next,
+            System.currentTimeMillis() + DIALOG_OPEN_MILLIS);
+    }
+
+    private void awaitSelectDialog(String request, String viewId, String[] labels, int attempt,
+                                   Runnable next, long deadline) {
+        AccessibilityNodeInfo dialog = contractDialogRoot();
+        if (dialog == null) {
+            if (System.currentTimeMillis() < deadline) {
+                new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> awaitSelectDialog(request, viewId, labels, attempt, next, deadline), UI_POLL_MILLIS);
+                return;
+            }
+            if (attempt < 2) {
+                new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> pickSelect(request, viewId, labels, attempt + 1, next), UI_POLL_MILLIS);
+                return;
+            }
+            RodLog.fail("emissao", "lista de " + viewId + " nao abriu");
+            reply(request, false, null, "EQUATORIAL_PORTAL_TIMEOUT: a lista do formulario nao abriu");
+            return;
+        }
+        Rect window = new Rect();
+        dialog.getBoundsInScreen(window);
+        boolean picked = gestureClickDialogLabel(dialog, labels, window);
+        dialog.recycle();
+        RodLog.step("emissao", viewId + " opcao escolhida=" + picked);
+        if (!picked) {
+            closeContractDialog(request, 0,
+                "EQUATORIAL_BILL_NOT_FOUND: opcao esperada ausente na lista do formulario");
+            return;
+        }
+        awaitSelectDialogClosed(request, next, System.currentTimeMillis() + DIALOG_CLOSE_MILLIS);
+    }
+
+    private void awaitSelectDialogClosed(String request, Runnable next, long deadline) {
+        AccessibilityNodeInfo dialog = contractDialogRoot();
+        boolean open = dialog != null;
+        if (dialog != null) dialog.recycle();
+        if (!open) {
+            AccessibilityNodeInfo root = packageRoot(CHROME);
+            boolean back = root != null;
+            if (root != null) root.recycle();
+            if (back) { next.run(); return; }
+        }
+        if (System.currentTimeMillis() < deadline) {
+            new Handler(Looper.getMainLooper()).postDelayed(
+                () -> awaitSelectDialogClosed(request, next, deadline), UI_POLL_MILLIS);
+            return;
+        }
+        closeContractDialog(request, 0,
+            "EQUATORIAL_PORTAL_TIMEOUT: a lista do formulario nao fechou");
+    }
+
+    /** Pressiona Emitir e confirma que a pagina reagiu. */
+    private void pressEmitir(String request, int attempt) {
+        AccessibilityNodeInfo root = packageRoot(CHROME);
+        if (root == null) {
+            reply(request, false, null, "EQUATORIAL_PORTAL_TIMEOUT: portal saiu da frente antes de emitir");
+            return;
+        }
+        AccessibilityNodeInfo botao = findByViewId(root, "CONTENT_btEnviar");
+        boolean pressed = botao != null && gestureClickNodeCenter(botao);
+        if (botao != null) botao.recycle();
+        if (!pressed) pressed = gestureClickLabel(root, "emitir");
+        root.recycle();
+        RodLog.step("emissao", "Emitir pressionado=" + pressed + " tentativa=" + attempt);
+        if (!pressed) {
+            if (attempt < 2) {
+                new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> pressEmitir(request, attempt + 1), UI_POLL_MILLIS * 3);
+                return;
+            }
+            reply(request, false, null, "EQUATORIAL_BILL_NOT_FOUND: botao Emitir nao encontrado");
+            return;
+        }
+        // O postback do ASP.NET recarrega a pagina; a leitura seguinte espera por
+        // estado, entao aqui basta devolver o controle.
+        new Handler(Looper.getMainLooper()).postDelayed(
+            () -> reply(request, true, new JSONObject(), null), 2500);
+    }
+
+    /** Toque no centro de um no ja localizado. */
+    private boolean gestureClickNodeCenter(AccessibilityNodeInfo node) {
+        Rect bounds = new Rect();
+        node.getBoundsInScreen(bounds);
+        if (bounds.isEmpty()) return false;
+        Path path = new Path();
+        path.moveTo(bounds.exactCenterX(), bounds.exactCenterY());
+        return dispatchGesture(new GestureDescription.Builder()
+            .addStroke(new GestureDescription.StrokeDescription(path, 0, 120)).build(), null, null);
+    }
+
+    /** Escolhe, dentro do dialogo nativo, a opcao cujo rotulo casa. */
+    private boolean gestureClickDialogLabel(AccessibilityNodeInfo node, String[] labels, Rect window) {
+        CharSequence text = node.getText();
+        if (text != null && text.length() > 0 && node.isVisibleToUser()) {
+            String value = text.toString().toLowerCase();
+            for (String label : labels) {
+                if (value.contains(label)) {
+                    Rect bounds = new Rect();
+                    node.getBoundsInScreen(bounds);
+                    if (!bounds.isEmpty() && window.contains(bounds.centerX(), bounds.centerY())) {
+                        Path path = new Path();
+                        path.moveTo(bounds.exactCenterX(), bounds.exactCenterY());
+                        return dispatchGesture(new GestureDescription.Builder()
+                            .addStroke(new GestureDescription.StrokeDescription(path, 0, 120)).build(), null, null);
+                    }
+                }
+            }
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                boolean clicked = gestureClickDialogLabel(child, labels, window);
+                child.recycle();
+                if (clicked) return true;
+            }
+        }
+        return false;
     }
 
     /**
